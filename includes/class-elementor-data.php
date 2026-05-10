@@ -425,6 +425,15 @@ class Elementor_MCP_Data {
 				if ( ! isset( $item['settings'] ) ) {
 					$item['settings'] = array();
 				}
+
+				// Containers: rewrite MCP shorthand keys (`justify_content`,
+				// `align_items`, `align_content`) to Elementor's prefixed flex
+				// keys before merging. Without this, the values are saved
+				// but never read by Elementor's CSS generator (issue #32).
+				if ( 'container' === ( $item['elType'] ?? '' ) ) {
+					$settings = Elementor_MCP_Element_Factory::normalize_container_settings( $settings );
+				}
+
 				$item['settings'] = array_merge( $item['settings'], $settings );
 				return true;
 			}

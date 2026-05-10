@@ -109,7 +109,7 @@ class Elementor_MCP_Layout_Abilities {
 			'elementor-mcp/add-container',
 			array(
 				'label'               => __( 'Add Container', 'elementor-mcp' ),
-				'description'         => __( 'Adds a container to a page. Supports both flex (default) and grid layouts via container_type. Omit parent_id for top-level, or provide a parent container ID for nesting. Flex tips: Use flex_direction=row for side-by-side children, flex_wrap=wrap for wrapping. Grid tips: Set container_type=grid with grid_columns_grid, grid_rows_grid, grid_gaps. Background: set background_background=classic and background_color=#hex. Border: set border_border=solid, border_width, border_color. Also supports min_height, overflow, html_tag, padding, margin, position, z_index, animation.', 'elementor-mcp' ),
+				'description'         => __( 'Adds a container to a page. Supports both flex (default) and grid layouts via container_type. Omit parent_id for top-level, or provide a parent container ID for nesting. Flex tips: Use flex_direction=row for side-by-side children, flex_wrap=wrap for wrapping, flex_justify_content for main-axis alignment (e.g. space-between, center), flex_align_items for cross-axis alignment. (The shorthand justify_content / align_items are also accepted and remapped to flex_justify_content / flex_align_items.) Grid tips: Set container_type=grid with grid_columns_grid, grid_rows_grid, grid_gaps. Background: set background_background=classic and background_color=#hex. Border: set border_border=solid, border_width, border_color. Also supports min_height, overflow, html_tag, padding, margin, position, z_index, animation.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_add_container' ),
 				'permission_callback' => array( $this, 'check_edit_permission' ),
@@ -130,7 +130,7 @@ class Elementor_MCP_Layout_Abilities {
 						),
 						'settings'  => array(
 							'type'        => 'object',
-							'description' => __( 'Container settings: flex_direction, flex_wrap, justify_content, align_items, gap, content_width, padding, margin, background, border, etc.', 'elementor-mcp' ),
+							'description' => __( 'Container settings: flex_direction, flex_wrap, flex_justify_content, flex_align_items, gap, content_width, padding, margin, background, border, etc. (Unprefixed justify_content / align_items / align_content are accepted and remapped to the flex_-prefixed keys.)', 'elementor-mcp' ),
 						),
 					),
 					'required'   => array( 'post_id' ),
@@ -218,7 +218,7 @@ class Elementor_MCP_Layout_Abilities {
 			'elementor-mcp/update-container',
 			array(
 				'label'               => __( 'Update Container', 'elementor-mcp' ),
-				'description'         => __( 'Updates settings on an existing container. Settings are merged (partial update). Supports all container controls: flex_direction, justify_content, align_items, flex_wrap, align_content, gap, content_width, min_height, overflow, html_tag, container_type, grid controls, background (set background_background=classic first), border (set border_border=solid first), border_radius, box_shadow, padding, margin, position, z_index, animation, shape dividers, etc.', 'elementor-mcp' ),
+				'description'         => __( 'Updates settings on an existing container. Settings are merged (partial update). Supports all container controls: flex_direction, flex_justify_content, flex_align_items, flex_wrap, flex_align_content, gap, content_width, min_height, overflow, html_tag, container_type, grid controls, background (set background_background=classic first), border (set border_border=solid first), border_radius, box_shadow, padding, margin, position, z_index, animation, shape dividers, etc. (The unprefixed justify_content / align_items / align_content are accepted and remapped to the flex_-prefixed keys.)', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_update_container' ),
 				'permission_callback' => array( $this, 'check_edit_permission' ),

@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.7
 Tested up to: 6.9
-Stable tag: 1.4.3
+Stable tag: 1.5.1
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -151,9 +151,26 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 
 == Changelog ==
 
+= 1.5.1 =
+* Fixed: Container `justify_content` / `align_items` / `align_content` settings are now remapped to Elementor's prefixed flex keys (`flex_justify_content`, `flex_align_items`, `flex_align_content`) before saving — fixes containers rendering with default alignment on the front-end despite the values being persisted (#32).
+* Fixed: Factory auto-center default for column containers now uses the prefixed `flex_align_items` key.
+* Improved: Tool descriptions for `add-container` / `update-container` now point to the prefixed flex keys.
+
+= 1.5.0 =
+* New: 13 atomic element tools for Elementor 4.0+ — atomic flexbox, div-block, heading, paragraph, button, image, svg, youtube, video, divider, plus universal `add-atomic-widget`, `update-atomic-widget`, and `detect-elementor-version`.
+* New: Typed props (`$$type`) handled automatically — AI agents pass simple flat values; styles stored in the separate `styles` map matching Elementor 4.0's data model.
+* New: All atomic tools self-guard on Elementor >= 4.0 — zero changes to existing 97 legacy tools.
+* Total MCP tools increased from 97 to 110.
+* Addresses #28 and #29.
+
 = 1.4.3 =
-* Fixed: Removed empty string values from enum arrays in JSON Schema output for Gemini API compatibility (Antigravity support).
-* Fixed: Added missing `items` schema to `template_json` array property in import-template tool.
+* New: 5 Pro widget convenience tools — `add-code-highlight`, `add-reviews`, `add-off-canvas`, `add-progress-tracker`, `add-search`.
+* Total MCP tools increased from 92 to 97.
+* Fixed: Gemini API / Antigravity compatibility — strip empty string values from enum arrays and ensure empty `properties` objects serialize as `{}` (not `[]`). Applied to all 44 ability registrations.
+* Fixed: `switcher`, `popover_toggle`, `select`, and `choose` control types no longer emit empty enum values in `get-widget-schema` output.
+* Fixed: `get-container-schema` input schema now uses `stdClass` for empty properties (resolves `'allOf' failed - got array, want object`).
+* Fixed: Added missing `items` schema to `template_json` array property in `import-template` tool.
+* Closes #21.
 
 = 1.4.0 =
 * New: 22 Pro widget convenience tools — nav menu, loop grid, loop carousel, media carousel, nested tabs, nested accordion, and more.
@@ -233,8 +250,14 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 
 == Upgrade Notice ==
 
+= 1.5.1 =
+Fixes container `justify_content` / `align_items` / `align_content` settings not being applied on the front-end (#32). Recommended for anyone using `add-container`, `update-container`, `update-element`, `batch-update`, or `build-page` to control flex alignment.
+
+= 1.5.0 =
+Adds 13 new MCP tools for Elementor 4.0's atomic element system (110 tools total). All atomic tools self-guard on Elementor >= 4.0 with zero changes to the existing 97 legacy tools.
+
 = 1.4.3 =
-Fixes Gemini API compatibility — removes empty enum values and adds missing array items schema for Antigravity and other non-Claude MCP clients.
+Adds 5 new Pro widget convenience tools (97 tools total) and fixes Gemini API / Antigravity compatibility — removes empty enum values and adds missing array items schema for non-Claude MCP clients.
 
 = 1.4.0 =
 Major update: 22 new tools including theme builder, dynamic tags, popup builder, WooCommerce widgets, and enhanced layout management. Total tools now 92.

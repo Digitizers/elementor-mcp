@@ -27,6 +27,8 @@ class Elementor_MCP_Element_Factory {
 	 * @return array The container element structure.
 	 */
 	public function create_container( array $settings = array(), array $children = array() ): array {
+		$settings = self::normalize_container_settings( $settings );
+
 		$defaults = array(
 			'container_type' => 'flex',
 			'content_width'  => 'boxed',
@@ -42,8 +44,8 @@ class Elementor_MCP_Element_Factory {
 		// headings, icons, and text are centered on the page. Row
 		// containers rely on Elementor's default flex behavior.
 		// Grid containers handle alignment via grid_justify_items/grid_align_items.
-		if ( ! $is_grid && ! $is_row && ! isset( $settings['align_items'] ) ) {
-			$merged['align_items'] = 'center';
+		if ( ! $is_grid && ! $is_row && ! isset( $settings['flex_align_items'] ) ) {
+			$merged['flex_align_items'] = 'center';
 		}
 
 		return array(
@@ -118,6 +120,53 @@ class Elementor_MCP_Element_Factory {
 			'settings'   => array_merge( $defaults, $settings ),
 			'elements'   => $widgets,
 		);
+	}
+
+	/**
+	 * Map of MCP-shorthand container keys to the keys Elementor's flex group
+	 * actually reads. Without this remap, settings like `justify_content` and
+	 * `align_items` are persisted under names Elementor's CSS generator never
+	 * looks at, so the corresponding `--justify-content` / `--align-items`
+	 * custom properties never get emitted and the container renders with
+	 * default alignment on the front-end (issue #32).
+	 *
+	 * @since 1.4.4
+	 *
+	 * @var array<string, string>
+	 */
+	private const CONTAINER_KEY_ALIASES = array(
+		'justify_content' => 'flex_justify_content',
+		'align_items'     => 'flex_align_items',
+		'align_content'   => 'flex_align_content',
+	);
+
+	/**
+	 * Rewrites the unprefixed flex shorthand keys (`justify_content`,
+	 * `align_items`, `align_content`) to the prefixed keys that Elementor's
+	 * container schema reads.
+	 *
+	 * Caller-supplied prefixed keys win over the aliased shorthand if both
+	 * are provided in the same payload.
+	 *
+	 * @since 1.4.4
+	 *
+	 * @param array $settings Raw container settings.
+	 * @return array Settings with shorthand keys remapped.
+	 */
+	public static function normalize_container_settings( array $settings ): array {
+		foreach ( self::CONTAINER_KEY_ALIASES as $shorthand => $flex_key ) {
+			if ( ! array_key_exists( $shorthand, $settings ) ) {
+				continue;
+			}
+
+			if ( ! array_key_exists( $flex_key, $settings ) ) {
+				$settings[ $flex_key ] = $settings[ $shorthand ];
+			}
+
+			unset( $settings[ $shorthand ] );
+		}
+
+		return $settings;
 	}
 
 	// =========================================================================

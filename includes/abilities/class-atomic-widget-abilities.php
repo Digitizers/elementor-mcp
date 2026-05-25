@@ -282,12 +282,12 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 						return $page_data;
 					}
 
-					$inserted = $this->data->insert_element( $page_data, $parent_id, $element, $position );
-					if ( is_wp_error( $inserted ) ) {
-						return $inserted;
+					$ok = $this->data->insert_element( $page_data, $parent_id, $element, $position );
+					if ( ! $ok ) {
+						return new \WP_Error( 'not_found', "Parent element '{$parent_id}' not found in page {$post_id}." );
 					}
 
-					$save = $this->data->save_page_data( $post_id, $inserted );
+					$save = $this->data->save_page_data( $post_id, $page_data );
 					if ( is_wp_error( $save ) ) {
 						return $save;
 					}

@@ -162,7 +162,10 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 		}
 
 		if ( ! empty( $parent_id ) ) {
-			$inserted = $this->data->insert_element( $page_data, $parent_id, $element, $position );
+			$ok = $this->data->insert_element( $page_data, $parent_id, $element, $position );
+			if ( ! $ok ) {
+				return new \WP_Error( 'not_found', "Parent element '{$parent_id}' not found in page {$post_id}." );
+			}
 		} else {
 			// Top-level element.
 			if ( -1 === $position || $position >= count( $page_data ) ) {
@@ -170,14 +173,9 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 			} else {
 				array_splice( $page_data, max( 0, $position ), 0, array( $element ) );
 			}
-			$inserted = $page_data;
 		}
 
-		if ( is_wp_error( $inserted ) ) {
-			return $inserted;
-		}
-
-		$save = $this->data->save_page_data( $post_id, $inserted );
+		$save = $this->data->save_page_data( $post_id, $page_data );
 		if ( is_wp_error( $save ) ) {
 			return $save;
 		}

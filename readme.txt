@@ -159,9 +159,11 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 * New: Premium Prompts library is now live for Pro subscribers — 50+ industry-specific landing-page prompts across 10 categories, auto-synced from the EMCP Tools server. Free users continue to see the 5 bundled sample prompts plus an upgrade CTA.
 * New: Category filter pills + Sync Library button on the Prompts admin page for Pro users.
 * New: "Read the Docs" link in the admin header pointing at the comprehensive docs site at https://emcp.msrbuilds.com/docs.
+* New: Two-build distribution — separate free and premium zips so the Freemius account screen labels the install correctly. Paying customers see "Pro version", non-paying customers see "Free version", instead of everyone seeing "Free version" regardless of license.
 * Changed: Premium prompts fetcher now sends authentication via Authorization Bearer header instead of URL query parameters. License keys belong in headers, not query strings.
 * Changed: Default premium prompts endpoint moved to the dedicated subdomain `https://emcp.msrbuilds.com/api/emcp/prompts.json`.
-* Changed: "Contact Me" and pricing-screen "Get in touch" links point at the new EMCP Tools about page.
+* Changed: Admin header — removed redundant "Contact Me" button, renamed "Get Premium Prompts" → "Upgrade to Pro" pointing at the Freemius checkout, and hidden for sites with an active Pro license.
+* Changed: Pricing-screen "Get in touch" link points at the new EMCP Tools about page.
 * Improved: Uniform 403 error handling for the premium prompts endpoint — no info-leak about which auth condition failed.
 
 = 1.6.1 =

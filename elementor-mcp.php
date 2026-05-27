@@ -45,7 +45,11 @@ if ( ! function_exists( 'emcp_pro_fs' ) ) {
                 'premium_slug'        => 'emcp-pro',
                 'type'                => 'plugin',
                 'public_key'          => 'pk_2b2a026d5c27655581635abcd4556',
-                'is_premium'          => false,
+                // Two-build distribution: free + premium zips share this codebase.
+                // The premium zip includes a `.emcp-pro` marker file at the plugin
+                // root; Freemius reads this flag at init and labels the install
+                // accordingly. The release script handles both zips.
+                'is_premium'          => file_exists( dirname( __FILE__ ) . '/.emcp-pro' ),
                 'premium_suffix'      => 'Pro',
                 'has_premium_version' => true,
                 'has_addons'          => false,

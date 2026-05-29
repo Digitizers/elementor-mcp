@@ -80,6 +80,7 @@ class Elementor_MCP_Admin {
 				self::PAGE_SLUG . '-connection' => __( 'Connection', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-prompts'    => __( 'Prompts', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-templates'  => __( 'Templates', 'elementor-mcp' ),
+				self::PAGE_SLUG . '-brand-kits' => __( 'Brand Kits', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-skills'     => __( 'Skills', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-changelog'  => __( 'Changelog', 'elementor-mcp' ),
 			);
@@ -103,6 +104,8 @@ class Elementor_MCP_Admin {
 				return 'prompts';
 			case self::PAGE_SLUG . '-templates':
 				return 'templates';
+			case self::PAGE_SLUG . '-brand-kits':
+				return 'brand-kits';
 			case self::PAGE_SLUG . '-skills':
 				return 'skills';
 			case self::PAGE_SLUG . '-changelog':
@@ -122,6 +125,7 @@ class Elementor_MCP_Admin {
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_init', array( $this, 'maybe_apply_default_disabled_tools' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+		add_action( 'admin_head', array( $this, 'print_menu_icon_style' ) );
 	}
 
 	/**
@@ -175,7 +179,7 @@ class Elementor_MCP_Admin {
 			'manage_options',
 			self::PAGE_SLUG,
 			array( $this, 'render_page' ),
-			'dashicons-superhero-alt',
+			ELEMENTOR_MCP_URL . 'assets/img/icon-xs.png',
 			58
 		);
 
@@ -189,6 +193,32 @@ class Elementor_MCP_Admin {
 				array( $this, 'render_page' )
 			);
 		}
+	}
+
+	/**
+	 * Print a tiny inline style on every admin page that constrains our menu
+	 * icon to native-dashicon dimensions.
+	 *
+	 * WordPress renders a PNG menu icon at its natural size, which makes our
+	 * 64×64 brand icon overflow the 34px-tall sidebar row. The native dashicon
+	 * box is 20×20 with a small vertical inset — replicating that here keeps
+	 * the icon visually aligned with Posts/Pages/etc. We inject globally
+	 * (not via the EMCP page enqueue) because the WP sidebar shows on every
+	 * admin screen, not just ours.
+	 *
+	 * @since 1.7.2
+	 */
+	public function print_menu_icon_style(): void {
+		echo '<style>'
+			. '#toplevel_page_' . esc_attr( self::PAGE_SLUG ) . ' .wp-menu-image img{'
+			. 'width:20px;height:20px;padding:7px 0 0;object-fit:contain;opacity:.95;'
+			. '}'
+			. '#toplevel_page_' . esc_attr( self::PAGE_SLUG ) . ':hover .wp-menu-image img,'
+			. '#toplevel_page_' . esc_attr( self::PAGE_SLUG ) . '.current .wp-menu-image img,'
+			. '#toplevel_page_' . esc_attr( self::PAGE_SLUG ) . '.wp-has-current-submenu .wp-menu-image img{'
+			. 'opacity:1;'
+			. '}'
+			. '</style>';
 	}
 
 	/**
@@ -291,8 +321,17 @@ class Elementor_MCP_Admin {
 				'mcpEndpoint' => rest_url( 'mcp/elementor-mcp-server' ),
 				'siteUrl'     => site_url(),
 				'proxyPath'   => ELEMENTOR_MCP_DIR . 'bin' . DIRECTORY_SEPARATOR . 'mcp-proxy.mjs',
-				'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
-				'syncing'     => __( 'Syncing…', 'elementor-mcp' ),
+				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+				'syncing'       => __( 'Syncing…', 'elementor-mcp' ),
+				// Brand Kits.
+				'applying'      => __( 'Applying…', 'elementor-mcp' ),
+				'restoring'     => __( 'Restoring…', 'elementor-mcp' ),
+				/* translators: %s: brand kit title */
+				'applyKitTitle' => __( 'Apply "%s" brand kit?', 'elementor-mcp' ),
+				/* translators: %s: brand kit title */
+				'kitApplied'    => __( '%s applied.', 'elementor-mcp' ),
+				'restoreConfirm' => __( 'Restore global colors and typography from this backup?', 'elementor-mcp' ),
+				'viewSite'      => __( 'View site →', 'elementor-mcp' ),
 			)
 		);
 	}
@@ -344,6 +383,13 @@ class Elementor_MCP_Admin {
 			$prompt_count = count( $prompt_files );
 		}
 
+		// Brand kits: surface the cached library count for Pro sites.
+		$brand_kit_count   = 0;
+		$show_brand_kits   = class_exists( 'Elementor_MCP_Pro_Brand_Kits' ) && Elementor_MCP_Pro_Brand_Kits::user_has_access();
+		if ( $show_brand_kits ) {
+			$brand_kit_count = Elementor_MCP_Pro_Brand_Kits::count_cached_kits();
+		}
+
 		?>
 		<div class="wrap elementor-mcp-admin">
 			<h1><?php esc_html_e( 'MCP Tools for Elementor', 'elementor-mcp' ); ?></h1>
@@ -351,7 +397,7 @@ class Elementor_MCP_Admin {
 			<!-- Header -->
 			<div class="elementor-mcp-header">
 				<span class="elementor-mcp-header-icon">
-					<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+					<img src="<?php echo esc_url( ELEMENTOR_MCP_URL . 'assets/img/icon-sm.png' ); ?>" alt="<?php esc_attr_e( 'EMCP Tools', 'elementor-mcp' ); ?>" />
 				</span>
 				<div class="elementor-mcp-header-info">
 					<h2 class="elementor-mcp-header-title">
@@ -422,6 +468,17 @@ class Elementor_MCP_Admin {
 						<span class="elementor-mcp-stat-label"><?php esc_html_e( 'Prompts', 'elementor-mcp' ); ?></span>
 					</span>
 				</div>
+				<?php if ( $show_brand_kits ) : ?>
+					<div class="elementor-mcp-stat">
+						<span class="elementor-mcp-stat-icon elementor-mcp-stat-icon--brand-kits">
+							<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M2 5a2 2 0 012-2h3a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm6.5 9.5L12 6l3.8 1.5a1 1 0 01.56 1.3l-3 7.5a2 2 0 01-2.6 1.1l-2.26-.9zM11 4a2 2 0 114 0 2 2 0 01-4 0z"/></svg>
+						</span>
+						<span class="elementor-mcp-stat-content">
+							<span class="elementor-mcp-stat-value"><?php echo esc_html( $brand_kit_count ); ?></span>
+							<span class="elementor-mcp-stat-label"><?php esc_html_e( 'Brand Kits', 'elementor-mcp' ); ?></span>
+						</span>
+					</div>
+				<?php endif; ?>
 			</div>
 
 			<!-- Content -->
@@ -433,6 +490,8 @@ class Elementor_MCP_Admin {
 					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-prompts.php';
 				} elseif ( 'templates' === $active_tab ) {
 					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-templates.php';
+				} elseif ( 'brand-kits' === $active_tab ) {
+					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-brand-kits.php';
 				} elseif ( 'skills' === $active_tab ) {
 					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-skills.php';
 				} elseif ( 'changelog' === $active_tab ) {
@@ -1079,6 +1138,41 @@ class Elementor_MCP_Admin {
 						'label'       => __( 'Add Atomic Divider', 'elementor-mcp' ),
 						'description' => __( 'Adds an atomic divider element (e-divider).', 'elementor-mcp' ),
 						'badges'      => array(),
+					),
+				),
+			);
+		}
+
+		// Brand Kits (Pro). Only shown to licensed sites — the underlying
+		// abilities register only for Pro, matching this gate. No 'pro' badge so
+		// they are NOT auto-disabled by maybe_apply_default_disabled_tools (this
+		// is a headline Pro feature, on by default for licensed users).
+		if (
+			class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
+			&& Elementor_MCP_Pro_Brand_Kits::user_has_access()
+		) {
+			$tools['brand_kits'] = array(
+				'label' => __( 'Brand Kits', 'elementor-mcp' ),
+				'tools' => array(
+					'elementor-mcp/list-brand-kits'           => array(
+						'label'       => __( 'List Brand Kits', 'elementor-mcp' ),
+						'description' => __( 'Lists available premium brand kits from the cached library.', 'elementor-mcp' ),
+						'badges'      => array( 'read-only' ),
+					),
+					'elementor-mcp/apply-brand-kit'           => array(
+						'label'       => __( 'Apply Brand Kit', 'elementor-mcp' ),
+						'description' => __( 'Applies a brand kit: replaces system colors + typography site-wide.', 'elementor-mcp' ),
+						'badges'      => array( 'destructive' ),
+					),
+					'elementor-mcp/replace-system-colors'     => array(
+						'label'       => __( 'Replace System Colors', 'elementor-mcp' ),
+						'description' => __( 'Replaces the four Elementor system color slots atomically.', 'elementor-mcp' ),
+						'badges'      => array( 'destructive' ),
+					),
+					'elementor-mcp/replace-system-typography' => array(
+						'label'       => __( 'Replace System Typography', 'elementor-mcp' ),
+						'description' => __( 'Replaces the four Elementor system typography slots atomically.', 'elementor-mcp' ),
+						'badges'      => array( 'destructive' ),
 					),
 				),
 			);

@@ -2,6 +2,16 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## [1.7.2]
+
+- New: **Brand Kits Library** for Pro subscribers — one-click coordinated color palettes + typography systems. 16 curated kits across 4 categories (Corporate & Tech, Creative, Hospitality, Trades). Click **Apply** on a kit and the entire Elementor site re-skins in seconds. Auto-synced from the EMCP Tools server with the same 24h transient-cache pattern as Premium Prompts and Templates.
+- New: **Site-wide re-skin on apply.** Applying a kit (a) replaces the four Elementor **system** color + typography slots (`system_colors` / `system_typography`) so elements referencing the global tokens update, **and** (b) writes the active kit's **Theme Style defaults** — default body/heading typography (font family + weight, sizes left intact) and body/heading/link colors — which is what actually changes the visible site font and palette. The matching Google Fonts are enqueued automatically via the regenerated kit CSS.
+- New: **Backup & restore.** Each apply snapshots the current global settings (system + custom colors/typography **and** Theme Style defaults) into a private `emcp_kit_backup` post type before mutating anything. A **Restore from backup** section on the Brand Kits page rolls back — selective by default (only kit-applied tokens), with an opt-in full-clobber mode. Backups are intentionally retained on uninstall as recoverable user content.
+- New: **Four Pro-gated MCP tools** — `list-brand-kits`, `apply-brand-kit`, `replace-system-colors`, `replace-system-typography` — so AI clients can enumerate and apply kits programmatically. Free sites see none of them (no impact on client tool caps).
+- New: **Brand Kits admin tab** between Templates and Skills — category filter pills, self-contained preview cards (font-outlined SVGs, no third-party requests from wp-admin), an apply-confirmation modal with a backup checkbox, and a "View site →" toast linking to the most-recently-modified Elementor page.
+- New: **`Elementor_MCP_System_Kit_Writer`** — a single, capability-gated write path for the kit's system + Theme Style settings, with a verified persistence fallback for WP-CLI / HTTP-proxy contexts where `Document::save()` is unreliable.
+- Changed: **Stats bar** shows a Brand Kits count for Pro sites with a synced library.
+
 ## [1.7.1]
 
 - New: **Premium Templates library** for Pro subscribers — apply ready-made Elementor page designs to a new draft page in one click, or import them into Elementor's Saved Templates library where they're insertable from any page's "Add Template" picker. Auto-synced from the EMCP Tools server with the same 24h cache pattern as Premium Prompts. Category filter pills + per-card thumbnail support. Accepts Elementor's native template export shape (`content` + `page_settings`) so designs exported from the editor's "Save as Template" flow drop straight in.

@@ -515,6 +515,205 @@
 		} );
 	}
 
+	/**
+	 * Brand Kits page — transient success toast with an optional "View site" link.
+	 *
+	 * @param {string} message The toast message.
+	 * @param {string} viewUrl Optional URL to surface as a "View site →" link.
+	 */
+	function showBrandKitToast( message, viewUrl ) {
+		var toast = document.createElement( 'div' );
+		toast.className = 'elementor-mcp-bk-toast';
+		var span = document.createElement( 'span' );
+		span.textContent = message;
+		toast.appendChild( span );
+		if ( viewUrl ) {
+			var link = document.createElement( 'a' );
+			link.href = viewUrl;
+			link.target = '_blank';
+			link.rel = 'noopener noreferrer';
+			link.textContent = ( typeof elementorMcpAdmin !== 'undefined' && elementorMcpAdmin.viewSite ) ? elementorMcpAdmin.viewSite : 'View site →';
+			toast.appendChild( link );
+		}
+		document.body.appendChild( toast );
+		// Force reflow then animate in.
+		window.requestAnimationFrame( function () {
+			toast.classList.add( 'is-visible' );
+		} );
+		setTimeout( function () {
+			toast.classList.remove( 'is-visible' );
+			setTimeout( function () { toast.remove(); }, 400 );
+		}, 7000 );
+	}
+
+	/**
+	 * Brand Kits page — category filters, apply-with-confirmation modal, and
+	 * restore-from-backup.
+	 */
+	function initBrandKits() {
+		var root = document.querySelector( '.elementor-mcp-brand-kits' );
+		if ( ! root || typeof elementorMcpAdmin === 'undefined' || ! elementorMcpAdmin.ajaxUrl ) {
+			return;
+		}
+
+		var grid = root.querySelector( '.elementor-mcp-brand-kit-grid' );
+		var filterBar = root.querySelector( '.elementor-mcp-pro-filters' );
+
+		// Category filter pills.
+		if ( filterBar && grid ) {
+			filterBar.addEventListener( 'click', function ( e ) {
+				var btn = e.target.closest( '.elementor-mcp-pro-filter' );
+				if ( ! btn ) {
+					return;
+				}
+				var category = btn.getAttribute( 'data-category' );
+				filterBar.querySelectorAll( '.elementor-mcp-pro-filter' ).forEach( function ( b ) {
+					b.classList.toggle( 'is-active', b === btn );
+				} );
+				grid.querySelectorAll( '.elementor-mcp-brand-kit-card' ).forEach( function ( card ) {
+					var match = ( 'all' === category ) || card.getAttribute( 'data-category' ) === category;
+					card.style.display = match ? '' : 'none';
+				} );
+			} );
+		}
+
+		// Apply confirmation modal.
+		var modal = root.querySelector( '.elementor-mcp-brand-kit-modal' );
+		var pending = null;
+
+		function closeModal() {
+			if ( modal ) {
+				modal.hidden = true;
+			}
+			pending = null;
+		}
+
+		if ( grid && modal ) {
+			grid.addEventListener( 'click', function ( e ) {
+				var btn = e.target.closest( '.elementor-mcp-brand-kit-apply' );
+				if ( ! btn ) {
+					return;
+				}
+				pending = {
+					slug:  btn.getAttribute( 'data-kit-slug' ) || '',
+					cat:   btn.getAttribute( 'data-category-slug' ) || '',
+					title: btn.getAttribute( 'data-kit-title' ) || ''
+				};
+				var titleEl = modal.querySelector( '.elementor-mcp-brand-kit-modal__title' );
+				if ( titleEl ) {
+					var tpl = ( elementorMcpAdmin.applyKitTitle || 'Apply "%s" brand kit?' );
+					titleEl.textContent = tpl.replace( '%s', pending.title );
+				}
+				var bk = modal.querySelector( '.elementor-mcp-brand-kit-modal__backup-input' );
+				if ( bk ) {
+					bk.checked = true;
+				}
+				modal.hidden = false;
+			} );
+
+			modal.addEventListener( 'click', function ( e ) {
+				if ( e.target.closest( '[data-modal-dismiss]' ) ) {
+					closeModal();
+					return;
+				}
+				var confirmBtn = e.target.closest( '.elementor-mcp-brand-kit-modal__confirm' );
+				if ( ! confirmBtn || ! pending ) {
+					return;
+				}
+
+				var backup = modal.querySelector( '.elementor-mcp-brand-kit-modal__backup-input' );
+				var doBackup = backup ? backup.checked : true;
+				var title = pending.title;
+				var orig = confirmBtn.textContent;
+				confirmBtn.disabled = true;
+				confirmBtn.textContent = elementorMcpAdmin.applying || 'Applying…';
+
+				var body = new URLSearchParams();
+				body.append( 'action', 'elementor_mcp_apply_pro_brand_kit' );
+				body.append( 'nonce', grid.getAttribute( 'data-apply-nonce' ) || '' );
+				body.append( 'kit_slug', pending.slug );
+				body.append( 'category_slug', pending.cat );
+				body.append( 'backup', doBackup ? '1' : '0' );
+
+				fetch( elementorMcpAdmin.ajaxUrl, {
+					method: 'POST',
+					credentials: 'same-origin',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+					body: body.toString()
+				} )
+					.then( function ( r ) { return r.json(); } )
+					.then( function ( res ) {
+						confirmBtn.disabled = false;
+						confirmBtn.textContent = orig;
+						if ( res && res.success ) {
+							closeModal();
+							var applied = ( elementorMcpAdmin.kitApplied || '%s applied.' ).replace( '%s', title );
+							showBrandKitToast( applied, res.data && res.data.view_url );
+						} else {
+							var msg = ( res && res.data && res.data.message ) ? res.data.message : 'Apply failed.';
+							window.alert( msg );
+						}
+					} )
+					.catch( function () {
+						confirmBtn.disabled = false;
+						confirmBtn.textContent = orig;
+						window.alert( 'Apply failed. Check your connection and try again.' );
+					} );
+			} );
+		}
+
+		// Restore from backup.
+		var restore = root.querySelector( '.elementor-mcp-brand-kit-restore' );
+		if ( restore ) {
+			var restoreBtn = restore.querySelector( '.elementor-mcp-brand-kit-restore-btn' );
+			if ( restoreBtn ) {
+				restoreBtn.addEventListener( 'click', function () {
+					var select = restore.querySelector( '.elementor-mcp-brand-kit-backup-select' );
+					var clobber = restore.querySelector( '.elementor-mcp-brand-kit-clobber-input' );
+					if ( ! select || ! select.value ) {
+						return;
+					}
+					if ( ! window.confirm( elementorMcpAdmin.restoreConfirm || 'Restore global colors and typography from this backup?' ) ) {
+						return;
+					}
+					var orig = restoreBtn.textContent;
+					restoreBtn.disabled = true;
+					restoreBtn.textContent = elementorMcpAdmin.restoring || 'Restoring…';
+
+					var body = new URLSearchParams();
+					body.append( 'action', 'elementor_mcp_restore_pro_brand_kit' );
+					body.append( 'nonce', restore.getAttribute( 'data-restore-nonce' ) || '' );
+					body.append( 'backup_id', select.value );
+					body.append( 'full_clobber', ( clobber && clobber.checked ) ? '1' : '0' );
+
+					fetch( elementorMcpAdmin.ajaxUrl, {
+						method: 'POST',
+						credentials: 'same-origin',
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+						body: body.toString()
+					} )
+						.then( function ( r ) { return r.json(); } )
+						.then( function ( res ) {
+							restoreBtn.disabled = false;
+							restoreBtn.textContent = orig;
+							if ( res && res.success ) {
+								var msg = ( res.data && res.data.message ) ? res.data.message : 'Restored.';
+								showBrandKitToast( msg, res.data && res.data.view_url );
+							} else {
+								var emsg = ( res && res.data && res.data.message ) ? res.data.message : 'Restore failed.';
+								window.alert( emsg );
+							}
+						} )
+						.catch( function () {
+							restoreBtn.disabled = false;
+							restoreBtn.textContent = orig;
+							window.alert( 'Restore failed. Check your connection and try again.' );
+						} );
+				} );
+			}
+		}
+	}
+
 	// Initialize on DOM ready.
 	if ( document.readyState === 'loading' ) {
 		document.addEventListener( 'DOMContentLoaded', function () {
@@ -524,6 +723,7 @@
 			initProPromptFilters();
 			initProSync();
 			initProTemplateActions();
+			initBrandKits();
 		} );
 	} else {
 		initToolsForm();
@@ -532,5 +732,6 @@
 		initProPromptFilters();
 		initProSync();
 		initProTemplateActions();
+		initBrandKits();
 	}
 })();

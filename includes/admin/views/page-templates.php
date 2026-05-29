@@ -121,10 +121,11 @@ $elementor_mcp_upgrade_url = elementor_mcp_upgrade_url();
 							continue;
 						}
 						foreach ( $elementor_mcp_cat['templates'] as $elementor_mcp_tpl ) :
-							$elementor_mcp_t_slug  = isset( $elementor_mcp_tpl['slug'] ) ? sanitize_key( $elementor_mcp_tpl['slug'] ) : '';
-							$elementor_mcp_t_title = isset( $elementor_mcp_tpl['title'] ) ? (string) $elementor_mcp_tpl['title'] : '';
-							$elementor_mcp_t_desc  = isset( $elementor_mcp_tpl['description'] ) ? (string) $elementor_mcp_tpl['description'] : '';
-							$elementor_mcp_t_thumb = isset( $elementor_mcp_tpl['thumbnail_url'] ) ? (string) $elementor_mcp_tpl['thumbnail_url'] : '';
+							$elementor_mcp_t_slug    = isset( $elementor_mcp_tpl['slug'] ) ? sanitize_key( $elementor_mcp_tpl['slug'] ) : '';
+							$elementor_mcp_t_title   = isset( $elementor_mcp_tpl['title'] ) ? (string) $elementor_mcp_tpl['title'] : '';
+							$elementor_mcp_t_desc    = isset( $elementor_mcp_tpl['description'] ) ? (string) $elementor_mcp_tpl['description'] : '';
+							$elementor_mcp_t_thumb   = isset( $elementor_mcp_tpl['thumbnail_url'] ) ? (string) $elementor_mcp_tpl['thumbnail_url'] : '';
+							$elementor_mcp_t_preview = isset( $elementor_mcp_tpl['preview_url'] ) ? (string) $elementor_mcp_tpl['preview_url'] : '';
 							if ( '' === $elementor_mcp_t_slug ) {
 								continue;
 							}
@@ -148,23 +149,39 @@ $elementor_mcp_upgrade_url = elementor_mcp_upgrade_url();
 										<p class="elementor-mcp-template-desc"><?php echo esc_html( $elementor_mcp_t_desc ); ?></p>
 									<?php endif; ?>
 									<div class="elementor-mcp-template-actions">
-										<button
-											type="button"
-											class="button button-primary elementor-mcp-template-apply"
-											data-category-slug="<?php echo esc_attr( $elementor_mcp_cat_slug ); ?>"
-											data-template-slug="<?php echo esc_attr( $elementor_mcp_t_slug ); ?>"
-										>
-											<?php esc_html_e( 'Create Page', 'elementor-mcp' ); ?>
-										</button>
-										<button
-											type="button"
-											class="button elementor-mcp-template-import"
-											data-category-slug="<?php echo esc_attr( $elementor_mcp_cat_slug ); ?>"
-											data-template-slug="<?php echo esc_attr( $elementor_mcp_t_slug ); ?>"
-											title="<?php esc_attr_e( 'Add to Elementor\'s Saved Templates library — insertable from the editor\'s Add Template picker on any page.', 'elementor-mcp' ); ?>"
-										>
-											<?php esc_html_e( 'Import to Library', 'elementor-mcp' ); ?>
-										</button>
+										<?php if ( '' !== $elementor_mcp_t_preview ) : ?>
+											<a
+												href="<?php echo esc_url( $elementor_mcp_t_preview ); ?>"
+												class="button elementor-mcp-template-preview"
+												target="_blank"
+												rel="noopener noreferrer"
+												title="<?php esc_attr_e( 'Open the live demo of this template in a new tab.', 'elementor-mcp' ); ?>"
+											>
+												<svg viewBox="0 0 20 20" width="14" height="14" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+													<path d="M10 4C5 4 1.7 10 1.7 10S5 16 10 16s8.3-6 8.3-6S15 4 10 4zm0 10a4 4 0 110-8 4 4 0 010 8zm0-2a2 2 0 100-4 2 2 0 000 4z" />
+												</svg>
+												<?php esc_html_e( 'Live Preview', 'elementor-mcp' ); ?>
+											</a>
+										<?php endif; ?>
+										<div class="elementor-mcp-template-actions-row">
+											<button
+												type="button"
+												class="button button-primary elementor-mcp-template-apply"
+												data-category-slug="<?php echo esc_attr( $elementor_mcp_cat_slug ); ?>"
+												data-template-slug="<?php echo esc_attr( $elementor_mcp_t_slug ); ?>"
+											>
+												<?php esc_html_e( 'Create Page', 'elementor-mcp' ); ?>
+											</button>
+											<button
+												type="button"
+												class="button elementor-mcp-template-import"
+												data-category-slug="<?php echo esc_attr( $elementor_mcp_cat_slug ); ?>"
+												data-template-slug="<?php echo esc_attr( $elementor_mcp_t_slug ); ?>"
+												title="<?php esc_attr_e( 'Add to Elementor\'s Saved Templates library — insertable from the editor\'s Add Template picker on any page.', 'elementor-mcp' ); ?>"
+											>
+												<?php esc_html_e( 'Import to Library', 'elementor-mcp' ); ?>
+											</button>
+										</div>
 									</div>
 								</div>
 							</div>

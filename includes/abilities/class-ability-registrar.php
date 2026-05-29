@@ -144,6 +144,15 @@ class Elementor_MCP_Ability_Registrar {
 		$atomic_layout->register();
 		$this->ability_names = array_merge( $this->ability_names, $atomic_layout->get_ability_names() );
 
+		// Brand kit / system-kit abilities (Pro only). Self-guards on Pro access:
+		// register() is a no-op and get_ability_names() returns [] for free sites,
+		// so the four tools never enter the MCP surface without a license.
+		if ( class_exists( 'Elementor_MCP_System_Kit_Abilities' ) ) {
+			$brand_kits = new Elementor_MCP_System_Kit_Abilities();
+			$brand_kits->register();
+			$this->ability_names = array_merge( $this->ability_names, $brand_kits->get_ability_names() );
+		}
+
 		/**
 		 * Filters the registered ability names.
 		 *

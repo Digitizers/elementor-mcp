@@ -72,15 +72,16 @@
 	justify-content: center;
 	width: 42px;
 	height: 42px;
-	background: linear-gradient(135deg, var(--mcp-primary), #818cf8);
 	border-radius: var(--mcp-radius);
 	flex-shrink: 0;
+	overflow: hidden;
 }
 
-.elementor-mcp-header-icon svg {
-	width: 22px;
-	height: 22px;
-	fill: var(--mcp-white);
+.elementor-mcp-header-icon img {
+	width: 100%;
+	height: 100%;
+	display: block;
+	object-fit: contain;
 }
 
 .elementor-mcp-header-info {
@@ -1456,15 +1457,36 @@
 	margin-top: auto;
 	padding-top: 6px;
 	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.elementor-mcp-template-actions-row {
+	display: flex;
 	gap: 8px;
 	flex-wrap: wrap;
 }
 
-.elementor-mcp-template-actions .button {
+.elementor-mcp-template-actions-row .button {
 	flex: 1;
 	min-width: 0;
 	justify-content: center;
 	white-space: nowrap;
+}
+
+.elementor-mcp-template-preview {
+	display: inline-flex !important;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	width: 100%;
+	text-align: center;
+	text-decoration: none;
+}
+
+.elementor-mcp-template-preview svg {
+	fill: currentColor;
+	flex-shrink: 0;
 }
 
 /* =========================================================================
@@ -1844,4 +1866,229 @@
 	.elementor-mcp-changelog-version {
 		padding: 16px;
 	}
+}
+
+/* -------------------------------------------------------------------------
+ * Brand Kits
+ * ------------------------------------------------------------------------- */
+
+.elementor-mcp-stat-icon--brand-kits {
+	background: var(--mcp-primary-light);
+	color: var(--mcp-primary);
+}
+
+.elementor-mcp-brand-kit-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+	gap: 20px;
+	margin-top: 8px;
+}
+
+.elementor-mcp-brand-kit-card {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--mcp-gray-200);
+	border-radius: var(--mcp-radius-md, 8px);
+	background: #fff;
+	overflow: hidden;
+	transition: border-color var(--mcp-transition);
+}
+
+.elementor-mcp-brand-kit-card:hover {
+	border-color: var(--mcp-gray-400);
+}
+
+.elementor-mcp-brand-kit-preview {
+	aspect-ratio: 16 / 10;
+	background: var(--mcp-gray-100);
+	overflow: hidden;
+}
+
+.elementor-mcp-brand-kit-preview img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+/* Fallback swatch strip when no pre-rendered preview ships. */
+.elementor-mcp-brand-kit-swatches {
+	display: flex;
+	height: 64px;
+	width: 100%;
+}
+
+.elementor-mcp-brand-kit-swatch {
+	height: 100%;
+	display: block;
+}
+
+.elementor-mcp-brand-kit-body {
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+}
+
+.elementor-mcp-brand-kit-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 6px;
+}
+
+.elementor-mcp-brand-kit-title {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--mcp-gray-700, #374151);
+	line-height: 1.4;
+}
+
+.elementor-mcp-brand-kit-desc {
+	margin: 0 0 14px;
+	font-size: 13px;
+	color: var(--mcp-gray-500);
+	line-height: 1.5;
+	flex: 1;
+}
+
+.elementor-mcp-brand-kit-actions {
+	margin-top: auto;
+	padding-top: 6px;
+	display: flex;
+	gap: 8px;
+}
+
+.elementor-mcp-brand-kit-actions .button {
+	flex: 1;
+	justify-content: center;
+}
+
+/* Restore from backup */
+.elementor-mcp-brand-kit-restore {
+	margin-top: 28px;
+	padding: 20px;
+	border: 1px solid var(--mcp-gray-200);
+	border-radius: var(--mcp-radius-md, 8px);
+	background: var(--mcp-gray-100);
+}
+
+.elementor-mcp-brand-kit-restore h3 {
+	margin: 0 0 6px;
+	font-size: 14px;
+}
+
+.elementor-mcp-brand-kit-restore-row {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin: 12px 0 8px;
+	flex-wrap: wrap;
+}
+
+.elementor-mcp-brand-kit-backup-select {
+	min-width: 280px;
+	max-width: 100%;
+}
+
+.elementor-mcp-brand-kit-clobber {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	color: var(--mcp-gray-600, #4b5563);
+}
+
+/* Apply confirmation modal */
+.elementor-mcp-brand-kit-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 100000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.elementor-mcp-brand-kit-modal[hidden] {
+	display: none;
+}
+
+.elementor-mcp-brand-kit-modal__backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgba(17, 24, 39, 0.55);
+}
+
+.elementor-mcp-brand-kit-modal__dialog {
+	position: relative;
+	background: #fff;
+	border-radius: var(--mcp-radius-md, 8px);
+	box-shadow: var(--mcp-shadow-lg);
+	width: 460px;
+	max-width: calc(100vw - 40px);
+	padding: 24px;
+}
+
+.elementor-mcp-brand-kit-modal__title {
+	margin: 0 0 10px;
+	font-size: 16px;
+}
+
+.elementor-mcp-brand-kit-modal__body {
+	margin: 0 0 16px;
+	font-size: 13px;
+	color: var(--mcp-gray-600, #4b5563);
+	line-height: 1.6;
+}
+
+.elementor-mcp-brand-kit-modal__backup {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	margin-bottom: 18px;
+}
+
+.elementor-mcp-brand-kit-modal__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+/* Success toast */
+.elementor-mcp-bk-toast {
+	position: fixed;
+	bottom: 24px;
+	right: 24px;
+	z-index: 100001;
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	background: #111827;
+	color: #fff;
+	padding: 14px 18px;
+	border-radius: var(--mcp-radius-md, 8px);
+	box-shadow: var(--mcp-shadow-lg);
+	font-size: 13px;
+	opacity: 0;
+	transform: translateY(12px);
+	transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.elementor-mcp-bk-toast.is-visible {
+	opacity: 1;
+	transform: translateY(0);
+}
+
+.elementor-mcp-bk-toast a {
+	color: #a5b4fc;
+	font-weight: 600;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.elementor-mcp-bk-toast a:hover {
+	color: #c7d2fe;
 }

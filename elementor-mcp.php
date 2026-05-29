@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor
  * Plugin URI:        https://github.com/msrbuilds/elementor-mcpelementor-mcp
  * Description:       Extends the WordPress MCP Adapter to expose Elementor data, widgets, and page design tools as MCP tools for AI agents.
- * Version:           1.7.1
+ * Version:           1.7.2
  * Requires at least: 6.9
  * Tested up to:      6.9
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.7.1' );
+define( 'ELEMENTOR_MCP_VERSION', '1.7.2' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -90,8 +90,12 @@ function elementor_mcp_after_uninstall() {
     delete_option( 'elementor_mcp_defaults_applied' );
     delete_transient( 'elementor_mcp_pro_prompts_bundle' );
     delete_transient( 'elementor_mcp_pro_templates_bundle' );
+    delete_transient( 'elementor_mcp_pro_brand_kits_bundle' );
     // Drop the dismissal flag from every user.
     delete_metadata( 'user', 0, 'elementor_mcp_upgrade_notice_dismissed', '', true );
+    // Brand-kit backups (emcp_kit_backup CPT) are intentionally LEFT in place
+    // on uninstall — treated as recoverable user content so a user who removes
+    // the plugin can still roll back their pre-kit brand after reinstalling.
 }
 
 /**
@@ -218,6 +222,154 @@ function elementor_mcp_import_pro_template_ajax() {
 
     wp_send_json_success( $result );
 }
+
+/**
+ * AJAX handler for the Sync Library button on the Brand Kits page.
+ *
+ * @since 1.8.0
+ */
+function elementor_mcp_sync_pro_brand_kits_ajax() {
+    check_ajax_referer( 'elementor_mcp_sync_pro_brand_kits', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) || ! Elementor_MCP_Pro_Brand_Kits::user_has_access() ) {
+        wp_send_json_error( array( 'message' => __( 'You do not have permission to sync brand kits.', 'elementor-mcp' ) ), 403 );
+    }
+
+    $bundle = Elementor_MCP_Pro_Brand_Kits::get_bundle( true );
+    if ( is_wp_error( $bundle ) ) {
+        wp_send_json_error( array( 'message' => $bundle->get_error_message() ), 400 );
+    }
+
+    $total = 0;
+    foreach ( $bundle['categories'] as $category ) {
+        $total += isset( $category['kits'] ) && is_array( $category['kits'] ) ? count( $category['kits'] ) : 0;
+    }
+
+    wp_send_json_success(
+        array(
+            'message'    => sprintf(
+                /* translators: %1$d: total kits, %2$d: total categories */
+                __( 'Synced %1$d brand kits across %2$d categories.', 'elementor-mcp' ),
+                $total,
+                count( $bundle['categories'] )
+            ),
+            'fetched_at' => $bundle['fetched_at'],
+        )
+    );
+}
+
+/**
+ * AJAX handler for applying a brand kit from the admin page.
+ *
+ * @since 1.8.0
+ */
+function elementor_mcp_apply_pro_brand_kit_ajax() {
+    check_ajax_referer( 'elementor_mcp_apply_pro_brand_kit', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) || ! Elementor_MCP_Pro_Brand_Kits::user_has_access() ) {
+        wp_send_json_error( array( 'message' => __( 'You do not have permission to apply brand kits.', 'elementor-mcp' ) ), 403 );
+    }
+
+    $kit_slug      = isset( $_POST['kit_slug'] ) ? sanitize_key( wp_unslash( $_POST['kit_slug'] ) ) : '';
+    $category_slug = isset( $_POST['category_slug'] ) ? sanitize_key( wp_unslash( $_POST['category_slug'] ) ) : '';
+    $do_backup     = ! isset( $_POST['backup'] ) || '0' !== (string) wp_unslash( $_POST['backup'] );
+
+    if ( '' === $kit_slug ) {
+        wp_send_json_error( array( 'message' => __( 'Missing kit slug.', 'elementor-mcp' ) ), 400 );
+    }
+
+    $kit = Elementor_MCP_Pro_Brand_Kits::find_kit( $kit_slug, $category_slug );
+    if ( null === $kit ) {
+        wp_send_json_error( array( 'message' => __( 'Brand kit not found. Try syncing the library first.', 'elementor-mcp' ) ), 404 );
+    }
+
+    $backup_id = null;
+    if ( $do_backup ) {
+        $backup = Elementor_MCP_Kit_Backup_Store::create( isset( $kit['title'] ) ? (string) $kit['title'] : $kit_slug );
+        if ( ! is_wp_error( $backup ) ) {
+            $backup_id = (int) $backup;
+        }
+    }
+
+    $result = Elementor_MCP_Pro_Brand_Kits::apply_kit( $kit );
+    if ( is_wp_error( $result ) ) {
+        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
+    }
+
+    $result['backup_id'] = $backup_id;
+    $result['view_url']  = elementor_mcp_recent_elementor_page_url();
+    wp_send_json_success( $result );
+}
+
+/**
+ * AJAX handler for restoring a brand kit backup from the admin page.
+ *
+ * @since 1.8.0
+ */
+function elementor_mcp_restore_pro_brand_kit_ajax() {
+    check_ajax_referer( 'elementor_mcp_restore_pro_brand_kit', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) || ! Elementor_MCP_Pro_Brand_Kits::user_has_access() ) {
+        wp_send_json_error( array( 'message' => __( 'You do not have permission to restore brand kits.', 'elementor-mcp' ) ), 403 );
+    }
+
+    $backup_id    = isset( $_POST['backup_id'] ) ? absint( wp_unslash( $_POST['backup_id'] ) ) : 0;
+    $full_clobber = isset( $_POST['full_clobber'] ) && '1' === (string) wp_unslash( $_POST['full_clobber'] );
+
+    if ( $backup_id <= 0 ) {
+        wp_send_json_error( array( 'message' => __( 'Missing or invalid backup.', 'elementor-mcp' ) ), 400 );
+    }
+
+    $result = Elementor_MCP_Kit_Backup_Store::restore( $backup_id, $full_clobber );
+    if ( is_wp_error( $result ) ) {
+        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
+    }
+
+    wp_send_json_success(
+        array(
+            'message'  => __( 'Brand restored from backup.', 'elementor-mcp' ),
+            'view_url' => elementor_mcp_recent_elementor_page_url(),
+        )
+    );
+}
+
+/**
+ * URL of the most-recently-modified Elementor page (builder mode), or the
+ * site homepage as a fallback. Used by the apply/restore toasts so the user
+ * lands somewhere that actually showcases the change.
+ *
+ * @since 1.8.0
+ *
+ * @return string
+ */
+function elementor_mcp_recent_elementor_page_url(): string {
+    $query = new WP_Query(
+        array(
+            'post_type'      => 'any',
+            'post_status'    => 'publish',
+            'posts_per_page' => 1,
+            'orderby'        => 'modified',
+            'order'          => 'DESC',
+            'no_found_rows'  => true,
+            'meta_query'     => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+                array(
+                    'key'   => '_elementor_edit_mode',
+                    'value' => 'builder',
+                ),
+            ),
+        )
+    );
+
+    if ( ! empty( $query->posts ) ) {
+        $permalink = get_permalink( $query->posts[0] );
+        if ( $permalink ) {
+            return $permalink;
+        }
+    }
+
+    return home_url( '/' );
+}
+
 /**
  * Recursively removes empty strings from enum arrays in a JSON Schema.
  *
@@ -375,6 +527,14 @@ function elementor_mcp_init(): void {
 	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-stock-image-abilities.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-svg-icon-abilities.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-custom-code-abilities.php';
+	// Brand Kits (Pro). The writer + backup store + fetcher + abilities load
+	// unconditionally (no admin dependency) so the MCP REST/CLI/proxy surface
+	// can reach them; every write method is independently Pro-gated.
+	require_once ELEMENTOR_MCP_DIR . 'includes/class-system-kit-writer.php';
+	require_once ELEMENTOR_MCP_DIR . 'includes/class-kit-backup-store.php';
+	require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-pro-brand-kits.php';
+	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-system-kit-abilities.php';
+	add_action( 'init', array( 'Elementor_MCP_Kit_Backup_Store', 'register_post_type' ) );
 	// Atomic elements support (Elementor 4.0+).
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-atomic-props.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-atomic-styles.php';
@@ -396,6 +556,11 @@ function elementor_mcp_init(): void {
 			add_action( 'wp_ajax_elementor_mcp_sync_pro_templates', 'elementor_mcp_sync_pro_templates_ajax' );
 			add_action( 'wp_ajax_elementor_mcp_apply_pro_template', 'elementor_mcp_apply_pro_template_ajax' );
 			add_action( 'wp_ajax_elementor_mcp_import_pro_template', 'elementor_mcp_import_pro_template_ajax' );
+
+			// Brand Kits (class loaded unconditionally above).
+			add_action( 'wp_ajax_elementor_mcp_sync_pro_brand_kits', 'elementor_mcp_sync_pro_brand_kits_ajax' );
+			add_action( 'wp_ajax_elementor_mcp_apply_pro_brand_kit', 'elementor_mcp_apply_pro_brand_kit_ajax' );
+			add_action( 'wp_ajax_elementor_mcp_restore_pro_brand_kit', 'elementor_mcp_restore_pro_brand_kit_ajax' );
 
 			require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-pro-skills.php';
 			( new Elementor_MCP_Pro_Skills() )->init();

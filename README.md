@@ -1,6 +1,6 @@
 # MCP Tools for Elementor
 
-[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://github.com/msrbuilds/elementor-mcp/releases)
+[![Version](https://img.shields.io/badge/version-1.7.2-blue.svg)](https://github.com/msrbuilds/elementor-mcp/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-%3E%3D7.4-8892BF.svg)](https://php.net)
 [![WordPress](https://img.shields.io/badge/WordPress-%3E%3D6.8-21759B.svg)](https://wordpress.org)
@@ -39,12 +39,13 @@ A WordPress plugin that extends the [WordPress MCP Adapter](https://github.com/W
 - **Popup Builder** — Create popup templates, configure triggers/conditions/timing (Pro)
 - **Template Tools** — Save pages or elements as reusable templates, apply templates to pages
 - **Global Settings** — Update site-wide color palettes and typography presets
+- **Brand Kits (Pro)** — One-click coordinated color + typography kits. Apply a curated brand kit and the whole site re-skins (system tokens + Theme Style defaults); back up and restore any time. Browse and apply via the admin page or the `apply-brand-kit` MCP tool
 - **Composite Tools** — Build a complete page from a declarative JSON structure in a single call
 - **Stock Images** — Search Openverse for Creative Commons images, sideload into Media Library, add to pages
 - **SVG Icons** — Upload SVG icons from URL or raw markup for use with Elementor icon widgets
 - **Custom Code** — Add custom CSS (element/page level), inject JavaScript, create site-wide code snippets for head/body injection
 - **Low-tools Mode** — One-click toggle that filters the active tool list to a curated essentials set (~50 tools) so MCP clients with strict tool caps (Antigravity, Gemini API, etc.) stay under their limits
-- **Admin Dashboard** — Dedicated top-level **EMCP Tools** menu with Tools / Connection / Prompts / Changelog submenus. Toggle individual tools on/off and view connection configs for all supported MCP clients
+- **Admin Dashboard** — Dedicated top-level **EMCP Tools** menu with Tools / Connection / Prompts / Templates / Brand Kits / Skills / Changelog submenus. Toggle individual tools on/off and view connection configs for all supported MCP clients
 
 ## Requirements
 

@@ -2137,3 +2137,62 @@
 .elementor-mcp-bk-toast a:hover {
 	color: #c7d2fe;
 }
+
+/* =========================================================================
+ * Activate Abilities API card (Connection tab)
+ * ========================================================================= */
+
+.elementor-mcp-activate-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 14px;
+}
+
+.elementor-mcp-activate-head h2 {
+	margin: 0;
+}
+
+.elementor-mcp-step-num {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	flex-shrink: 0;
+	border-radius: 999px;
+	background: var(--mcp-gray-900, #111827);
+	color: #fff;
+	font-size: 14px;
+	font-weight: 700;
+	line-height: 1;
+}
+
+.elementor-mcp-activate-toggle {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0 0 14px;
+	font-size: 14px;
+	color: var(--mcp-gray-900, #111827);
+	cursor: pointer;
+}
+
+.elementor-mcp-activate-toggle input[type="checkbox"] {
+	width: 18px;
+	height: 18px;
+	margin: 0;
+	flex-shrink: 0;
+}
+
+.elementor-mcp-activate-note {
+	margin: 0 0 10px;
+	max-width: 80ch;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--mcp-gray-700, #374151);
+}
+
+.elementor-mcp-activate-note--security strong {
+	color: #b91c1c;
+}

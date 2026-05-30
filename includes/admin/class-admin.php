@@ -52,6 +52,16 @@ class Elementor_MCP_Admin {
 	const SETTINGS_GROUP = 'elementor_mcp_settings';
 
 	/**
+	 * Dedicated settings group for the "Activate Abilities API for EMCP" server
+	 * gate. Kept separate from SETTINGS_GROUP so the Connection-tab toggle form
+	 * submits only that option and can't wipe the Tools-page options on save.
+	 *
+	 * @since 1.7.4
+	 * @var string
+	 */
+	const SETTINGS_GROUP_SERVER = 'elementor_mcp_server_settings';
+
+	/**
 	 * Page slug.
 	 *
 	 * @var string
@@ -243,6 +253,20 @@ class Elementor_MCP_Admin {
 			array(
 				'type'              => 'string',
 				'default'           => '0',
+				'sanitize_callback' => static function ( $value ) {
+					return '1' === (string) $value ? '1' : '0';
+				},
+			)
+		);
+
+		// "Activate Abilities API for EMCP" server gate (Connection tab). On by
+		// default; an absent checkbox on submit sanitizes to '0' (off).
+		register_setting(
+			self::SETTINGS_GROUP_SERVER,
+			Elementor_MCP_Plugin::OPTION_SERVER_ENABLED,
+			array(
+				'type'              => 'string',
+				'default'           => '1',
 				'sanitize_callback' => static function ( $value ) {
 					return '1' === (string) $value ? '1' : '0';
 				},

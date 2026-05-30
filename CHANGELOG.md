@@ -2,6 +2,13 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## [1.7.4]
+
+- New: **Bundled MCP Adapter.** The `wordpress/mcp-adapter` package now ships inside the plugin (`includes/vendors/mcp-adapter/`), so users no longer install it as a separate plugin. WordPress 6.9+/7.0 already includes the Abilities API in core, so on those versions Elementor is the only external dependency. `Elementor_MCP_Adapter_Bootstrap::ensure()` loads the bundled copy via a minimal PSR-4 autoloader **only when no standalone MCP Adapter plugin is already active** — when one is, the plugin defers to it (no double-load, no version clash). Only the adapter's `includes/` source is vendored; its dev-only Composer `vendor/` is not (the package has zero runtime dependencies).
+- New: **"Activate Abilities API for EMCP" gate.** A toggle on the Connection tab controls whether the MCP server is exposed (option `elementor_mcp_server_enabled`, **on by default**). When off, abilities remain registered in core but no `/wp-json/mcp/...` server is created — nothing is reachable by AI agents. Includes a security note that connected agents can create/edit/delete Elementor content when enabled. The toggle uses its own settings group so it can't overwrite the Tools-page options.
+- New: **Connection tab status** now reports the MCP Adapter source (Active (bundled) vs. Active (plugin)) and an MCP Server Enabled/Disabled card.
+- Changed: **Dependency check no longer treats the MCP Adapter as a separate install to chase.** The adapter is provided by the bundle (or an active standalone plugin); the check only fails if the bundled source is missing/corrupt. The Abilities API line notes it is core in WordPress 6.9+.
+
 ## [1.7.3]
 
 - New: **Industry Skill Packs** for the Pro Agent Skill — 10 vertical knowledge files (`verticals/<slug>.md`) covering Dental, Med-Spa, Therapy, Fitness, Automotive, Food & Restaurant, Wedding, Real Estate, Legal, and Photography. When the AI agent recognizes the site's industry, it reads the one matching pack **before building** and applies that trade's brand voice, SEO keywords, page set/section order, conversion patterns, and compliance notes — plus the exact **Brand Kit + prompt slug(s) + template** combo for the vertical. This is the connective tissue that turns the three Pro content libraries (Prompts, Templates, Brand Kits) into curated per-industry combos the agent applies automatically.

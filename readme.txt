@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.7
 Tested up to: 6.9
-Stable tag: 1.7.3
+Stable tag: 1.7.4
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -38,8 +38,8 @@ Tool counts scale with your environment: 61 tools on a free Elementor install, 1
 
 * WordPress 6.8 or later
 * Elementor 3.20 or later (container support required)
-* WordPress MCP Adapter plugin
-* WordPress Abilities API (bundled in WP 6.9+)
+* WordPress Abilities API — included in WordPress core 6.9+ (and 7.0)
+* WordPress MCP Adapter — bundled with the plugin (no separate install needed; an active standalone MCP Adapter plugin is used instead when present)
 
 **Connection Methods:**
 
@@ -50,10 +50,9 @@ Tool counts scale with your environment: 61 tools on a free Elementor install, 1
 == Installation ==
 
 1. Install and activate [Elementor](https://wordpress.org/plugins/elementor/) (version 3.20+).
-2. Install and activate the WordPress MCP Adapter plugin.
-3. Upload the `elementor-mcp` folder to `/wp-content/plugins/`.
-4. Activate the plugin through the 'Plugins' menu in WordPress.
-5. Open the new **EMCP Tools** top-level menu in the WordPress admin sidebar to configure tools and view connection info.
+2. Upload the `elementor-mcp` folder to `/wp-content/plugins/`.
+3. Activate the plugin through the 'Plugins' menu in WordPress. The MCP Adapter is bundled — no separate install is required (WordPress 6.9+/7.0 already includes the Abilities API).
+4. Open the new **EMCP Tools** top-level menu, go to the **Connection** tab, and confirm **Activate Abilities API for EMCP** is enabled (on by default) to expose the MCP server.
 
 = WP-CLI Connection (Local) =
 
@@ -154,6 +153,12 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.7.4 =
+* New: The WordPress MCP Adapter is now bundled with the plugin — no separate adapter plugin install required. On WordPress 6.9+/7.0 (where the Abilities API is in core), Elementor is the only thing you need to install. If a standalone MCP Adapter plugin is active, the plugin automatically defers to it.
+* New: "Activate Abilities API for EMCP" toggle on the Connection tab — switch the MCP server on or off for the site (on by default), with a security note that connected AI agents can create, edit, and delete Elementor content when enabled.
+* New: Connection tab now shows the MCP Adapter source (bundled vs. external plugin) and the MCP Server enabled/disabled status.
+* Changed: Dependency checks no longer require a separately installed MCP Adapter; the bundled copy loads automatically. Only the adapter's runtime source is bundled (it has zero runtime dependencies).
 
 = 1.7.3 =
 * New: Industry Skill Packs for the Pro Agent Skill — 10 vertical knowledge files (Dental, Med-Spa, Therapy, Fitness, Automotive, Food & Restaurant, Wedding, Real Estate, Legal, Photography). When the AI agent recognizes the site's industry it reads the matching pack before building and applies that trade's brand voice, SEO keywords, page structure, conversion patterns, compliance notes, and the exact Brand Kit + prompt + template combo.

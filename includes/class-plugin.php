@@ -248,6 +248,26 @@ class Elementor_MCP_Plugin {
 	}
 
 	/**
+	 * Option name for the "Activate Abilities API for EMCP" server gate.
+	 *
+	 * @since 1.7.4
+	 * @var string
+	 */
+	const OPTION_SERVER_ENABLED = 'elementor_mcp_server_enabled';
+
+	/**
+	 * Whether the MCP server should be exposed. On by default; the Connection
+	 * tab toggle writes '0' to switch it off.
+	 *
+	 * @since 1.7.4
+	 *
+	 * @return bool
+	 */
+	public static function is_server_enabled(): bool {
+		return '1' === (string) get_option( self::OPTION_SERVER_ENABLED, '1' );
+	}
+
+	/**
 	 * Registers the ability category.
 	 *
 	 * Called during `wp_abilities_api_categories_init`.
@@ -285,6 +305,13 @@ class Elementor_MCP_Plugin {
 	 * @param \WP\MCP\Core\McpAdapter $mcp_adapter The MCP adapter instance.
 	 */
 	public function register_mcp_server( $mcp_adapter ): void {
+		// "Activate Abilities API for EMCP" gate (Connection tab). On by default;
+		// when switched off, the abilities stay registered in core but no MCP
+		// server endpoint is created — nothing is exposed to AI agents.
+		if ( ! self::is_server_enabled() ) {
+			return;
+		}
+
 		if ( empty( $this->ability_names ) ) {
 			return;
 		}

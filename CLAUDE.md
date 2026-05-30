@@ -31,13 +31,13 @@ See `PLAN.md` for the full architectural specification.
 
 - WordPress >= 6.8
 - Elementor >= 3.20 (container support required; >= 4.0 for atomic elements)
-- WordPress Abilities API (bundled in WP 6.9+, or via composer)
-- WordPress MCP Adapter (`wordpress/mcp-adapter` via composer)
+- WordPress Abilities API — core in WP 6.9+/7.0 (the only hard external dep is Elementor)
+- WordPress MCP Adapter — **bundled** with the plugin since v1.7.4 (`includes/vendors/mcp-adapter/`); no separate install needed. If a standalone MCP Adapter plugin is active, the plugin defers to it (see `Elementor_MCP_Adapter_Bootstrap`).
 - PHP 7.4+
 
 ## Build & Development Commands
 
-No external dependencies. The plugin uses WordPress core, Elementor, MCP Adapter, and the Abilities API (all loaded as separate plugins or WP core).
+No external dependencies. The plugin uses WordPress core, Elementor, the core Abilities API, and a **bundled** copy of the MCP Adapter (loaded by `Elementor_MCP_Adapter_Bootstrap::ensure()` only when no standalone adapter plugin is active). Only the adapter's `includes/` source is vendored — its dev-only Composer `vendor/` is not, since the package has zero runtime dependencies.
 
 For plugin review tooling, the `.claude/skills/wp-plugin-review/scripts/setup_tools.sh` script installs PHPCS, WPCS, PHPStan, and PHPUnit.
 

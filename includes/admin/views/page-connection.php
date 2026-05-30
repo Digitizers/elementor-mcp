@@ -17,9 +17,69 @@ $elementor_mcp_endpoint      = rest_url( 'mcp/elementor-mcp-server' );
 $elementor_mcp_enabled_count = $this->get_enabled_tool_count();
 $elementor_mcp_total_count   = $this->get_total_tool_count();
 $elementor_mcp_has_adapter   = class_exists( '\WP\MCP\Core\McpAdapter' );
+
+// Adapter provenance: bundled with EMCP, an external plugin, or unavailable.
+$elementor_mcp_adapter_source = class_exists( 'Elementor_MCP_Adapter_Bootstrap' )
+	? Elementor_MCP_Adapter_Bootstrap::source()
+	: ( $elementor_mcp_has_adapter ? 'external' : 'none' );
+$elementor_mcp_adapter_label = 'bundled' === $elementor_mcp_adapter_source
+	? __( 'Active (bundled)', 'elementor-mcp' )
+	: ( 'external' === $elementor_mcp_adapter_source ? __( 'Active (plugin)', 'elementor-mcp' ) : __( 'Not Active', 'elementor-mcp' ) );
+
+// Abilities API is core in WordPress 6.9+/7.0.
+$elementor_mcp_has_abilities = function_exists( 'wp_register_ability' );
+
+// The "Activate Abilities API for EMCP" gate (on by default).
+$elementor_mcp_server_enabled = class_exists( 'Elementor_MCP_Plugin' )
+	? Elementor_MCP_Plugin::is_server_enabled()
+	: ( '1' === (string) get_option( 'elementor_mcp_server_enabled', '1' ) );
 ?>
 
 <div class="elementor-mcp-connection">
+
+	<?php // ===== Step 1: Activate Abilities API for EMCP ===== ?>
+	<div class="elementor-mcp-section elementor-mcp-activate-card">
+	<div class="elementor-mcp-activate-head">
+		<span class="elementor-mcp-step-num" aria-hidden="true">1</span>
+		<h2><?php esc_html_e( 'Activate Abilities API for EMCP', 'elementor-mcp' ); ?></h2>
+	</div>
+
+	<form method="post" action="options.php" class="elementor-mcp-activate-form">
+		<?php settings_fields( Elementor_MCP_Admin::SETTINGS_GROUP_SERVER ); ?>
+
+		<label class="elementor-mcp-activate-toggle">
+			<input
+				type="checkbox"
+				name="<?php echo esc_attr( Elementor_MCP_Plugin::OPTION_SERVER_ENABLED ); ?>"
+				value="1"
+				<?php checked( $elementor_mcp_server_enabled ); ?>
+			/>
+			<strong><?php esc_html_e( 'Expose EMCP tools to AI agents on this site', 'elementor-mcp' ); ?></strong>
+		</label>
+
+		<p class="elementor-mcp-activate-note elementor-mcp-activate-note--security">
+			<strong><?php esc_html_e( 'Security note:', 'elementor-mcp' ); ?></strong>
+			<?php esc_html_e( 'When enabled, connected AI agents can create, edit, and delete Elementor pages and content on this site through the MCP server. Use a capable AI model and set your client to ask for confirmation before every action — read what the agent is about to do before approving.', 'elementor-mcp' ); ?>
+		</p>
+		<p class="elementor-mcp-activate-note">
+			<?php
+			if ( $elementor_mcp_has_abilities ) {
+				printf(
+					/* translators: %s: how the MCP Adapter is provided. */
+					esc_html__( 'WordPress Abilities API: core (no separate plugin needed). MCP Adapter: %s.', 'elementor-mcp' ),
+					'bundled' === $elementor_mcp_adapter_source
+						? esc_html__( 'bundled with EMCP', 'elementor-mcp' )
+						: ( 'external' === $elementor_mcp_adapter_source ? esc_html__( 'provided by an active MCP Adapter plugin', 'elementor-mcp' ) : esc_html__( 'unavailable', 'elementor-mcp' ) )
+				);
+			} else {
+				esc_html_e( 'WordPress Abilities API is unavailable — WordPress 6.9 or newer is required.', 'elementor-mcp' );
+			}
+			?>
+		</p>
+
+		<?php submit_button( __( 'Save Settings', 'elementor-mcp' ), 'primary', 'submit', false ); ?>
+	</form>
+	</div>
 
 	<!-- Server Status -->
 	<div class="elementor-mcp-section">
@@ -47,7 +107,21 @@ $elementor_mcp_has_adapter   = class_exists( '\WP\MCP\Core\McpAdapter' );
 				</span>
 				<span class="elementor-mcp-status-card-info">
 					<span class="elementor-mcp-status-card-label"><?php esc_html_e( 'MCP Adapter', 'elementor-mcp' ); ?></span>
-					<span class="elementor-mcp-status-card-value"><?php echo esc_html( $elementor_mcp_has_adapter ? __( 'Active', 'elementor-mcp' ) : __( 'Not Active', 'elementor-mcp' ) ); ?></span>
+					<span class="elementor-mcp-status-card-value"><?php echo esc_html( $elementor_mcp_adapter_label ); ?></span>
+				</span>
+			</div>
+
+			<div class="elementor-mcp-status-card">
+				<span class="elementor-mcp-status-card-icon <?php echo esc_attr( $elementor_mcp_server_enabled ? 'elementor-mcp-status-card-icon--ok' : 'elementor-mcp-status-card-icon--warn' ); ?>">
+					<?php if ( $elementor_mcp_server_enabled ) : ?>
+						<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+					<?php else : ?>
+						<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"/></svg>
+					<?php endif; ?>
+				</span>
+				<span class="elementor-mcp-status-card-info">
+					<span class="elementor-mcp-status-card-label"><?php esc_html_e( 'MCP Server', 'elementor-mcp' ); ?></span>
+					<span class="elementor-mcp-status-card-value"><?php echo esc_html( $elementor_mcp_server_enabled ? __( 'Enabled', 'elementor-mcp' ) : __( 'Disabled', 'elementor-mcp' ) ); ?></span>
 				</span>
 			</div>
 

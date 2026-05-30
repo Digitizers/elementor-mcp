@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor
  * Plugin URI:        https://github.com/msrbuilds/elementor-mcpelementor-mcp
  * Description:       Extends the WordPress MCP Adapter to expose Elementor data, widgets, and page design tools as MCP tools for AI agents.
- * Version:           1.7.3
+ * Version:           1.7.4
  * Requires at least: 6.9
  * Tested up to:      6.9
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.7.3' );
+define( 'ELEMENTOR_MCP_VERSION', '1.7.4' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -466,14 +466,19 @@ function elementor_mcp_check_dependencies(): bool {
 		$missing[] = 'Elementor';
 	}
 
-	// MCP Adapter must be active.
-	if ( ! class_exists( '\WP\MCP\Core\McpAdapter' ) ) {
-		$missing[] = 'WordPress MCP Adapter';
-	}
-
-	// WordPress Abilities API must be available.
+	// WordPress Abilities API must be available. Core in WordPress 6.9+ (and
+	// 7.0); only missing on older WordPress, which the plugin doesn't support.
 	if ( ! function_exists( 'wp_register_ability' ) ) {
 		$missing[] = 'WordPress Abilities API (requires WordPress 6.9+)';
+	}
+
+	// MCP Adapter: as of v1.8.0 the adapter is bundled with the plugin
+	// (Elementor_MCP_Adapter_Bootstrap::ensure() ran in elementor_mcp_init,
+	// loading either an active standalone adapter or our bundled copy). So this
+	// is normally satisfied without any separate install. It only fails if the
+	// bundled source is missing/corrupt — a broken build, not a user action.
+	if ( ! class_exists( '\WP\MCP\Core\McpAdapter' ) ) {
+		$missing[] = 'WordPress MCP Adapter (bundled — reinstall the plugin if this persists)';
 	}
 
 	if ( ! empty( $missing ) ) {
@@ -504,6 +509,12 @@ function elementor_mcp_check_dependencies(): bool {
  * @since 1.0.0
  */
 function elementor_mcp_init(): void {
+	// Make the MCP Adapter available (active standalone plugin, else our bundled
+	// copy) BEFORE the dependency check, so the adapter is never a "go install
+	// this" blocker. The Abilities API is core in WordPress 6.9+/7.0.
+	require_once ELEMENTOR_MCP_DIR . 'includes/class-mcp-adapter-bootstrap.php';
+	Elementor_MCP_Adapter_Bootstrap::ensure();
+
 	if ( ! elementor_mcp_check_dependencies() ) {
 		return;
 	}

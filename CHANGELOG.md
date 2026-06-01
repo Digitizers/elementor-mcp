@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## [1.8.3]
+
+- New: **One-click credential generation on the Connection tab.** Step 1 now shows an administrator dropdown (admins only, current user first and labeled "(you)") and a single **Generate Password & Configs** button that creates a fresh Application Password via `WP_Application_Passwords::create_new_application_password()`, shows it once, and auto-fills every client config below — no profile visit required. A collapsed "Use an existing Application Password instead" preserves manual entry. New AJAX handler `Elementor_MCP_Admin::ajax_create_app_password()` is nonce-protected, requires `manage_options` plus per-target `edit_user`, only targets administrators, and is HTTPS-gated (an app password can't authenticate over plain HTTP). Touches `includes/admin/views/page-connection.php`, `includes/admin/class-admin.php`, `assets/js/admin.js`.
+
 ## [1.8.2]
 
 - New: **npx proxy configs in the Connection tab.** The "Generate Configs" flow now emits ready-to-copy npx runner blocks for Claude Code and Claude Desktop (`npx -y @msrbuilds/emcp-proxy@latest`, with the `WP_*` env + `MCP_PROTOCOL_VERSION`), grouped under "Remote WordPress — npx runner (recommended)". The bundled-proxy-file cards remain under "Local WordPress" for same-machine setups. This closes the gap where the only generated proxy config used this server's absolute filesystem path, which a remote AI client (which launches the proxy locally) can't reach. Touches `includes/admin/views/page-connection.php` + `assets/js/admin.js`.

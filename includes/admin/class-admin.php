@@ -136,6 +136,7 @@ class Elementor_MCP_Admin {
 		add_action( 'admin_init', array( $this, 'maybe_apply_default_disabled_tools' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_head', array( $this, 'print_menu_icon_style' ) );
+		add_action( 'wp_ajax_elementor_mcp_create_app_password', array( $this, 'ajax_create_app_password' ) );
 	}
 
 	/**
@@ -386,6 +387,9 @@ class Elementor_MCP_Admin {
 				'siteUrl'     => site_url(),
 				'proxyPath'   => ELEMENTOR_MCP_DIR . 'bin' . DIRECTORY_SEPARATOR . 'mcp-proxy.mjs',
 				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+				'createPwNonce' => wp_create_nonce( 'elementor_mcp_create_app_password' ),
+				'generating'    => __( 'Generating…', 'elementor-mcp' ),
+				'pwCreated'     => __( 'Application password created — save it below, it is shown only once.', 'elementor-mcp' ),
 				'syncing'       => __( 'Syncing…', 'elementor-mcp' ),
 				// Brand Kits.
 				'applying'      => __( 'Applying…', 'elementor-mcp' ),
@@ -396,6 +400,80 @@ class Elementor_MCP_Admin {
 				'kitApplied'    => __( '%s applied.', 'elementor-mcp' ),
 				'restoreConfirm' => __( 'Restore global colors and typography from this backup?', 'elementor-mcp' ),
 				'viewSite'      => __( 'View site →', 'elementor-mcp' ),
+			)
+		);
+	}
+
+	/**
+	 * AJAX: create a fresh Application Password for a chosen administrator.
+	 *
+	 * Returns the chunked plaintext password once so the Connection tab can drop
+	 * it straight into the generated client configs — no profile visit needed.
+	 *
+	 * @since 1.8.3
+	 */
+	public function ajax_create_app_password(): void {
+		check_ajax_referer( 'elementor_mcp_create_app_password', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do this.', 'elementor-mcp' ) ), 403 );
+		}
+
+		$user_id = isset( $_POST['user_id'] ) ? absint( wp_unslash( $_POST['user_id'] ) ) : 0;
+		if ( ! $user_id ) {
+			wp_send_json_error( array( 'message' => __( 'No user selected.', 'elementor-mcp' ) ), 400 );
+		}
+
+		$user = get_userdata( $user_id );
+		if ( ! $user ) {
+			wp_send_json_error( array( 'message' => __( 'That user no longer exists.', 'elementor-mcp' ) ), 404 );
+		}
+
+		// Only administrators, and only those the current user is allowed to edit.
+		if ( ! user_can( $user, 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Application passwords can only be generated for administrator accounts here.', 'elementor-mcp' ) ), 403 );
+		}
+		if ( ! current_user_can( 'edit_user', $user_id ) ) {
+			wp_send_json_error( array( 'message' => __( 'You cannot manage application passwords for this user.', 'elementor-mcp' ) ), 403 );
+		}
+
+		if ( ! class_exists( 'WP_Application_Passwords' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Application Passwords are not supported on this WordPress version.', 'elementor-mcp' ) ), 400 );
+		}
+
+		// Application passwords only authenticate over HTTPS (or a local environment),
+		// so refuse to mint one that could not actually be used to connect.
+		if ( ! is_ssl() && 'local' !== wp_get_environment_type() ) {
+			wp_send_json_error(
+				array(
+					'message' => __( 'Application Passwords require HTTPS. Load this site over https:// (or use the WP-CLI connection method for local development).', 'elementor-mcp' ),
+				),
+				400
+			);
+		}
+
+		$app_name = sprintf(
+			/* translators: %s: current date and time */
+			__( 'EMCP Tools (MCP) — %s', 'elementor-mcp' ),
+			gmdate( 'Y-m-d H:i' )
+		);
+
+		$created = \WP_Application_Passwords::create_new_application_password( $user_id, array( 'name' => $app_name ) );
+
+		if ( is_wp_error( $created ) ) {
+			wp_send_json_error( array( 'message' => $created->get_error_message() ), 400 );
+		}
+
+		$raw_password = isset( $created[0] ) ? $created[0] : '';
+		if ( '' === $raw_password ) {
+			wp_send_json_error( array( 'message' => __( 'Could not create an application password.', 'elementor-mcp' ) ), 500 );
+		}
+
+		wp_send_json_success(
+			array(
+				'username' => $user->user_login,
+				'password' => \WP_Application_Passwords::chunk_password( $raw_password ),
+				'name'     => $app_name,
 			)
 		);
 	}

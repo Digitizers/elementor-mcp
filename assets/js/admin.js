@@ -112,18 +112,106 @@
 		}
 
 		generateBtn.addEventListener( 'click', function () {
-			var username = document.getElementById( 'elementor-mcp-b64-username' );
-			var appPassword = document.getElementById( 'elementor-mcp-b64-app-password' );
-
-			if ( ! username || ! appPassword || ! username.value.trim() || ! appPassword.value.trim() ) {
+			var usernameEl = document.getElementById( 'elementor-mcp-b64-username' );
+			if ( ! usernameEl || ! usernameEl.value ) {
 				/* global alert */
-				alert( 'Please enter both username and application password.' );
+				alert( 'Please select an administrator account.' );
 				return;
 			}
 
-			var credentials = username.value.trim() + ':' + appPassword.value.trim();
-			var base64 = btoa( credentials );
-			var headerValue = 'Basic ' + base64;
+			var selectedOption = usernameEl.options[ usernameEl.selectedIndex ];
+			var selectedLogin = selectedOption ? ( selectedOption.getAttribute( 'data-login' ) || '' ) : '';
+			var manualEl = document.getElementById( 'elementor-mcp-b64-app-password' );
+			var manualPassword = manualEl ? manualEl.value.trim() : '';
+
+			// If an existing password is supplied, use it directly and skip creation.
+			if ( manualPassword ) {
+				renderConfigs( selectedLogin, manualPassword );
+				return;
+			}
+
+			if ( typeof elementorMcpAdmin === 'undefined' || ! elementorMcpAdmin.ajaxUrl || ! elementorMcpAdmin.createPwNonce ) {
+				setCredStatus( 'Cannot create an application password automatically. Enter one manually below.', true );
+				return;
+			}
+
+			var origLabel = generateBtn.textContent;
+			generateBtn.disabled = true;
+			generateBtn.textContent = elementorMcpAdmin.generating || 'Generating…';
+			setCredStatus( '', false );
+
+			var payload = new FormData();
+			payload.append( 'action', 'elementor_mcp_create_app_password' );
+			payload.append( 'nonce', elementorMcpAdmin.createPwNonce );
+			payload.append( 'user_id', usernameEl.value );
+
+			/* global fetch */
+			fetch( elementorMcpAdmin.ajaxUrl, {
+				method: 'POST',
+				credentials: 'same-origin',
+				body: payload
+			} ).then( function ( response ) {
+				return response.json();
+			} ).then( function ( result ) {
+				generateBtn.disabled = false;
+				generateBtn.textContent = origLabel;
+
+				if ( ! result || ! result.success || ! result.data || ! result.data.password ) {
+					var message = ( result && result.data && result.data.message ) ? result.data.message : 'Could not create an application password.';
+					setCredStatus( message, true );
+					return;
+				}
+
+				setCredStatus( elementorMcpAdmin.pwCreated || 'Application password created — save it below, it is shown only once.', false );
+				renderGeneratedPassword( result.data.password );
+				renderConfigs( result.data.username, result.data.password );
+			} ).catch( function () {
+				generateBtn.disabled = false;
+				generateBtn.textContent = origLabel;
+				setCredStatus( 'Network error while creating the application password.', true );
+			} );
+		} );
+
+		/**
+		 * Shows an inline status message under the credential form.
+		 *
+		 * @param {string}  message  Message text ('' hides it).
+		 * @param {boolean} isError  Whether to style it as an error.
+		 */
+		function setCredStatus( message, isError ) {
+			var statusEl = document.getElementById( 'elementor-mcp-cred-status' );
+			if ( ! statusEl ) {
+				return;
+			}
+			statusEl.style.display = message ? '' : 'none';
+			statusEl.textContent = message || '';
+			statusEl.style.color = isError ? '#b32d2e' : '';
+		}
+
+		/**
+		 * Reveals and fills the generated application password field.
+		 *
+		 * @param {string} password  The newly created application password.
+		 */
+		function renderGeneratedPassword( password ) {
+			var row = document.getElementById( 'elementor-mcp-generated-pw-row' );
+			var code = document.getElementById( 'elementor-mcp-generated-pw' );
+			var copy = document.getElementById( 'elementor-mcp-generated-pw-copy' );
+			if ( row && code && copy ) {
+				row.style.display = '';
+				code.textContent = password;
+				copy.value = password;
+			}
+		}
+
+		/**
+		 * Builds every client config block from a username + application password.
+		 *
+		 * @param {string} rawUsername     WordPress username.
+		 * @param {string} rawAppPassword  Application password.
+		 */
+		function renderConfigs( rawUsername, rawAppPassword ) {
+			var headerValue = 'Basic ' + btoa( rawUsername + ':' + rawAppPassword );
 
 			// Show the result row.
 			var resultRow = document.getElementById( 'elementor-mcp-b64-result-row' );
@@ -143,8 +231,6 @@
 			var endpoint = elementorMcpAdmin.mcpEndpoint;
 			var siteUrl = elementorMcpAdmin.siteUrl || '';
 			var proxyPath = elementorMcpAdmin.proxyPath || '';
-			var rawUsername = username.value.trim();
-			var rawAppPassword = appPassword.value.trim();
 
 			// Show the proxy config blocks container.
 			var proxyConfigsDiv = document.getElementById( 'elementor-mcp-proxy-configs' );
@@ -352,7 +438,7 @@
 				'mcp-remote-config',
 				JSON.stringify( mcpRemoteConfig, null, 4 )
 			);
-		} );
+		}
 	}
 
 	/**

@@ -161,40 +161,105 @@ $elementor_mcp_server_enabled = class_exists( 'Elementor_MCP_Plugin' )
 
 		<h3><?php esc_html_e( 'Step 1: Generate Your Credentials', 'elementor-mcp' ); ?></h3>
 		<p class="description">
-			<?php
-			printf(
-				/* translators: %s: link to application passwords */
-				esc_html__( 'Enter your username and Application Password (create one at %s).', 'elementor-mcp' ),
-				'<a href="' . esc_url( admin_url( 'profile.php#application-passwords-section' ) ) . '">' . esc_html__( 'Users > Profile', 'elementor-mcp' ) . '</a>'
-			);
-			?>
+			<?php esc_html_e( 'Pick an administrator and click Generate — a new Application Password is created automatically and every client config below is filled in. No need to visit your profile.', 'elementor-mcp' ); ?>
 		</p>
+
+		<?php
+		$elementor_mcp_current_user = wp_get_current_user();
+		$elementor_mcp_admins       = get_users(
+			array(
+				'role'    => 'administrator',
+				'orderby' => 'display_name',
+				'order'   => 'ASC',
+			)
+		);
+		// Only offer users the current user is allowed to manage.
+		$elementor_mcp_admins = array_values(
+			array_filter(
+				$elementor_mcp_admins,
+				static function ( $elementor_mcp_u ) {
+					return current_user_can( 'edit_user', $elementor_mcp_u->ID );
+				}
+			)
+		);
+		// Sort the current user to the top, then alphabetically.
+		usort(
+			$elementor_mcp_admins,
+			static function ( $a, $b ) use ( $elementor_mcp_current_user ) {
+				if ( (int) $a->ID === (int) $elementor_mcp_current_user->ID ) {
+					return -1;
+				}
+				if ( (int) $b->ID === (int) $elementor_mcp_current_user->ID ) {
+					return 1;
+				}
+				return strcasecmp( (string) $a->display_name, (string) $b->display_name );
+			}
+		);
+		?>
 
 		<div class="elementor-mcp-cred-form">
 			<div class="elementor-mcp-cred-field">
-				<label for="elementor-mcp-b64-username"><?php esc_html_e( 'Username', 'elementor-mcp' ); ?></label>
-				<input type="text" id="elementor-mcp-b64-username" value="<?php echo esc_attr( wp_get_current_user()->user_login ); ?>" />
+				<label for="elementor-mcp-b64-username"><?php esc_html_e( 'Administrator account', 'elementor-mcp' ); ?></label>
+				<select id="elementor-mcp-b64-username">
+					<?php foreach ( $elementor_mcp_admins as $elementor_mcp_u ) : ?>
+						<option
+							value="<?php echo esc_attr( (string) $elementor_mcp_u->ID ); ?>"
+							data-login="<?php echo esc_attr( $elementor_mcp_u->user_login ); ?>"
+							<?php selected( (int) $elementor_mcp_u->ID, (int) $elementor_mcp_current_user->ID ); ?>
+						>
+							<?php
+							echo esc_html(
+								(int) $elementor_mcp_u->ID === (int) $elementor_mcp_current_user->ID
+									/* translators: %s: username */
+									? sprintf( __( '%s (you)', 'elementor-mcp' ), $elementor_mcp_u->user_login )
+									: $elementor_mcp_u->user_login
+							);
+							?>
+						</option>
+					<?php endforeach; ?>
+				</select>
 			</div>
-			<div class="elementor-mcp-cred-field">
-				<label for="elementor-mcp-b64-app-password"><?php esc_html_e( 'Application Password', 'elementor-mcp' ); ?></label>
-				<input type="text" id="elementor-mcp-b64-app-password" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" />
-				<p class="description">
-					<?php
-					printf(
-						/* translators: %s: link */
-						esc_html__( 'Create one at %s', 'elementor-mcp' ),
-						'<a href="' . esc_url( admin_url( 'profile.php#application-passwords-section' ) ) . '">' . esc_html__( 'Application Passwords', 'elementor-mcp' ) . '</a>'
-					);
-					?>
-				</p>
+			<button type="button" class="button button-primary elementor-mcp-generate-btn" id="elementor-mcp-generate-b64"><?php esc_html_e( 'Generate Password &amp; Configs', 'elementor-mcp' ); ?></button>
+
+			<p id="elementor-mcp-cred-status" class="description" style="display: none;"></p>
+
+			<div id="elementor-mcp-generated-pw-row" style="display: none;">
+				<div class="elementor-mcp-cred-field">
+					<label for="elementor-mcp-generated-pw-copy"><?php esc_html_e( 'New Application Password (save it — shown only once)', 'elementor-mcp' ); ?></label>
+					<div class="elementor-mcp-auth-result">
+						<code id="elementor-mcp-generated-pw"></code>
+						<button type="button" class="button elementor-mcp-copy-btn" data-target="elementor-mcp-generated-pw-copy"><?php esc_html_e( 'Copy', 'elementor-mcp' ); ?></button>
+						<textarea id="elementor-mcp-generated-pw-copy" class="elementor-mcp-copy-source"></textarea>
+					</div>
+					<p class="description">
+						<?php
+						printf(
+							/* translators: %s: link to profile */
+							esc_html__( 'Manage or revoke application passwords under %s.', 'elementor-mcp' ),
+							'<a href="' . esc_url( admin_url( 'profile.php#application-passwords-section' ) ) . '">' . esc_html__( 'Users > Profile', 'elementor-mcp' ) . '</a>'
+						);
+						?>
+					</p>
+				</div>
 			</div>
-			<button type="button" class="button elementor-mcp-generate-btn" id="elementor-mcp-generate-b64"><?php esc_html_e( 'Generate Configs', 'elementor-mcp' ); ?></button>
+
+			<details class="elementor-mcp-cred-advanced">
+				<summary><?php esc_html_e( 'Use an existing Application Password instead', 'elementor-mcp' ); ?></summary>
+				<div class="elementor-mcp-cred-field" style="margin-top: 8px;">
+					<label for="elementor-mcp-b64-app-password"><?php esc_html_e( 'Application Password', 'elementor-mcp' ); ?></label>
+					<input type="text" id="elementor-mcp-b64-app-password" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx" autocomplete="off" />
+					<p class="description"><?php esc_html_e( 'If filled in, this is used as-is and no new password is created.', 'elementor-mcp' ); ?></p>
+				</div>
+			</details>
 
 			<div id="elementor-mcp-b64-result-row" style="display: none;">
-				<div class="elementor-mcp-auth-result">
-					<code id="elementor-mcp-b64-result"></code>
-					<button type="button" class="button elementor-mcp-copy-btn" data-target="elementor-mcp-b64-result-copy"><?php esc_html_e( 'Copy', 'elementor-mcp' ); ?></button>
-					<textarea id="elementor-mcp-b64-result-copy" class="elementor-mcp-copy-source"></textarea>
+				<div class="elementor-mcp-cred-field">
+					<label for="elementor-mcp-b64-result-copy"><?php esc_html_e( 'Authorization header (for direct HTTP clients)', 'elementor-mcp' ); ?></label>
+					<div class="elementor-mcp-auth-result">
+						<code id="elementor-mcp-b64-result"></code>
+						<button type="button" class="button elementor-mcp-copy-btn" data-target="elementor-mcp-b64-result-copy"><?php esc_html_e( 'Copy', 'elementor-mcp' ); ?></button>
+						<textarea id="elementor-mcp-b64-result-copy" class="elementor-mcp-copy-source"></textarea>
+					</div>
 				</div>
 			</div>
 		</div>

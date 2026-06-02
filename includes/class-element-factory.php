@@ -185,13 +185,15 @@ class Elementor_MCP_Element_Factory {
 	 * @param array  $settings    The widget settings (already $$type-wrapped).
 	 * @return array The atomic widget element structure.
 	 */
-	public function create_atomic_widget( string $widget_type, array $settings = array() ): array {
+	public function create_atomic_widget( string $widget_type, array $settings = array(), array $style_props = array() ): array {
+		$id = Elementor_MCP_Id_Generator::generate();
+
 		if ( ! isset( $settings['classes'] ) ) {
 			$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
 		}
 
-		return array(
-			'id'              => Elementor_MCP_Id_Generator::generate(),
+		$element = array(
+			'id'              => $id,
 			'elType'          => 'widget',
 			'widgetType'      => $widget_type,
 			'isInner'         => false,
@@ -202,6 +204,18 @@ class Elementor_MCP_Element_Factory {
 			'editor_settings' => array(),
 			'version'         => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : '',
 		);
+
+		// Build and apply widget styles if provided (mirrors create_flexbox).
+		$common_css = Elementor_MCP_Atomic_Styles::build_common_props( $style_props );
+		$typo_css   = Elementor_MCP_Atomic_Styles::build_typography_props( $style_props );
+		$all_css    = array_merge( $common_css, $typo_css );
+
+		if ( ! empty( $all_css ) ) {
+			$style = Elementor_MCP_Atomic_Styles::create_local_class( $id, $all_css );
+			Elementor_MCP_Atomic_Styles::apply_to_element( $element, $style['class_id'], $style['style_def'] );
+		}
+
+		return $element;
 	}
 
 	/**

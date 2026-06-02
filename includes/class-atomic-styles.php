@@ -147,12 +147,24 @@ class Elementor_MCP_Atomic_Styles {
 			$props['padding-inline-end']   = $size_val;
 		}
 
+		// Atomic's CSS engine validates every style prop against its style-schema
+		// and silently drops invalid keys. `background-color` is NOT a valid key —
+		// atomic uses `background` (Background_Prop_Type, shape { color, ... }).
+		// A flat `background-color` was dropped, so every container/button bg fell
+		// back to the atomic default. Emit the valid `background` shape instead.
 		if ( isset( $params['background_color'] ) ) {
-			$props['background-color'] = Elementor_MCP_Atomic_Props::string( $params['background_color'] );
+			$props['background'] = array(
+				'$$type' => 'background',
+				'value'  => array(
+					'color' => array( '$$type' => 'color', 'value' => $params['background_color'] ),
+				),
+			);
 		}
 
+		// `color` is a Color_Prop_Type ($$type: color), not a plain string — a
+		// string value is rejected by the schema and dropped.
 		if ( isset( $params['color'] ) ) {
-			$props['color'] = Elementor_MCP_Atomic_Props::string( $params['color'] );
+			$props['color'] = array( '$$type' => 'color', 'value' => $params['color'] );
 		}
 
 		return $props;

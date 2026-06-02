@@ -79,4 +79,16 @@ class AtomicV4SchemaTest extends TestCase {
 		$p = \Elementor_MCP_Atomic_Styles::build_common_props( array( 'height' => 30 ) );
 		$this->assertSame( 'size', $p['height']['$$type'] );
 	}
+
+	/** D — flex gap: layout-direction on 4.x, flat Size on 3.x. */
+	public function test_gap_by_version(): void {
+		$this->v( '4.1.1' );
+		$p = \Elementor_MCP_Atomic_Styles::build_flex_props( array( 'gap' => 24 ) );
+		$this->assertSame( 'layout-direction', $p['gap']['$$type'] );
+		$this->assertSame( 24.0, $p['gap']['value']['row']['value']['size'] );
+		$this->assertSame( 24.0, $p['gap']['value']['column']['value']['size'] );
+		$this->v( '3.31.5' );
+		$p = \Elementor_MCP_Atomic_Styles::build_flex_props( array( 'gap' => 24 ) );
+		$this->assertSame( 'size', $p['gap']['$$type'] );
+	}
 }

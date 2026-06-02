@@ -89,19 +89,33 @@ class Elementor_MCP_Atomic_Styles {
 			}
 		}
 
-		if ( isset( $params['gap'] ) ) {
-			$unit = $params['gap_unit'] ?? 'px';
-			$props['gap'] = Elementor_MCP_Atomic_Props::size( (float) $params['gap'], $unit );
-		}
-
-		if ( isset( $params['row_gap'] ) ) {
-			$unit = $params['row_gap_unit'] ?? 'px';
-			$props['row-gap'] = Elementor_MCP_Atomic_Props::size( (float) $params['row_gap'], $unit );
-		}
-
-		if ( isset( $params['column_gap'] ) ) {
-			$unit = $params['column_gap_unit'] ?? 'px';
-			$props['column-gap'] = Elementor_MCP_Atomic_Props::size( (float) $params['column_gap'], $unit );
+		// Flex gap. 4.x GA: `gap` = Layout_Direction { row, column } (Size each); flat
+		// `gap`/`row-gap`/`column-gap` are dropped. 3.x: flat Size + row-gap/column-gap.
+		$gap = $params['gap'] ?? null;
+		$rg  = $params['row_gap'] ?? $gap;
+		$cg  = $params['column_gap'] ?? $gap;
+		if ( null !== $rg || null !== $cg ) {
+			$gu = $params['gap_unit'] ?? 'px';
+			if ( Elementor_MCP_Atomic_Props::is_v4() ) {
+				$val = array();
+				if ( null !== $rg ) {
+					$val['row'] = Elementor_MCP_Atomic_Props::size( (float) $rg, $gu );
+				}
+				if ( null !== $cg ) {
+					$val['column'] = Elementor_MCP_Atomic_Props::size( (float) $cg, $gu );
+				}
+				$props['gap'] = array( '$$type' => 'layout-direction', 'value' => $val );
+			} else {
+				if ( null !== $gap ) {
+					$props['gap'] = Elementor_MCP_Atomic_Props::size( (float) $gap, $gu );
+				}
+				if ( isset( $params['row_gap'] ) ) {
+					$props['row-gap'] = Elementor_MCP_Atomic_Props::size( (float) $params['row_gap'], $params['row_gap_unit'] ?? 'px' );
+				}
+				if ( isset( $params['column_gap'] ) ) {
+					$props['column-gap'] = Elementor_MCP_Atomic_Props::size( (float) $params['column_gap'], $params['column_gap_unit'] ?? 'px' );
+				}
+			}
 		}
 
 		return $props;

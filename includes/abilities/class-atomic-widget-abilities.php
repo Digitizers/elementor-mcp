@@ -65,6 +65,14 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			'background_color' => array( 'type' => 'string', 'description' => __( 'Background color (hex/rgb).', 'elementor-mcp' ) ),
 			'padding'          => array( 'type' => 'number', 'description' => __( 'Uniform padding value.', 'elementor-mcp' ) ),
 			'border_radius'    => array( 'type' => 'number', 'description' => __( 'Border radius value.', 'elementor-mcp' ) ),
+			'max_width'        => array( 'type' => 'number', 'description' => __( 'Max width value (e.g. 1360 to box a section).', 'elementor-mcp' ) ),
+			'border_width'     => array( 'type' => 'number', 'description' => __( 'Border width value.', 'elementor-mcp' ) ),
+			'border_color'     => array( 'type' => 'string', 'description' => __( 'Border color (hex/rgb).', 'elementor-mcp' ) ),
+			'border_style'     => array( 'type' => 'string', 'description' => __( 'Border style: solid, dashed, dotted, none.', 'elementor-mcp' ) ),
+			'gradient_from'    => array( 'type' => 'string', 'description' => __( 'Gradient start color (with gradient_to enables a gradient background).', 'elementor-mcp' ) ),
+			'gradient_to'      => array( 'type' => 'string', 'description' => __( 'Gradient end color.', 'elementor-mcp' ) ),
+			'gradient_type'    => array( 'type' => 'string', 'description' => __( 'Gradient type: linear or radial.', 'elementor-mcp' ) ),
+			'gradient_angle'   => array( 'type' => 'number', 'description' => __( 'Linear gradient angle in degrees (default 135).', 'elementor-mcp' ) ),
 		);
 	}
 
@@ -363,7 +371,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			'e-heading',
 			function ( $input ) {
 				$settings = array();
-				$settings['title'] = Elementor_MCP_Atomic_Props::html( sanitize_text_field( $input['title'] ?? 'Heading' ) );
+				$settings['title'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['title'] ?? 'Heading' ) );
 				$settings['tag']   = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['tag'] ?? 'h2' ) );
 
 				if ( ! empty( $input['link'] ) ) {
@@ -393,7 +401,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			'e-paragraph',
 			function ( $input ) {
 				$settings = array();
-				$settings['text'] = Elementor_MCP_Atomic_Props::html( sanitize_text_field( $input['content'] ?? 'Paragraph text' ) );
+				$settings['paragraph'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['content'] ?? 'Paragraph text' ) );
 
 				if ( ! empty( $input['link'] ) ) {
 					$settings['link'] = Elementor_MCP_Atomic_Props::link( esc_url_raw( $input['link'] ) );
@@ -423,7 +431,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			'e-button',
 			function ( $input ) {
 				$settings = array();
-				$settings['text'] = Elementor_MCP_Atomic_Props::html( sanitize_text_field( $input['text'] ?? 'Click Here' ) );
+				$settings['text'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['text'] ?? 'Click Here' ) );
 
 				if ( ! empty( $input['link'] ) ) {
 					$target_blank = ! empty( $input['target_blank'] );
@@ -500,11 +508,15 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 				$svg_id  = absint( $input['svg_id'] ?? 0 );
 				$svg_url = esc_url_raw( $input['svg_url'] ?? '' );
 
-				if ( $svg_id ) {
-					$url = wp_get_attachment_url( $svg_id );
-					$settings['svg'] = Elementor_MCP_Atomic_Props::image( $svg_id, $url ?: '' );
-				} elseif ( $svg_url ) {
-					$settings['svg'] = Elementor_MCP_Atomic_Props::image( 0, $svg_url );
+				// e-svg uses Image_Src_Prop_Type ($$type: image-src) whose validate_value()
+				// accepts exactly ONE of id/url. Sending both (via ::image()) fails → default
+				// placeholder SVG. Emit image-src with a single `url` key.
+				$src_url = $svg_id ? ( wp_get_attachment_url( $svg_id ) ?: '' ) : $svg_url;
+				if ( $src_url ) {
+					$settings['svg'] = array(
+						'$$type' => 'image-src',
+						'value'  => array( 'url' => array( '$$type' => 'url', 'value' => $src_url ) ),
+					);
 				}
 
 				if ( ! empty( $input['css_id'] ) ) {

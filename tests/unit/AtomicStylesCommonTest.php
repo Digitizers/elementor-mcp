@@ -39,4 +39,54 @@ class AtomicStylesCommonTest extends TestCase {
 		$this->assertSame( 'color', $props['background']['value']['color']['$$type'] );
 		$this->assertSame( '#112233', $props['background']['value']['color']['value'] );
 	}
+
+	public function test_max_width_emitted_as_size_prop(): void {
+		$props = \Elementor_MCP_Atomic_Styles::build_common_props( [ 'max_width' => 1360 ] );
+		$this->assertArrayHasKey( 'max-width', $props );
+		$this->assertSame( 'size', $props['max-width']['$$type'] );
+		$this->assertSame( 1360.0, (float) $props['max-width']['value']['size'] );
+		$this->assertSame( 'px', $props['max-width']['value']['unit'] );
+	}
+
+	public function test_border_props_emit_valid_schema_keys(): void {
+		$props = \Elementor_MCP_Atomic_Styles::build_common_props( [
+			'border_width' => 1,
+			'border_color' => '#E6EAF0',
+			'border_style' => 'solid',
+		] );
+		$this->assertSame( 'size', $props['border-width']['$$type'] );
+		$this->assertSame( 1.0, (float) $props['border-width']['value']['size'] );
+		$this->assertSame( 'color', $props['border-color']['$$type'] );
+		$this->assertSame( '#E6EAF0', $props['border-color']['value'] );
+		$this->assertSame( 'string', $props['border-style']['$$type'] );
+		$this->assertSame( 'solid', $props['border-style']['value'] );
+	}
+
+	public function test_gradient_emits_background_overlay_shape(): void {
+		$props = \Elementor_MCP_Atomic_Styles::build_common_props( [
+			'gradient_from' => '#0B0F1A',
+			'gradient_to'   => '#15203F',
+			'gradient_type' => 'radial',
+		] );
+		$this->assertArrayHasKey( 'background', $props );
+		$overlay = $props['background']['value']['background-overlay'];
+		$this->assertSame( 'background-overlay', $overlay['$$type'] );
+		$item = $overlay['value'][0];
+		$this->assertSame( 'background-gradient-overlay', $item['$$type'] );
+		$this->assertSame( 'radial', $item['value']['type']['value'] );
+		$stops = $item['value']['stops'];
+		$this->assertSame( 'gradient-color-stop', $stops['$$type'] );
+		$this->assertSame( '#0B0F1A', $stops['value'][0]['value']['color']['value'] );
+		$this->assertSame( '#15203F', $stops['value'][1]['value']['color']['value'] );
+	}
+
+	public function test_gradient_preserves_solid_background_color_base(): void {
+		$props = \Elementor_MCP_Atomic_Styles::build_common_props( [
+			'background_color' => '#0B0F1A',
+			'gradient_from'    => '#0B0F1A',
+			'gradient_to'      => '#15203F',
+		] );
+		$this->assertSame( '#0B0F1A', $props['background']['value']['color']['value'], 'solid base color kept' );
+		$this->assertArrayHasKey( 'background-overlay', $props['background']['value'], 'overlay added on top' );
+	}
 }

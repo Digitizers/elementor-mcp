@@ -124,6 +124,7 @@ class Elementor_MCP_Atomic_Styles {
 			'margin_top'     => 'margin-block-start',
 			'margin_bottom'  => 'margin-block-end',
 			'width'          => 'width',
+			'max_width'      => 'max-width',
 			'min_height'     => 'min-height',
 			'border_radius'  => 'border-radius',
 		);
@@ -165,6 +166,59 @@ class Elementor_MCP_Atomic_Styles {
 		// string value is rejected by the schema and dropped.
 		if ( isset( $params['color'] ) ) {
 			$props['color'] = array( '$$type' => 'color', 'value' => $params['color'] );
+		}
+
+		// Border — atomic schema keys: border-width (Size), border-color (Color),
+		// border-style (String enum: solid/dashed/...).
+		if ( isset( $params['border_width'] ) ) {
+			$unit = $params['border_width_unit'] ?? 'px';
+			$props['border-width'] = Elementor_MCP_Atomic_Props::size( (float) $params['border_width'], $unit );
+		}
+		if ( isset( $params['border_color'] ) ) {
+			$props['border-color'] = array( '$$type' => 'color', 'value' => $params['border_color'] );
+		}
+		if ( isset( $params['border_style'] ) ) {
+			$props['border-style'] = Elementor_MCP_Atomic_Props::string( $params['border_style'] );
+		}
+
+		// Gradient — emit a `background.background-overlay[]` gradient item. A flat
+		// `background-color` shape (above) is preserved as the base if both are set.
+		if ( isset( $params['gradient_from'], $params['gradient_to'] ) ) {
+			$type     = $params['gradient_type'] ?? 'linear';
+			$angle    = isset( $params['gradient_angle'] ) ? (float) $params['gradient_angle'] : 135;
+			$pos      = $params['gradient_position'] ?? 'center center';
+			$from_off = isset( $params['gradient_from_offset'] ) ? (float) $params['gradient_from_offset'] : 0;
+			$to_off   = isset( $params['gradient_to_offset'] ) ? (float) $params['gradient_to_offset'] : 100;
+			$overlay  = array(
+				'type'      => Elementor_MCP_Atomic_Props::string( $type ),
+				'angle'     => array( '$$type' => 'number', 'value' => $angle ),
+				'stops'     => array(
+					'$$type' => 'gradient-color-stop',
+					'value'  => array(
+						array(
+							'$$type' => 'color-stop',
+							'value'  => array(
+								'color'  => array( '$$type' => 'color', 'value' => $params['gradient_from'] ),
+								'offset' => array( '$$type' => 'number', 'value' => $from_off ),
+							),
+						),
+						array(
+							'$$type' => 'color-stop',
+							'value'  => array(
+								'color'  => array( '$$type' => 'color', 'value' => $params['gradient_to'] ),
+								'offset' => array( '$$type' => 'number', 'value' => $to_off ),
+							),
+						),
+					),
+				),
+				'positions' => Elementor_MCP_Atomic_Props::string( $pos ),
+			);
+			$bg = isset( $props['background'] ) ? $props['background'] : array( '$$type' => 'background', 'value' => array() );
+			$bg['value']['background-overlay'] = array(
+				'$$type' => 'background-overlay',
+				'value'  => array( array( '$$type' => 'background-gradient-overlay', 'value' => $overlay ) ),
+			);
+			$props['background'] = $bg;
 		}
 
 		return $props;

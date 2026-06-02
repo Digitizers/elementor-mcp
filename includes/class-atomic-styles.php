@@ -113,20 +113,70 @@ class Elementor_MCP_Atomic_Styles {
 	 * @param array $params Flat style parameters.
 	 * @return array CSS props in $$type format.
 	 */
+	/**
+	 * Builds padding/margin for the live Elementor major.
+	 *
+	 *  - 3.x: per-side `<prop>-block-start|inline-end|block-end|inline-start` (Size).
+	 *  - 4.x: a single `<prop>` = Size (uniform) or a `dimensions` shape (per-side),
+	 *         since 4.x dropped the per-side keys (schema = Union(Size | Dimensions)).
+	 *         Verified against Elementor 4.1.1 style-schema.
+	 *
+	 * @param string $prop   'padding' or 'margin'.
+	 * @param array  $params Flat params: `<prop>` (uniform) + `<prop>_top/right/bottom/left`.
+	 * @return array CSS-prop map.
+	 */
+	private static function build_spacing( string $prop, array $params ): array {
+		$unit  = $params[ $prop . '_unit' ] ?? 'px';
+		$sides = array(
+			'block-start'  => $params[ $prop . '_top' ]    ?? null,
+			'inline-end'   => $params[ $prop . '_right' ]  ?? null,
+			'block-end'    => $params[ $prop . '_bottom' ] ?? null,
+			'inline-start' => $params[ $prop . '_left' ]   ?? null,
+		);
+		$uniform  = $params[ $prop ] ?? null;
+		$has_side = array_filter( $sides, static function ( $v ) {
+			return null !== $v;
+		} );
+
+		if ( null === $uniform && ! $has_side ) {
+			return array();
+		}
+
+		if ( Elementor_MCP_Atomic_Props::is_v4() ) {
+			if ( null !== $uniform && ! $has_side ) {
+				return array( $prop => Elementor_MCP_Atomic_Props::size( (float) $uniform, $unit ) );
+			}
+			$dim = array();
+			foreach ( $sides as $css => $val ) {
+				$v = $val ?? $uniform;
+				if ( null !== $v ) {
+					$dim[ $css ] = Elementor_MCP_Atomic_Props::size( (float) $v, $unit );
+				}
+			}
+			return array( $prop => array( '$$type' => 'dimensions', 'value' => $dim ) );
+		}
+
+		// 3.x per-side keys.
+		$out = array();
+		foreach ( $sides as $css => $val ) {
+			$v = $val ?? $uniform;
+			if ( null !== $v ) {
+				$out[ $prop . '-' . $css ] = Elementor_MCP_Atomic_Props::size( (float) $v, $unit );
+			}
+		}
+		return $out;
+	}
+
 	public static function build_common_props( array $params ): array {
 		$props = array();
 
+		// Plain Size keys (same in 3.x and 4.x). `height` (4.x) is additive + harmless.
 		$size_mappings = array(
-			'padding_top'    => 'padding-block-start',
-			'padding_right'  => 'padding-inline-end',
-			'padding_bottom' => 'padding-block-end',
-			'padding_left'   => 'padding-inline-start',
-			'margin_top'     => 'margin-block-start',
-			'margin_bottom'  => 'margin-block-end',
-			'width'          => 'width',
-			'max_width'      => 'max-width',
-			'min_height'     => 'min-height',
-			'border_radius'  => 'border-radius',
+			'width'         => 'width',
+			'max_width'     => 'max-width',
+			'min_height'    => 'min-height',
+			'height'        => 'height',
+			'border_radius' => 'border-radius',
 		);
 
 		foreach ( $size_mappings as $input_key => $css_prop ) {
@@ -139,14 +189,9 @@ class Elementor_MCP_Atomic_Styles {
 			}
 		}
 
-		if ( isset( $params['padding'] ) ) {
-			$unit = $params['padding_unit'] ?? 'px';
-			$size_val = Elementor_MCP_Atomic_Props::size( (float) $params['padding'], $unit );
-			$props['padding-block-start']  = $size_val;
-			$props['padding-block-end']    = $size_val;
-			$props['padding-inline-start'] = $size_val;
-			$props['padding-inline-end']   = $size_val;
-		}
+		// padding + margin — the schema differs by Elementor major (see build_spacing).
+		$props += self::build_spacing( 'padding', $params );
+		$props += self::build_spacing( 'margin', $params );
 
 		// Atomic's CSS engine validates every style prop against its style-schema
 		// and silently drops invalid keys. `background-color` is NOT a valid key —

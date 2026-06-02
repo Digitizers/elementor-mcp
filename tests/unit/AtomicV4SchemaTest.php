@@ -52,4 +52,31 @@ class AtomicV4SchemaTest extends TestCase {
 		$this->v( '3.31.5' );
 		$this->assertSame( 'image-src', \Elementor_MCP_Atomic_Props::is_v4() ? 'svg-src' : 'image-src' );
 	}
+
+	/** C — uniform padding: single Size on 4.x, four per-side keys on 3.x. */
+	public function test_padding_uniform_by_version(): void {
+		$this->v( '4.1.1' );
+		$p = \Elementor_MCP_Atomic_Styles::build_common_props( array( 'padding' => 40 ) );
+		$this->assertSame( 'size', $p['padding']['$$type'], 'v4 uniform padding = Size' );
+		$this->assertArrayNotHasKey( 'padding-block-start', $p );
+		$this->v( '3.31.5' );
+		$p = \Elementor_MCP_Atomic_Styles::build_common_props( array( 'padding' => 40 ) );
+		$this->assertArrayHasKey( 'padding-block-start', $p, 'v3 = per-side keys' );
+		$this->assertArrayNotHasKey( 'padding', $p );
+	}
+
+	/** C — per-side padding on 4.x = dimensions shape. */
+	public function test_padding_per_side_v4_dimensions(): void {
+		$this->v( '4.1.1' );
+		$p = \Elementor_MCP_Atomic_Styles::build_common_props( array( 'padding_top' => 120, 'padding_bottom' => 90 ) );
+		$this->assertSame( 'dimensions', $p['padding']['$$type'] );
+		$this->assertSame( 120.0, $p['padding']['value']['block-start']['value']['size'] );
+		$this->assertArrayNotHasKey( 'inline-end', $p['padding']['value'] );
+	}
+
+	/** E — height is a Size key (both majors). */
+	public function test_height_size_key(): void {
+		$p = \Elementor_MCP_Atomic_Styles::build_common_props( array( 'height' => 30 ) );
+		$this->assertSame( 'size', $p['height']['$$type'] );
+	}
 }

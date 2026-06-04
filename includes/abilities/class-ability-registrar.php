@@ -134,6 +134,11 @@ class Elementor_MCP_Ability_Registrar {
 		$custom_code->register();
 		$this->ability_names = array_merge( $this->ability_names, $custom_code->get_ability_names() );
 
+		// Media Library abilities (list-media — query a site's own uploaded images).
+		$media_library = new Elementor_MCP_Media_Library_Abilities( $this->data );
+		$media_library->register();
+		$this->ability_names = array_merge( $this->ability_names, $media_library->get_ability_names() );
+
 		// Atomic widget abilities (Elementor 4.0+). Self-guards on version check.
 		$atomic_widgets = new Elementor_MCP_Atomic_Widget_Abilities( $this->data, $this->factory );
 		$atomic_widgets->register();

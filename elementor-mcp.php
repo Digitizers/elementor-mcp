@@ -561,6 +561,7 @@ function elementor_mcp_init(): void {
 	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-stock-image-abilities.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-svg-icon-abilities.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-custom-code-abilities.php';
+	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-media-library-abilities.php';
 	// Brand Kits (Pro). The writer + backup store + fetcher + abilities load
 	// unconditionally (no admin dependency) so the MCP REST/CLI/proxy surface
 	// can reach them; every write method is independently Pro-gated.

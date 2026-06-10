@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.10.0 — 2026-06-11
+
+- New: `list-global-classes` — reads Elementor's Class Manager (Global Classes), mapping opaque `g-<hash>` IDs to their human names and the CSS each defines per breakpoint/state. Read-only, Elementor 4.0+. Ported from upstream msrbuilds/elementor-mcp (#55, with the #57 defensive-resolve fix).
+
 ## 1.9.1 — 2026-06-11
 
 Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):

@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.12.2 — 2026-06-13
+
+- Plugin header now reflects the Digitizers fork identity (`Author: Digitizers`, `Plugin URI: github.com/Digitizers/elementor-mcp`); the original author (Mian Shahzad Raza / msrbuilds) is credited in the description. Also fixed a malformed `Plugin URI`.
+
 ## 1.12.1 — 2026-06-12
 
 Codex review follow-ups on the ported performance + security tools:

@@ -101,6 +101,14 @@ class PageAuditTest extends TestCase {
 	}
 
 	/** @test */
+	public function ranged_206_status_is_treated_as_pass(): void {
+		// The loopback fetch sends a Range header, so a range-honoring server
+		// returns 206 Partial Content for a healthy page — must not be a warning.
+		$result = $this->audit->analyze( $this->fetched( '<html></html>', array(), 206 ), false );
+		$this->assertSame( 'pass', $this->status_of( $result, 'http_status' ) );
+	}
+
+	/** @test */
 	public function safe_redirect_target_allows_same_origin_absolute(): void {
 		$next = $this->audit->safe_redirect_target( 'https://example.com/landing/', 'https://example.com/', 'https://example.com/' );
 		$this->assertSame( 'https://example.com/landing/', $next );

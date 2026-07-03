@@ -227,9 +227,10 @@ class Elementor_MCP_Performance_Page_Audit {
 		$host     = (string) ( $fetched['host'] ?? '' );
 		$findings = array();
 
-		// HTTP status.
-		$findings[] = ( 200 === $status )
-			? Elementor_MCP_Performance_Finding::make( 'http_status', 'page', 'HTTP status', 'pass', $status, 'Page returned HTTP 200.' )
+		// HTTP status. 206 is a healthy response to our ranged loopback request
+		// (the fetch sends a Range header), so treat it as a pass like 200.
+		$findings[] = ( 200 === $status || 206 === $status )
+			? Elementor_MCP_Performance_Finding::make( 'http_status', 'page', 'HTTP status', 'pass', $status, sprintf( 'Page returned HTTP %d.', $status ) )
 			: Elementor_MCP_Performance_Finding::make( 'http_status', 'page', 'HTTP status', 'warning', $status, sprintf( 'Page returned HTTP %d.', $status ), 'A non-200 status means the analyzed URL is redirecting or erroring; verify the target.' );
 
 		// Response time.

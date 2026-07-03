@@ -31,8 +31,8 @@ $elementor_mcp_current_ver   = null;
 $elementor_mcp_current_items = array();
 
 foreach ( explode( "\n", $elementor_mcp_changelog_raw ) as $elementor_mcp_line ) {
-	// Match version headers: ## [x.x.x]
-	if ( preg_match( '/^## \[([^\]]+)\]/', $elementor_mcp_line, $elementor_mcp_matches ) ) {
+	// Match version headers, with or without brackets: `## [x.x.x]` or `## x.x.x — date`.
+	if ( preg_match( '/^## \[?([0-9][^\]\s]*)\]?/', $elementor_mcp_line, $elementor_mcp_matches ) ) {
 		// Save previous version block.
 		if ( null !== $elementor_mcp_current_ver ) {
 			$elementor_mcp_versions[] = array(

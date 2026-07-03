@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.10.1 — 2026-06-12
+
+- CI: PHPUnit now runs the full committed suite (added SEO + tests/unit root coverage that were previously unregistered); the matrix includes PHP 8.0 (php -l lint) to match the declared `Requires PHP: 8.0`.
+
 ## 1.10.0 — 2026-06-11
 
 - New: `list-global-classes` — reads Elementor's Class Manager (Global Classes), mapping opaque `g-<hash>` IDs to their human names and the CSS each defines per breakpoint/state. Read-only, Elementor 4.0+. Ported from upstream msrbuilds/elementor-mcp (#55, with the #57 defensive-resolve fix).

@@ -1,7 +1,13 @@
 name: Tests
 
-# Runs the PHPUnit suite (Security / Capabilities / Input / Functional).
+# Runs the PHPUnit suite (Security / Capabilities / Input / Functional / Regression / SEO / Unit).
 # The fork ships composer.json + phpunit.xml + tests/ but had no CI to run them.
+#
+# The matrix includes PHP 8.0 to match the plugin's declared `Requires PHP: 8.0`
+# (elementor-mcp.php header + readme.txt). phpunit.xml targets the PHPUnit 10
+# config schema, and PHPUnit 10 requires PHP >= 8.1, so the 8.0 job runs only
+# the `php -l` syntax lint (the primary goal: catching 8.0-incompatible syntax)
+# and skips the PHPUnit step. PHP 8.1/8.2 run the full committed test suite.
 
 on:
   push:
@@ -19,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ["8.1", "8.2"]
+        php: ["8.0", "8.1", "8.2"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,5 +45,9 @@ jobs:
           find includes elementor-mcp.php -name '*.php' -print0 \
             | xargs -0 -n1 -P4 php -l > /dev/null
 
+      # PHPUnit 10 (pinned via phpunit.xml's 10.0 schema) requires PHP >= 8.1,
+      # so it can't run on the 8.0 job. The php -l lint step above already
+      # covers PHP 8.0 syntax compatibility for that job.
       - name: PHPUnit
+        if: matrix.php != '8.0'
         run: vendor/bin/phpunit --testdox

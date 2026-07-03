@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.11.0 — 2026-06-12
+
+- New: `analyze-performance` — read-only page + server + WordPress performance audit producing a scored (0-100 / A-F) report with ranked recommendations. Ported from upstream msrbuilds/elementor-mcp (v3.0.0), including the same-host-redirect SSRF hardening.
+
 ## 1.10.1 — 2026-06-12
 
 - CI: PHPUnit now runs the full committed suite (added SEO + tests/unit root coverage that were previously unregistered); the matrix includes PHP 8.0 (php -l lint) to match the declared `Requires PHP: 8.0`.

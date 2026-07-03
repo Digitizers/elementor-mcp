@@ -157,6 +157,14 @@ For remote WordPress sites, environments without WP-CLI, or when your AI client 
 
 Extract `bin/mcp-proxy.mjs` from the plugin ZIP, save it on the machine running your AI client, and point `args` at that **local** path (e.g. `["C:\\local\\path\\to\\mcp-proxy.mjs"]`) — not at the copy inside `wp-content/plugins/...` on the server. Re-extract it after plugin updates to pick up proxy fixes.
 
+**Required environment variables** (the proxy exits immediately if any is missing):
+
+| Variable | Description |
+|---|---|
+| `WP_URL` | Your WordPress site URL (e.g., `https://example.com`). |
+| `WP_USERNAME` | WordPress username. |
+| `WP_APP_PASSWORD` | An [Application Password](https://make.wordpress.org/core/2020/11/05/application-passwords-integration-guide/) for that user. |
+
 **Optional environment variables:**
 
 | Variable | Description |

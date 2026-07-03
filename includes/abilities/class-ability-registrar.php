@@ -147,6 +147,13 @@ class Elementor_MCP_Ability_Registrar {
 		$global_classes->register();
 		$this->ability_names = array_merge( $this->ability_names, $global_classes->get_ability_names() );
 
+		// Performance Analyzer (analyze-performance — read-only page + server + WP
+		// audit → scored report). Independent of Elementor version; the ability's
+		// manage_options permission callback is the guard.
+		$performance = new Elementor_MCP_Performance_Abilities();
+		$performance->register();
+		$this->ability_names = array_merge( $this->ability_names, $performance->get_ability_names() );
+
 		// Atomic widget abilities (Elementor 4.0+). Self-guards on version check.
 		$atomic_widgets = new Elementor_MCP_Atomic_Widget_Abilities( $this->data, $this->factory );
 		$atomic_widgets->register();

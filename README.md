@@ -1,52 +1,34 @@
-# MCP Tools for Elementor
+# Elementor MCP — Digitizers fork
 
-[![Version](https://img.shields.io/github/v/release/msrbuilds/elementor-mcp?label=version&color=blue)](https://github.com/msrbuilds/elementor-mcp/releases)
+**MCP Tools for Elementor.** A WordPress plugin that exposes Elementor's data, widgets, and page-design tools to AI agents over the [Model Context Protocol](https://modelcontextprotocol.io/).
+
+[![Version](https://img.shields.io/github/v/release/Digitizers/elementor-mcp?label=version&color=blue)](https://github.com/Digitizers/elementor-mcp/releases)
+[![Tests](https://github.com/Digitizers/elementor-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Digitizers/elementor-mcp/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-green.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-%3E%3D8.0-8892BF.svg)](https://php.net)
 [![WordPress](https://img.shields.io/badge/WordPress-%3E%3D6.9-21759B.svg)](https://wordpress.org)
 [![Elementor](https://img.shields.io/badge/Elementor-%3E%3D3.20-92003B.svg)](https://elementor.com)
-[![MCP Tools](https://img.shields.io/badge/MCP_Tools-up%20to%20118-orange.svg)](#available-tools)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![GitHub Issues](https://img.shields.io/github/issues/msrbuilds/elementor-mcp)](https://github.com/msrbuilds/elementor-mcp/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/msrbuilds/elementor-mcp?style=social)](https://github.com/msrbuilds/elementor-mcp)
+[![GitHub Issues](https://img.shields.io/github/issues/Digitizers/elementor-mcp)](https://github.com/Digitizers/elementor-mcp/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/Digitizers/elementor-mcp?style=social)](https://github.com/Digitizers/elementor-mcp)
 
-A WordPress plugin that extends the [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter) to expose Elementor data, widgets, and page design tools as [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) tools. This enables AI agents like Claude, Cursor, and other MCP-compatible clients to create and manipulate Elementor page designs programmatically.
+This is the **Digitizers fork of [`msrbuilds/elementor-mcp`](https://github.com/msrbuilds/elementor-mcp)** (GPL). It keeps the original plugin's identity — the `elementor-mcp` slug, the `Elementor_MCP_*` classes, and the `elementor-mcp/` MCP namespace — and takes it in its own direction: a **correct Elementor 4.x atomic engine**, a **bundled MCP Adapter** so it installs as a single plugin, net-new **read-only inspection tools** (`list-media`, `list-global-classes`, `analyze-performance`, `scan-security`), and a **hardened, CI-tested** security posture. It is the engine behind the **Elementor Pro Studio** skill ([`Digitizers/claude-elementor-pro`](https://github.com/Digitizers/claude-elementor-pro), published on ClawHub as `elementor-pro-studio`), which drives it to build and edit real Elementor pages.
 
-<img width="1995" height="1141" alt="image" src="https://github.com/user-attachments/assets/06ab916a-0146-4a5f-828c-d5aa409cb072" />
+The plugin extends the [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter) so AI clients — Claude Code, Claude Desktop, Cursor, and other MCP-compatible tools — can create and manipulate Elementor page designs programmatically over HTTP with just a WordPress Application Password.
 
+## What this fork adds
 
-# Introducing EMCP Pro! 25% Discount for GitHub Community: MSRGIT
-## [Grab the Deal](https://emcp.msrbuilds.com/pricing)
-<img width="1697" height="250" alt="image" src="https://github.com/user-attachments/assets/f588d365-1986-4132-90d3-4d44a28da464" />
+Relative to upstream, and verified against [`CHANGELOG.md`](CHANGELOG.md) and the plugin source:
 
+- **Elementor 4.x-correct atomic engine.** Independent 4.0 GA work: atomic-element detection gating (`is_v4` based on registered atomic types / active experiments, not the `ELEMENTOR_VERSION` string), correct atomic prop shapes, and working flex / padding / margin / colour / background / typography output — ahead of upstream on 4.x correctness.
+- **Bundled WordPress MCP Adapter.** The adapter ships inside the plugin (`includes/vendors/mcp-adapter/`), so it installs as **one** plugin. When a standalone MCP Adapter plugin is already active, the fork defers to it (no double-load).
+- **Net-new read-only tools**, ported and adapted for this fork:
+  - `list-media` — query the site's own Media Library uploads.
+  - `list-global-classes` — read Elementor 4.0's Class Manager (Global Classes), mapping opaque `g-<hash>` IDs to their names and the CSS each defines per breakpoint/state.
+  - `analyze-performance` — read-only page + server + WordPress performance audit → scored (0–100 / A–F) report with ranked recommendations, with SSRF-guarded loopback fetches.
+  - `scan-security` — read-only malware / core-integrity / hardening / outdated-software scan → scored report that returns `path:line` + snippet, never full file contents.
+- **Security hardening + CI.** A full **F-001…F-027** regression suite (XSS / SVG-sanitiser / path-disclosure and other fixes) plus a committed **PHPUnit CI** workflow ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)) running PHP 8.0 (syntax lint) and PHP 8.1 / 8.2 (full suite: Security / Capabilities / Input / Functional / Regression / SEO / Unit).
 
-## Features
-
-- **Up to 118 MCP Tools** covering the full Elementor page-building workflow. Counts scale with your environment:
-  - 61 tools — free Elementor only
-  - 74 tools — free Elementor + Elementor 4.0 atomic elements
-  - 100 tools — with Elementor Pro
-  - 113 tools — with Elementor Pro + Elementor 4.0
-  - 118 tools — with Elementor Pro + WooCommerce + Elementor 4.0
-- **Query & Discovery** — List widgets, inspect page structures, read element settings, browse templates, view global design tokens
-- **Page Management** — Create pages, update settings, clear content, import/export templates
-- **Layout Tools** — Add flexbox containers, move/remove/duplicate elements, update containers, find elements, batch update, reorder children, get container schema
-- **Widget Tools** — Universal add/update for any widget, plus 27 free convenience shortcuts, 30 conditional Pro widget tools, and 5 WooCommerce widget tools
-- **Pro Widget Support** — Conditional tools for nav menu, loop grid, loop carousel, media carousel, nested tabs, nested accordion, portfolio, author box, login, code highlight, reviews, off-canvas, progress tracker, search, and more (only register when Elementor Pro is active)
-- **Atomic Elements (Elementor 4.0+)** — 13 dedicated tools for Elementor's atomic system: flexbox, div-block, heading, paragraph, button, image, svg, youtube, video, divider, plus universal `add-atomic-widget` / `update-atomic-widget` and `detect-elementor-version`
-- **Theme Builder** — Create theme templates (header/footer/single/archive), set display conditions (Pro)
-- **Dynamic Tags** — List all available dynamic tags, bind dynamic data to element settings (Pro)
-- **Popup Builder** — Create popup templates, configure triggers/conditions/timing (Pro)
-- **Template Tools** — Save pages or elements as reusable templates, apply templates to pages
-- **Global Settings** — Update site-wide color palettes and typography presets
-- **Brand Kits** — One-click coordinated color + typography kits. Apply a curated brand kit and the whole site re-skins (system tokens + Theme Style defaults); back up and restore any time. **10 kits are free to apply**; the full 50-kit library and the `apply-brand-kit` MCP tool are Pro
-- **AI Widget Builder (Pro)** — Let an AI agent design custom Elementor widgets from a structured spec — no hand-written PHP. The plugin compiles the spec + an HTML template into a sandboxed `Widget_Base` class (35 control types, optional per-widget CSS/JS) that appears under a "Custom (EMCP)" category in the editor; a runtime safety net keeps a bad widget from breaking the editor
-- **Composite Tools** — Build a complete page from a declarative JSON structure in a single call
-- **Stock Images** — Search Openverse for Creative Commons images, sideload into Media Library, add to pages
-- **SVG Icons** — Upload SVG icons from URL or raw markup for use with Elementor icon widgets
-- **Custom Code** — Add custom CSS (element/page level), inject JavaScript, create site-wide code snippets for head/body injection
-- **Low-tools Mode** — One-click toggle that filters the active tool list to a curated essentials set (~50 tools) so MCP clients with strict tool caps (Antigravity, Gemini API, etc.) stay under their limits
-- **Admin Dashboard** — Dedicated top-level **EMCP Tools** menu with Tools / Connection / Prompts / Templates / Brand Kits / Skills / Widget Builder / Changelog tabs. Toggle individual tools on/off, view connection configs for all supported MCP clients, and reach the **Get Support** portal from any tab
+This fork deliberately keeps the `elementor-mcp` identity and does **not** adopt upstream's later `emcp-tools` rename.
 
 ## Requirements
 
@@ -61,23 +43,22 @@ A WordPress plugin that extends the [WordPress MCP Adapter](https://github.com/W
 ## Installation
 
 1. Install and activate [Elementor](https://wordpress.org/plugins/elementor/) (version 3.20+).
-2. Install and activate the [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter) plugin.
-3. Download the latest release zip from the [Releases page](https://github.com/msrbuilds/elementor-mcp/releases/).
-4. In WordPress, go to **Plugins > Add New > Upload Plugin** and upload the downloaded zip file.
-5. Activate the plugin through the **Plugins** menu in WordPress.
-6. Open the new **EMCP Tools** top-level menu in the WordPress admin sidebar to configure tools and view connection info.
+2. Download the latest release zip from this fork's [Releases page](https://github.com/Digitizers/elementor-mcp/releases/latest). (The Elementor Pro Studio skill's installer pulls `releases/latest` automatically.)
+3. In WordPress, go to **Plugins → Add New → Upload Plugin** and upload the zip. The MCP Adapter is bundled — no separate plugin install is required.
+4. Activate the plugin through the **Plugins** menu.
+5. Open the new **EMCP Tools** top-level menu in the WordPress admin sidebar to configure tools and view connection info.
 
-## Connecting to the MCP Server
+## Connecting to the MCP server
 
-Connect to your WordPress site from any AI client using HTTP. No proxy or Node.js needed — just a WordPress Application Password.
+Connect to your WordPress site from any AI client over HTTP. No proxy or Node.js needed — just a WordPress Application Password.
 
 ### Prerequisites
 
-1. Create an Application Password at **Users > Profile > Application Passwords**.
+1. Create an Application Password at **Users → Profile → Application Passwords**.
 2. Base64-encode your credentials: `echo -n "username:app-password" | base64`
 3. Your MCP endpoint is: `https://your-site.com/wp-json/mcp/elementor-mcp-server`
 
-> **Tip:** The plugin's **EMCP Tools > Connection** admin screen can generate all configs automatically — just enter your username and Application Password.
+> **Tip:** The plugin's **EMCP Tools → Connection** admin screen can generate every client config automatically — just enter your username and Application Password.
 
 ### Claude Code
 
@@ -149,26 +130,9 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 }
 ```
 
-### Antigravity
-
-Add to `~/.gemini/antigravity/mcp_config.json`:
-
-```json
-{
-    "mcpServers": {
-        "elementor-mcp": {
-            "serverUrl": "https://your-site.com/wp-json/mcp/elementor-mcp-server",
-            "headers": {
-                "Authorization": "Basic BASE64_ENCODED_CREDENTIALS"
-            }
-        }
-    }
-}
-```
-
 ### WP-CLI stdio (local development)
 
-For local development with WP-CLI available, you can use the stdio transport (no HTTP auth needed):
+For local development with WP-CLI available, use the stdio transport (no HTTP auth needed):
 
 ```json
 {
@@ -189,33 +153,9 @@ For local development with WP-CLI available, you can use the stdio transport (no
 
 ### Node.js proxy (remote sites or protocol compatibility)
 
-For remote WordPress sites, environments without WP-CLI, or when your AI client needs a different MCP protocol version, use the Node.js proxy. Your AI client launches it as a **local subprocess**, so it must run on the machine with the client — **not** on the WordPress server. On shared hosting you have no local access to the plugin directory, so use one of the two methods below.
+For remote WordPress sites, environments without WP-CLI, or when your AI client needs a different MCP protocol version, use the Node.js proxy. Your AI client launches it as a **local subprocess**, so it must run on the machine with the client — **not** on the WordPress server.
 
-**Recommended — `npx` runner (nothing to install or keep in sync):**
-
-```json
-{
-    "mcpServers": {
-        "elementor-mcp": {
-            "type": "stdio",
-            "command": "npx",
-            "args": ["-y", "@msrbuilds/emcp-proxy@latest"],
-            "env": {
-                "WP_URL": "https://your-site.com",
-                "WP_USERNAME": "admin",
-                "WP_APP_PASSWORD": "xxxx xxxx xxxx xxxx xxxx xxxx",
-                "MCP_PROTOCOL_VERSION": "2024-11-05"
-            }
-        }
-    }
-}
-```
-
-`npx` fetches the latest proxy on each launch, so there is no local copy to drift from the plugin version. Requires Node.js 18+ on the client machine.
-
-**Alternative — local copy of the proxy file:**
-
-Extract `bin/mcp-proxy.mjs` from the plugin ZIP, save it anywhere on the machine running your AI client, and point `args` at that **local** path (e.g. `["C:\\local\\path\\to\\mcp-proxy.mjs"]`) — not at the copy inside `wp-content/plugins/...` on the server. Re-extract it after plugin updates to pick up proxy fixes.
+Extract `bin/mcp-proxy.mjs` from the plugin ZIP, save it on the machine running your AI client, and point `args` at that **local** path (e.g. `["C:\\local\\path\\to\\mcp-proxy.mjs"]`) — not at the copy inside `wp-content/plugins/...` on the server. Re-extract it after plugin updates to pick up proxy fixes.
 
 **Optional environment variables:**
 
@@ -231,299 +171,95 @@ npx @modelcontextprotocol/inspector wp mcp-adapter serve \
   --server=elementor-mcp-server --user=admin --path=/path/to/wordpress
 ```
 
-## Available Tools
+## Tool overview
 
-### Query & Discovery (7 tools)
+All tool names are prefixed with `elementor-mcp/` in the MCP namespace (e.g. `elementor-mcp/list-widgets`); the MCP Adapter converts these to `elementor-mcp-list-widgets` for transport. The active tool count scales with the environment — some tools register only when Elementor 4.0 atomic elements, Elementor Pro, or WooCommerce are present.
 
-| Tool | Description |
+- **Query & discovery** — list widgets, inspect page structure, read element settings, list pages, browse templates, read global design tokens, `list-media`, `list-global-classes`.
+- **Page management** — create pages, update page settings, clear content, import/export templates.
+- **Layout & structure** — add/update flexbox containers, move/remove/duplicate elements, find elements, batch update, reorder children, read container schema.
+- **Widgets** — a universal `add-widget` / `update-widget` pair plus convenience shortcuts; Pro and WooCommerce widget tools register only when those plugins are active.
+- **Atomic elements (Elementor 4.0+)** — dedicated tools for the atomic system (flexbox, div-block, heading, paragraph, button, image, svg, youtube, video, divider) plus universal `add-atomic-widget` / `update-atomic-widget` and `detect-elementor-version`. These register only when atomic elements are actually available.
+- **Templates & theme builder** — save/apply templates; theme templates, display conditions, dynamic tags, and popups (Pro).
+- **Global settings** — update site-wide colour palette and typography.
+- **Composite** — `build-page`: create a complete page from a declarative JSON structure in one call.
+- **Stock images & SVG** — search Openverse, sideload images into the Media Library, upload SVG icons.
+- **Custom code** — add element/page CSS, inject JavaScript, manage site-wide code snippets.
+- **Audits** — `analyze-performance` (page + server + WP performance) and `scan-security` (malware / integrity / hardening / outdated software).
+
+The full tool tables (per-category, with parameters) are available in-plugin under **EMCP Tools**, where individual tools can be toggled on/off.
+
+## Permission model
+
+| Tool group | Required WordPress capability |
 |---|---|
-| `list-widgets` | All registered widget types with names, titles, icons, categories, keywords |
-| `get-widget-schema` | Full JSON Schema for a widget's settings (auto-generated from Elementor controls) |
-| `get-page-structure` | Element tree for a page (containers, widgets, nesting) |
-| `get-element-settings` | Current settings for a specific element on a page |
-| `list-pages` | All Elementor-enabled pages/posts |
-| `list-templates` | Saved Elementor templates from the template library |
-| `get-global-settings` | Active kit/global settings (colors, typography, spacing) |
-
-### Page Management (5 tools)
-
-| Tool | Description |
-|---|---|
-| `create-page` | Create a new WP page/post with Elementor enabled |
-| `update-page-settings` | Update page-level Elementor settings (background, padding, etc.) |
-| `delete-page-content` | Clear all Elementor content from a page |
-| `import-template` | Import JSON template structure into a page |
-| `export-page` | Export page's full Elementor data as JSON |
-
-### Layout & Structure (10 tools)
-
-| Tool | Description |
-|---|---|
-| `add-container` | Add a flexbox container (top-level or nested) |
-| `update-container` | Update settings on an existing container |
-| `move-element` | Move an element to a new parent/position |
-| `remove-element` | Remove an element and all children |
-| `duplicate-element` | Duplicate element with fresh IDs |
-| `get-container-schema` | Returns the JSON schema for container settings |
-| `find-element` | Find elements by type, settings, or CSS class within a page |
-| `update-element` | Update settings on any element (widget or container) by ID |
-| `batch-update` | Apply multiple element updates in a single call |
-| `reorder-elements` | Reorder child elements within a container |
-
-### Widgets (2 universal + 27 free + 30 Pro + 5 WooCommerce)
-
-| Tool | Description |
-|---|---|
-| `add-widget` | Universal: add any widget type to a container |
-| `update-widget` | Universal: update settings on an existing widget |
-| `add-heading` | Convenience: heading widget |
-| `add-text-editor` | Convenience: rich text editor widget |
-| `add-image` | Convenience: image widget |
-| `add-button` | Convenience: button widget |
-| `add-video` | Convenience: video widget |
-| `add-icon` | Convenience: icon widget |
-| `add-spacer` | Convenience: spacer widget |
-| `add-divider` | Convenience: divider widget |
-| `add-icon-box` | Convenience: icon box widget |
-| `add-accordion` | Convenience: collapsible accordion widget |
-| `add-alert` | Convenience: alert/notice widget |
-| `add-counter` | Convenience: animated counter widget |
-| `add-google-maps` | Convenience: embedded Google Maps widget |
-| `add-icon-list` | Convenience: icon list for features/checklists |
-| `add-image-box` | Convenience: image box (image + title + description) |
-| `add-image-carousel` | Convenience: rotating image carousel |
-| `add-progress` | Convenience: animated progress bar |
-| `add-social-icons` | Convenience: social media icon links |
-| `add-star-rating` | Convenience: star rating display |
-| `add-tabs` | Convenience: tabbed content widget |
-| `add-testimonial` | Convenience: testimonial with quote and author |
-| `add-toggle` | Convenience: toggle/expandable content |
-| `add-html` | Convenience: custom HTML code widget |
-| `add-menu-anchor` | Convenience: invisible anchor for one-page navigation |
-| `add-shortcode` | Convenience: embed WordPress shortcodes |
-| `add-rating` | Convenience: customizable rating widget |
-| `add-text-path` | Convenience: curved/circular text on a path |
-| `add-form` | Pro: form widget |
-| `add-posts-grid` | Pro: posts grid widget |
-| `add-countdown` | Pro: countdown timer widget |
-| `add-price-table` | Pro: price table widget |
-| `add-flip-box` | Pro: flip box widget |
-| `add-animated-headline` | Pro: animated headline widget |
-| `add-call-to-action` | Pro: call-to-action widget |
-| `add-slides` | Pro: full-width slides/slider |
-| `add-testimonial-carousel` | Pro: testimonial carousel/slider |
-| `add-price-list` | Pro: price list for menus/services |
-| `add-gallery` | Pro: advanced gallery (grid/masonry/justified) |
-| `add-share-buttons` | Pro: social share buttons |
-| `add-table-of-contents` | Pro: auto-generated table of contents |
-| `add-blockquote` | Pro: styled blockquote widget |
-| `add-lottie` | Pro: Lottie animation widget |
-| `add-hotspot` | Pro: image hotspot widget |
-| `add-nav-menu` | Pro: WordPress navigation menu |
-| `add-loop-grid` | Pro: dynamic post/CPT loop grid |
-| `add-loop-carousel` | Pro: dynamic post/CPT loop carousel |
-| `add-media-carousel` | Pro: media carousel for images/videos |
-| `add-nested-tabs` | Pro: nested tabs with container content |
-| `add-nested-accordion` | Pro: nested accordion with container content |
-| `add-portfolio` | Pro: portfolio grid widget |
-| `add-author-box` | Pro: post author box widget |
-| `add-login` | Pro: login form widget |
-| `add-code-highlight` | Pro: syntax-highlighted code block widget |
-| `add-reviews` | Pro: reviews/testimonials carousel widget |
-| `add-off-canvas` | Pro: off-canvas panel widget |
-| `add-progress-tracker` | Pro: scroll progress tracker widget |
-| `add-search` | Pro: search widget with live results support |
-| `add-wc-products` | Pro + WC: WooCommerce products grid |
-| `add-wc-add-to-cart` | Pro + WC: add-to-cart button |
-| `add-wc-cart` | Pro + WC: cart page widget |
-| `add-wc-checkout` | Pro + WC: checkout page widget |
-| `add-wc-menu-cart` | Pro + WC: menu cart icon widget |
-
-### Atomic Elements — Elementor 4.0+ (13 tools)
-
-These tools only register when Elementor >= 4.0 is detected. Legacy widget tools continue to work alongside them.
-
-| Tool | Description |
-|---|---|
-| `detect-elementor-version` | Returns Elementor version and whether atomic elements are supported. Call first to choose tool family. |
-| `add-flexbox` | Atomic flexbox container (`e-flexbox`). Params: direction, justify, align, gap, wrap, tag, padding, background_color |
-| `add-div-block` | Atomic div-block container (`e-div-block`). Params: tag, padding, background_color |
-| `add-atomic-widget` | Universal: add any atomic widget by type with raw `$$type` settings |
-| `update-atomic-widget` | Universal: partial-merge update on an existing atomic widget |
-| `add-atomic-heading` | Atomic heading (`e-heading`). Params: title, tag (h1-h6), link, css_id |
-| `add-atomic-paragraph` | Atomic paragraph (`e-paragraph`). Params: content, link, css_id |
-| `add-atomic-button` | Atomic button (`e-button`). Params: text, link, target_blank, css_id |
-| `add-atomic-image` | Atomic image (`e-image`). Params: image_id, image_url, alt, link, css_id |
-| `add-atomic-svg` | Atomic SVG (`e-svg`). Params: svg_id, svg_url, css_id |
-| `add-atomic-youtube` | Atomic YouTube embed (`e-youtube`). Params: video_url, css_id |
-| `add-atomic-video` | Atomic self-hosted video (`e-self-hosted-video`). Params: video_url, video_id, css_id |
-| `add-atomic-divider` | Atomic divider (`e-divider`). Params: css_id |
-
-### Templates & Theme Builder (8 tools)
-
-| Tool | Description |
-|---|---|
-| `save-as-template` | Save a page or element as reusable template |
-| `apply-template` | Apply a saved template to a page |
-| `create-theme-template` | Pro: Create theme builder template (header/footer/single/archive/error-404/loop-item) |
-| `set-template-conditions` | Pro: Set display conditions on a theme builder template |
-| `list-dynamic-tags` | Pro: List all available dynamic tags with groups and categories |
-| `set-dynamic-tag` | Pro: Bind a dynamic tag to a specific element setting |
-| `create-popup` | Pro: Create a popup template |
-| `set-popup-settings` | Pro: Set triggers, display conditions, and timing on a popup |
-
-### Global Settings (2 tools)
-
-| Tool | Description |
-|---|---|
-| `update-global-colors` | Update site-wide color palette in Elementor kit |
-| `update-global-typography` | Update site-wide typography in Elementor kit |
-
-### Composite (1 tool)
-
-| Tool | Description |
-|---|---|
-| `build-page` | Create complete page from declarative structure in one call |
-
-### Stock Images (3 tools)
-
-| Tool | Description |
-|---|---|
-| `search-images` | Search Openverse for Creative Commons images by keyword |
-| `sideload-image` | Download an external image URL into the WordPress Media Library |
-| `add-stock-image` | Search + sideload + add image widget to page in one call |
-
-### SVG Icons (1 tool)
-
-| Tool | Description |
-|---|---|
-| `upload-svg-icon` | Upload an SVG icon (from URL or raw markup) for use with icon/icon-box widgets |
-
-### Custom Code (4 tools)
-
-| Tool | Description |
-|---|---|
-| `add-custom-css` | Add custom CSS to an element or page-level with `selector` keyword support (Pro) |
-| `add-custom-js` | Inject JavaScript via HTML widget with automatic `<script>` wrapping |
-| `add-code-snippet` | Create site-wide Custom Code snippets for head/body injection (Pro) |
-| `list-code-snippets` | List all Custom Code snippets with location and status filters (Pro) |
-
-### Widget Builder — Pro (8 tools, off by default)
-
-Design and register custom Elementor widgets from a structured spec — no hand-written PHP. The generator compiles the spec + an HTML template (`{{control}}`, `{{#if}}`, `{{#each}}`) into a sandboxed `Widget_Base` class, escaping every value by its control type.
-
-| Tool | Description |
-|---|---|
-| `list-control-types` | List the supported control types + spec shape so agents build valid specs |
-| `validate-widget-spec` | Schema + generator dry-run; returns errors without persisting |
-| `create-custom-widget` | Generate + register a widget from a spec (auto-activates) |
-| `update-custom-widget` | Replace a widget's spec, regenerate, re-validate |
-| `get-custom-widget` | Return a widget's spec + generated PHP + status |
-| `list-custom-widgets` | List generated widgets (id, title, name, status) |
-| `set-widget-status` | Activate or deactivate a widget |
-| `delete-custom-widget` | Delete a widget (CPT + sandbox files) |
-
-> All tool names are prefixed with `elementor-mcp/` in the MCP namespace (e.g., `elementor-mcp/list-widgets`). The MCP Adapter converts these to `elementor-mcp-list-widgets` for transport.
-
-## Permission Model
-
-| Tool Group | Required WordPress Capability |
-|---|---|
-| Read/Query | `edit_posts` |
+| Read / query | `edit_posts` |
 | Page creation | `publish_pages` or `edit_pages` |
-| Widget/layout manipulation | `edit_posts` + ownership check |
+| Widget / layout manipulation | `edit_posts` + ownership check |
 | Template management | `edit_posts` |
-| Theme builder / Popups | `edit_posts` |
+| Theme builder / popups | `edit_posts` |
 | Dynamic tags | `edit_posts` + ownership check |
 | Global settings | `manage_options` |
 | Delete operations | `delete_posts` + ownership check |
 | Stock image search | `edit_posts` |
 | Stock image sideload | `upload_files` |
-| Custom CSS/JS | `edit_posts` + ownership check |
+| Custom CSS / JS | `edit_posts` + ownership check |
 | Code snippets | `manage_options` + `unfiltered_html` |
 
 ## Troubleshooting
 
 ### Tools not appearing in your AI client
 
-If the MCP server connects but no tools appear in Claude Code, Cursor, or other clients:
+If the MCP server connects but no tools appear:
 
-1. **Verify tools are registered.** Test the endpoint directly with curl to confirm the server returns tools:
+1. **Verify tools are registered.** Test the endpoint directly to confirm the server responds:
    ```bash
    curl -s -u admin:YOUR_APP_PASSWORD \
      https://your-site.com/wp-json/mcp/elementor-mcp-server \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
    ```
-   If this returns a valid JSON-RPC response with `serverInfo`, the server is working. The issue is likely a protocol version mismatch between the server and your client.
-
-2. **Check for protocol version mismatch.** The WordPress MCP Adapter reports protocol version `2025-06-18`. Some clients only support `2024-11-05`. If using the Node.js proxy, set the `MCP_PROTOCOL_VERSION` environment variable to override:
-   ```json
-   "env": {
-       "MCP_PROTOCOL_VERSION": "2024-11-05"
-   }
-   ```
-
-3. **Enable debug logging.** Add the `MCP_LOG_FILE` environment variable to your proxy config to capture the full request/response flow:
-   ```json
-   "env": {
-       "MCP_LOG_FILE": "/tmp/elementor-mcp-debug.log"
-   }
-   ```
-   The log will show the protocol version, session IDs, tools count, and response bodies.
-
-4. **Use the proxy instead of direct HTTP.** If you're using `type: "http"` to connect directly, your client must handle `Mcp-Session-Id` headers. Clients that don't support session management should use the Node.js proxy instead, which handles sessions automatically.
+   A valid JSON-RPC response with `serverInfo` means the server is working; the issue is likely a protocol version mismatch with your client.
+2. **Check for a protocol version mismatch.** The MCP Adapter reports `2025-06-18`. Some clients only support `2024-11-05`. If using the Node.js proxy, set `MCP_PROTOCOL_VERSION` to override.
+3. **Enable debug logging.** Add `MCP_LOG_FILE` to the proxy config to capture the full request/response flow.
+4. **Use the proxy instead of direct HTTP.** Clients that don't handle `Mcp-Session-Id` headers should use the Node.js proxy, which manages sessions automatically.
 
 ### Common errors
 
-- **"No MCP servers registered"** — Ensure the MCP Tools for Elementor plugin is active and all dependencies (Elementor, MCP Adapter, Abilities API) are met.
-- **HTTP 401** — Check your Application Password is correct and the user has `edit_posts` capability.
-- **"Missing Mcp-Session-Id header"** — The HTTP endpoint requires an `Mcp-Session-Id` header on all requests after `initialize`. Use the Node.js proxy (which handles this automatically) instead of direct HTTP connections.
-- **Session errors** — If connecting via direct HTTP, your client must capture the `Mcp-Session-Id` response header from `initialize` and include it on all subsequent requests.
-- **WP-CLI not found on Windows** — Use the full path to `php.exe` and `wp-cli.phar`.
+- **"No MCP servers registered"** — ensure the plugin is active and its dependencies (Elementor, bundled MCP Adapter, Abilities API) are met.
+- **HTTP 401** — check the Application Password and that the user has `edit_posts`.
+- **"Missing Mcp-Session-Id header"** — the HTTP endpoint requires an `Mcp-Session-Id` header after `initialize`; use the Node.js proxy instead of direct HTTP.
+- **WP-CLI not found on Windows** — use the full path to `php.exe` and `wp-cli.phar`.
 
-## Sample Prompts
+## Sample prompts
 
-The [`prompts/`](prompts/) directory includes ready-to-use landing page prompts that demonstrate the full power of MCP Tools for Elementor tools. Each prompt is a complete blueprint — paste it into your AI client and watch an entire page get built automatically.
+The [`prompts/`](prompts/) directory includes ready-to-use landing-page prompts that demonstrate the full workflow. Each is a complete blueprint — paste it into your AI client and watch a page get built.
 
 | Prompt | Industry | Description |
 |---|---|---|
-| [Local Business](prompts/LOCAL_BUSINESS.md) | General | Multi-purpose small business landing page with hero, services, testimonials, and contact |
-| [Dental Clinic](prompts/DENTAL_CLINIC.md) | Health & Wellness | Professional dental practice with services, team, insurance info, and appointment booking |
+| [Local Business](prompts/LOCAL_BUSINESS.md) | General | Multi-purpose small-business landing page with hero, services, testimonials, and contact |
+| [Dental Clinic](prompts/DENTAL_CLINIC.md) | Health & Wellness | Dental practice with services, team, insurance info, and appointment booking |
 | [Web Developer Portfolio](prompts/WEB_DEVELOPER_PORTFOLIO.md) | Professional Services | Developer portfolio with project showcase, tech stack, and contact form |
-| [Hair Salon](prompts/HAIR_SALON.md) | Lifestyle | Stylish salon page with services menu, stylist profiles, and booking |
+| [Hair Salon](prompts/HAIR_SALON.md) | Lifestyle | Salon page with services menu, stylist profiles, and booking |
 | [Car Wash](prompts/CAR_WASH.md) | Lifestyle | Car wash with wash packages, add-on services, and membership plans |
 
-Each prompt includes:
-- Complete design system (color palette, typography, spacing)
-- Image search keywords for stock photo sourcing
-- SVG icon specifications
-- Full page structure (hero, sections, footer)
-- Entrance animations using Elementor's built-in Motion Effects
-- Custom CSS for hover states
-- Custom JavaScript for scroll animations and counters
-- Step-by-step execution order
-
-> **Want more?** A premium collection of **50 industry-specific prompts** covering restaurants, med spas, law firms, florists, photography studios, and more is available separately.
+Each prompt includes a full design system (palette, typography, spacing), image-search keywords, SVG icon specs, page structure, entrance animations, custom CSS for hover states, and a step-by-step execution order.
 
 ## Contributing
 
-We welcome contributions from the community! Whether it's bug reports, feature requests, documentation improvements, or code contributions — every bit helps.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines on how to get started.
+Contributions are welcome — bug reports, feature requests, documentation, and code. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 **Quick start:**
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-tool`)
-3. Make your changes and test locally
-4. Submit a Pull Request
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/amazing-tool`).
+3. Make your changes and run the test suite (`composer install && vendor/bin/phpunit`).
+4. Open a pull request.
 
-## Contributors
+## Credits & attribution
 
-- **[@msrbuilds](https://github.com/msrbuilds)** — Original author and maintainer
-- **[@mhamzashafiq](https://github.com/mhamzashafiq)** — Layout & element tools, widget convenience shortcuts, theme builder, dynamic tags, popup builder, WooCommerce widget tools, motion effects support, settings validator improvements
+This project is a fork of **[`elementor-mcp`](https://github.com/msrbuilds/elementor-mcp)**, originally created and maintained by **[@msrbuilds](https://github.com/msrbuilds)** (Mian Shahzad Raza) and released under the GPL. Full credit for the original plugin — its architecture, the WordPress MCP Adapter integration, and the core Elementor tool set — goes to the upstream author. This fork builds on that foundation with the additions described above and is maintained by the **[Digitizers](https://github.com/Digitizers)** organization.
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+This project is licensed under the [GNU General Public License v2.0 or later](LICENSE), the same license as the upstream project.

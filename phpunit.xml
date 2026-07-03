@@ -23,6 +23,12 @@
         <testsuite name="Regression">
             <directory>tests/unit/regression</directory>
         </testsuite>
+        <testsuite name="SEO">
+            <directory>tests/unit/seo</directory>
+        </testsuite>
+        <testsuite name="Unit">
+            <file>tests/unit/WidgetGeneratorTest.php</file>
+        </testsuite>
     </testsuites>
 
     <source>

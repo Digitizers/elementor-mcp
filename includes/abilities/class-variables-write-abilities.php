@@ -34,12 +34,14 @@ class Elementor_MCP_Variables_Write_Abilities {
 	/**
 	 * Elementor's Variables repository class (the availability gate).
 	 */
-	const REPOSITORY = '\\Elementor\\Modules\\Variables\\Storage\\Variables_Repository';
-
-	/**
-	 * Elementor's Variable entity class.
-	 */
-	const VARIABLE = '\\Elementor\\Modules\\Variables\\Storage\\Entities\\Variable';
+	// Elementor's canonical Variables CRUD repository (the REST backend):
+	// create/update/delete/restore on the kit's `_elementor_global_variables`
+	// json-meta, operating on raw records. This is the path that maintains the
+	// `deleted` tombstone flag every consumer (variables-service, the value
+	// transformer, the template-library snapshot builder) filters on — the
+	// entity/adapter `Variables_Repository` only sets `deleted_at` and, because
+	// its save() rebuilds the record from entities, cannot preserve `deleted`.
+	const REPOSITORY = '\\Elementor\\Modules\\Variables\\Storage\\Repository';
 
 	/**
 	 * Internal (stored) type key for a public `color` variable.
@@ -395,20 +397,29 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return $this->unavailable();
 		}
 
-		$loaded = $this->load();
-		if ( is_wp_error( $loaded ) ) {
-			return $loaded;
+		$repo = $this->repo();
+		if ( is_wp_error( $repo ) ) {
+			return $repo;
 		}
-		list( , $collection ) = $loaded;
 
-		$rows = $this->serialize_active( $collection );
-		if ( is_wp_error( $rows ) ) {
-			return $rows;
+		try {
+			$records = (array) $repo->variables();
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
+		}
+
+		$out = array();
+		foreach ( $records as $id => $record ) {
+			$record = (array) $record;
+			if ( ! empty( $record['deleted'] ) ) {
+				continue; // Tombstoned — hidden from the active list.
+			}
+			$out[] = $this->public_shape_from_raw( (string) $id, $record );
 		}
 
 		return array(
-			'count'     => count( $rows ),
-			'variables' => array_values( $rows ),
+			'count'     => count( $out ),
+			'variables' => $out,
 		);
 	}
 
@@ -426,31 +437,30 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return new \WP_Error( 'missing_variable_id', __( 'variable_id is required.', 'elementor-mcp' ) );
 		}
 
-		$loaded = $this->load();
-		if ( is_wp_error( $loaded ) ) {
-			return $loaded;
+		$repo = $this->repo();
+		if ( is_wp_error( $repo ) ) {
+			return $repo;
 		}
-		list( , $collection ) = $loaded;
 
 		try {
-			$var = method_exists( $collection, 'get' ) ? $collection->get( $variable_id ) : null;
+			$records = (array) $repo->variables();
 		} catch ( \Throwable $e ) {
-			$var = null;
+			return $this->map_exception( $e );
 		}
 
-		if ( null === $var ) {
+		if ( ! isset( $records[ $variable_id ] ) ) {
+			return $this->not_found( $variable_id );
+		}
+		$record = (array) $records[ $variable_id ];
+
+		// Report tombstoned (soft-deleted) tokens as not_found so get stays
+		// consistent with list — an agent re-reading a token it just deleted must
+		// not see it as active and re-bind it.
+		if ( ! empty( $record['deleted'] ) ) {
 			return $this->not_found( $variable_id );
 		}
 
-		// The collection still returns tombstoned (soft-deleted) tokens by id.
-		// Report them as not_found so get-variable stays consistent with
-		// list-variables (which hides them) — an agent re-reading a token it just
-		// deleted must not see it as active and re-bind it.
-		if ( is_object( $var ) && method_exists( $var, 'is_deleted' ) && $var->is_deleted() ) {
-			return $this->not_found( $variable_id );
-		}
-
-		return $this->public_shape_from_variable( $var );
+		return $this->public_shape_from_raw( $variable_id, $record );
 	}
 
 	// =========================================================================
@@ -491,56 +501,35 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return $value_check;
 		}
 
+		// Elementor's Variable::validate() rules (no spaces, ≤50) — Repository's
+		// create() doesn't enforce these, so pre-validate the label ourselves.
+		$label_check = $this->validate_label( $label );
+		if ( is_wp_error( $label_check ) ) {
+			return $label_check;
+		}
+
 		$internal_type = $this->resolve_internal_type( $type, $value );
 
-		$loaded = $this->load();
-		if ( is_wp_error( $loaded ) ) {
-			return $loaded;
-		}
-		list( $repo, $collection ) = $loaded;
-
-		// Enforce Elementor's own limit + label uniqueness through the collection's
-		// asserts, mapping their exceptions to clear WP_Errors.
-		try {
-			if ( method_exists( $collection, 'assert_limit_not_reached' ) ) {
-				$collection->assert_limit_not_reached();
-			}
-			if ( method_exists( $collection, 'assert_label_is_unique' ) ) {
-				$collection->assert_label_is_unique( $label );
-			}
-		} catch ( \Throwable $e ) {
-			return $this->map_exception( $e );
+		$repo = $this->repo();
+		if ( is_wp_error( $repo ) ) {
+			return $repo;
 		}
 
-		$variable_class = self::VARIABLE;
+		// Repository::create enforces label uniqueness + the count cap itself
+		// (skipping tombstoned rows) and mints the id + order.
 		try {
-			$id    = method_exists( $collection, 'next_id' ) ? (string) $collection->next_id() : $this->fallback_id();
-			$order = method_exists( $collection, 'get_next_order' ) ? (int) $collection->get_next_order() : 0;
-
-			$var = $variable_class::create_new(
+			$result = $repo->create(
 				array(
-					'id'    => $id,
 					'type'  => $internal_type,
 					'label' => $label,
 					'value' => $value,
-					'order' => $order,
 				)
 			);
-
-			// validate() is only present on some builds — guard gracefully.
-			if ( is_object( $var ) && method_exists( $var, 'validate' ) ) {
-				$var->validate();
-			}
-
-			$collection->add_variable( $var );
 		} catch ( \Throwable $e ) {
 			return $this->map_exception( $e );
 		}
 
-		$saved = $this->save( $repo, $collection );
-		if ( is_wp_error( $saved ) ) {
-			return $saved;
-		}
+		$id = isset( $result['variable']['id'] ) ? (string) $result['variable']['id'] : '';
 
 		$this->clear_cache();
 
@@ -576,20 +565,20 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return new \WP_Error( 'nothing_to_update', __( 'Provide at least one of: label, value.', 'elementor-mcp' ) );
 		}
 
-		$loaded = $this->load();
-		if ( is_wp_error( $loaded ) ) {
-			return $loaded;
+		$repo = $this->repo();
+		if ( is_wp_error( $repo ) ) {
+			return $repo;
 		}
-		list( $repo, $collection ) = $loaded;
 
 		try {
-			$var = method_exists( $collection, 'find_or_fail' ) ? $collection->find_or_fail( $variable_id ) : $collection->get( $variable_id );
-			if ( null === $var ) {
-				return $this->not_found( $variable_id );
-			}
+			$records = (array) $repo->variables();
 		} catch ( \Throwable $e ) {
 			return $this->map_exception( $e );
 		}
+		if ( ! isset( $records[ $variable_id ] ) || ! empty( $records[ $variable_id ]['deleted'] ) ) {
+			return $this->not_found( $variable_id );
+		}
+		$current = (array) $records[ $variable_id ];
 
 		$changes = array();
 
@@ -598,20 +587,11 @@ class Elementor_MCP_Variables_Write_Abilities {
 			if ( '' === $label ) {
 				return new \WP_Error( 'missing_label', __( 'label cannot be empty.', 'elementor-mcp' ) );
 			}
-			// Validate the NEW label's format here: Elementor's apply_changes()
-			// validates the entity BEFORE applying $changes, i.e. the OLD label, so
-			// an invalid new label (spaces / >50 chars) would otherwise persist even
-			// though create rejects it.
+			// Repository::update does not validate the label format (no spaces,
+			// ≤50 chars) — enforce it here, matching create.
 			$label_check = $this->validate_label( $label );
 			if ( is_wp_error( $label_check ) ) {
 				return $label_check;
-			}
-			try {
-				if ( method_exists( $collection, 'assert_label_is_unique' ) ) {
-					$collection->assert_label_is_unique( $label, $variable_id );
-				}
-			} catch ( \Throwable $e ) {
-				return $this->map_exception( $e );
 			}
 			$changes['label'] = $label;
 		}
@@ -621,35 +601,23 @@ class Elementor_MCP_Variables_Write_Abilities {
 			if ( '' === $value ) {
 				return new \WP_Error( 'missing_value', __( 'value cannot be empty.', 'elementor-mcp' ) );
 			}
-
-			// Derive the public type from the variable's current (internal) type so
-			// we validate the new value against the token's fixed kind.
-			$public_type = $this->public_type( $this->variable_type( $var ) );
+			// Validate the new value against the token's fixed public kind. (The
+			// public type cannot change on edit — Repository::update only merges
+			// label/value/order, mirroring Elementor's own editor.)
+			$public_type = $this->public_type( isset( $current['type'] ) ? (string) $current['type'] : '' );
 			$value_check = $this->validate_value( $public_type, $value );
 			if ( is_wp_error( $value_check ) ) {
 				return $value_check;
 			}
 			$changes['value'] = $value;
-
-			// For a size token, recompute the internal dimension↔expression form and
-			// pass the (possibly flipped) type through apply_changes — which permits
-			// exactly the size↔custom-size transition.
-			if ( 'size' === $public_type ) {
-				$changes['type'] = $this->resolve_internal_type( 'size', $value );
-			}
 		}
 
+		// Repository::update enforces label uniqueness (skipping tombstones) and
+		// RecordNotFound.
 		try {
-			if ( method_exists( $var, 'apply_changes' ) ) {
-				$var->apply_changes( $changes );
-			}
+			$repo->update( $variable_id, $changes );
 		} catch ( \Throwable $e ) {
 			return $this->map_exception( $e );
-		}
-
-		$saved = $this->save( $repo, $collection );
-		if ( is_wp_error( $saved ) ) {
-			return $saved;
 		}
 
 		$this->clear_cache();
@@ -678,27 +646,19 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return new \WP_Error( 'missing_variable_id', __( 'variable_id is required.', 'elementor-mcp' ) );
 		}
 
-		$loaded = $this->load();
-		if ( is_wp_error( $loaded ) ) {
-			return $loaded;
+		$repo = $this->repo();
+		if ( is_wp_error( $repo ) ) {
+			return $repo;
 		}
-		list( $repo, $collection ) = $loaded;
 
+		// Repository::delete tombstones the row — setting BOTH `deleted` and
+		// `deleted_at` — which is what every consumer (variables-service, the value
+		// transformer, the template-library snapshot builder) filters on. Throws
+		// RecordNotFound when the id is unknown.
 		try {
-			$var = method_exists( $collection, 'find_or_fail' ) ? $collection->find_or_fail( $variable_id ) : $collection->get( $variable_id );
-			if ( null === $var ) {
-				return $this->not_found( $variable_id );
-			}
-			if ( method_exists( $var, 'soft_delete' ) ) {
-				$var->soft_delete();
-			}
+			$repo->delete( $variable_id );
 		} catch ( \Throwable $e ) {
 			return $this->map_exception( $e );
-		}
-
-		$saved = $this->save( $repo, $collection );
-		if ( is_wp_error( $saved ) ) {
-			return $saved;
 		}
 
 		$this->clear_cache();
@@ -723,55 +683,38 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return new \WP_Error( 'missing_variable_id', __( 'variable_id is required.', 'elementor-mcp' ) );
 		}
 
-		$loaded = $this->load();
-		if ( is_wp_error( $loaded ) ) {
-			return $loaded;
+		$repo = $this->repo();
+		if ( is_wp_error( $repo ) ) {
+			return $repo;
 		}
-		list( $repo, $collection ) = $loaded;
 
 		try {
-			$var = method_exists( $collection, 'find_or_fail' ) ? $collection->find_or_fail( $variable_id ) : $collection->get( $variable_id );
-			if ( null === $var ) {
-				return $this->not_found( $variable_id );
-			}
-
-			// Idempotent: restoring an already-active token is a no-op. Return early
-			// BEFORE the cap/uniqueness re-checks — otherwise a retry at the 1000-cap
-			// would count the target itself and wrongly report limit_reached.
-			if ( method_exists( $var, 'is_deleted' ) && ! $var->is_deleted() ) {
-				return array(
-					'id'            => $variable_id,
-					'restored'      => true,
-					'already_active' => true,
-				);
-			}
-
-			if ( ! method_exists( $var, 'restore' ) ) {
-				return new \WP_Error(
-					'restore_unsupported',
-					__( 'This Elementor build does not support restoring soft-deleted Variables.', 'elementor-mcp' )
-				);
-			}
-
-			// Restoring reactivates the token, so re-check the constraints that only
-			// apply to active variables: it must not collide with an active label,
-			// and it must not push the active set past Elementor's cap. (The token is
-			// still soft-deleted at this point, so it's excluded from both checks.)
-			if ( method_exists( $collection, 'assert_limit_not_reached' ) ) {
-				$collection->assert_limit_not_reached();
-			}
-			if ( method_exists( $collection, 'assert_label_is_unique' ) ) {
-				$collection->assert_label_is_unique( $this->call_accessor( $var, 'label' ), $variable_id );
-			}
-
-			$var->restore();
+			$records = (array) $repo->variables();
 		} catch ( \Throwable $e ) {
 			return $this->map_exception( $e );
 		}
+		if ( ! isset( $records[ $variable_id ] ) ) {
+			return $this->not_found( $variable_id );
+		}
 
-		$saved = $this->save( $repo, $collection );
-		if ( is_wp_error( $saved ) ) {
-			return $saved;
+		// Idempotent: restoring an already-active token is a no-op. Return BEFORE
+		// Repository::restore's cap/uniqueness re-checks — otherwise a retry while
+		// the active set is at the 1000-cap would count the target itself and
+		// wrongly report limit_reached.
+		if ( empty( $records[ $variable_id ]['deleted'] ) ) {
+			return array(
+				'id'             => $variable_id,
+				'restored'       => true,
+				'already_active' => true,
+			);
+		}
+
+		// Repository::restore clears the tombstone (drops `deleted`/`deleted_at`)
+		// and re-asserts label uniqueness + the count cap against the active set.
+		try {
+			$repo->restore( $variable_id );
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
 		}
 
 		$this->clear_cache();
@@ -783,16 +726,16 @@ class Elementor_MCP_Variables_Write_Abilities {
 	}
 
 	// =========================================================================
-	// Repository / collection helpers
+	// Repository helpers
 	// =========================================================================
 
 	/**
-	 * Resolves the active Elementor kit, constructs the Variables repository, and
-	 * loads the collection.
+	 * Resolves the active Elementor kit and constructs the canonical Variables
+	 * Repository against it.
 	 *
-	 * @return array{0: object, 1: object}|\WP_Error [ $repo, $collection ] or WP_Error.
+	 * @return object|\WP_Error The Repository, or WP_Error.
 	 */
-	private function load() {
+	private function repo() {
 		$kit = $this->active_kit();
 		if ( is_wp_error( $kit ) ) {
 			return $kit;
@@ -800,17 +743,10 @@ class Elementor_MCP_Variables_Write_Abilities {
 
 		$repo_class = self::REPOSITORY;
 		try {
-			$repo       = new $repo_class( $kit );
-			$collection = method_exists( $repo, 'load' ) ? $repo->load() : null;
+			return new $repo_class( $kit );
 		} catch ( \Throwable $e ) {
 			return new \WP_Error( 'read_failed', $e->getMessage() );
 		}
-
-		if ( ! is_object( $collection ) ) {
-			return new \WP_Error( 'read_failed', __( 'Could not load the Variables collection.', 'elementor-mcp' ) );
-		}
-
-		return array( $repo, $collection );
 	}
 
 	/**
@@ -844,150 +780,21 @@ class Elementor_MCP_Variables_Write_Abilities {
 	}
 
 	/**
-	 * Persists the collection through the repository. save() returns an int
-	 * watermark on success or false on failure.
+	 * Builds the public { id, type, label, value, order } shape from a raw stored
+	 * variable record (as returned by Repository::variables()).
 	 *
-	 * @param object $repo       The Variables repository.
-	 * @param object $collection The Variables collection.
-	 * @return true|\WP_Error
-	 */
-	private function save( $repo, $collection ) {
-		try {
-			$result = method_exists( $repo, 'save' ) ? $repo->save( $collection ) : false;
-		} catch ( \Throwable $e ) {
-			return $this->map_exception( $e );
-		}
-		if ( false === $result ) {
-			return new \WP_Error( 'write_failed', __( 'Elementor failed to save the Variables collection.', 'elementor-mcp' ) );
-		}
-		return true;
-	}
-
-	/**
-	 * Returns the active (non-deleted) variables in public shape, keyed by id.
-	 *
-	 * Prefers the collection's serialize( false ) output (which excludes deleted
-	 * entries); defensively skips any row still carrying a `deleted`/`deleted_at`
-	 * marker.
-	 *
-	 * @param object $collection The Variables collection.
-	 * @return array<int,array>|\WP_Error
-	 */
-	private function serialize_active( $collection ) {
-		try {
-			if ( method_exists( $collection, 'serialize' ) ) {
-				$serialized = $collection->serialize( false );
-				$data       = is_array( $serialized ) && isset( $serialized['data'] ) && is_array( $serialized['data'] )
-					? $serialized['data']
-					: array();
-
-				$out = array();
-				foreach ( $data as $id => $row ) {
-					$row = (array) $row;
-					if ( ! empty( $row['deleted'] ) || ! empty( $row['deleted_at'] ) ) {
-						continue;
-					}
-					$out[] = array(
-						'id'    => (string) $id,
-						'type'  => $this->public_type( (string) ( $row['type'] ?? '' ) ),
-						'label' => (string) ( $row['label'] ?? '' ),
-						'value' => $this->stringify_value( $row['value'] ?? '' ),
-						'order' => isset( $row['order'] ) ? (int) $row['order'] : 0,
-					);
-				}
-				return $out;
-			}
-
-			// Fallback: iterate Variable objects via all().
-			$out = array();
-			if ( method_exists( $collection, 'all' ) ) {
-				foreach ( (array) $collection->all() as $var ) {
-					if ( is_object( $var ) && method_exists( $var, 'is_deleted' ) && $var->is_deleted() ) {
-						continue;
-					}
-					$out[] = $this->public_shape_from_variable( $var );
-				}
-			}
-			return $out;
-		} catch ( \Throwable $e ) {
-			return new \WP_Error( 'read_failed', $e->getMessage() );
-		}
-	}
-
-	/**
-	 * Builds the public { id, type, label, value, order } shape from a Variable
-	 * entity, tolerating accessor-method variance.
-	 *
-	 * @param object $var Variable entity.
+	 * @param string $id     The variable id.
+	 * @param array  $record The raw record ({ type, label, value, order, ... }).
 	 * @return array
 	 */
-	private function public_shape_from_variable( $var ): array {
-		// Prefer to_array() when present (single source of truth), else accessors.
-		$arr = array();
-		if ( is_object( $var ) && method_exists( $var, 'to_array' ) ) {
-			try {
-				$arr = (array) $var->to_array();
-			} catch ( \Throwable $e ) {
-				$arr = array();
-			}
-		}
-
-		$id    = isset( $arr['id'] ) ? (string) $arr['id'] : $this->call_accessor( $var, 'id' );
-		$type  = isset( $arr['type'] ) ? (string) $arr['type'] : $this->variable_type( $var );
-		$label = isset( $arr['label'] ) ? (string) $arr['label'] : $this->call_accessor( $var, 'label' );
-		$value = array_key_exists( 'value', $arr ) ? $arr['value'] : $this->call_accessor( $var, 'value' );
-		$order = isset( $arr['order'] ) ? (int) $arr['order'] : (int) $this->call_accessor( $var, 'order' );
-
+	private function public_shape_from_raw( string $id, array $record ): array {
 		return array(
-			'id'    => (string) $id,
-			'type'  => $this->public_type( (string) $type ),
-			'label' => (string) $label,
-			'value' => $this->stringify_value( $value ),
-			'order' => $order,
+			'id'    => $id,
+			'type'  => $this->public_type( isset( $record['type'] ) ? (string) $record['type'] : '' ),
+			'label' => isset( $record['label'] ) ? (string) $record['label'] : '',
+			'value' => $this->stringify_value( $record['value'] ?? '' ),
+			'order' => isset( $record['order'] ) ? (int) $record['order'] : 0,
 		);
-	}
-
-	/**
-	 * Reads a Variable's internal type key (accessor or to_array).
-	 *
-	 * @param object $var Variable entity.
-	 * @return string
-	 */
-	private function variable_type( $var ): string {
-		if ( is_object( $var ) && method_exists( $var, 'type' ) ) {
-			try {
-				return (string) $var->type();
-			} catch ( \Throwable $e ) {
-				return '';
-			}
-		}
-		if ( is_object( $var ) && method_exists( $var, 'to_array' ) ) {
-			try {
-				$arr = (array) $var->to_array();
-				return isset( $arr['type'] ) ? (string) $arr['type'] : '';
-			} catch ( \Throwable $e ) {
-				return '';
-			}
-		}
-		return '';
-	}
-
-	/**
-	 * Calls a no-arg accessor method on a Variable entity, returning '' on absence.
-	 *
-	 * @param object $var    Variable entity.
-	 * @param string $method Accessor name.
-	 * @return mixed
-	 */
-	private function call_accessor( $var, string $method ) {
-		if ( is_object( $var ) && method_exists( $var, $method ) ) {
-			try {
-				return $var->$method();
-			} catch ( \Throwable $e ) {
-				return '';
-			}
-		}
-		return '';
 	}
 
 	// =========================================================================
@@ -1209,16 +1016,6 @@ class Elementor_MCP_Variables_Write_Abilities {
 		}
 
 		return new \WP_Error( 'write_failed', '' !== $message ? $message : __( 'The Variables operation failed.', 'elementor-mcp' ) );
-	}
-
-	/**
-	 * Fallback id mint when the collection lacks next_id() (defensive; real builds
-	 * always provide it). Mirrors Elementor's `e-gv-<hash>` format.
-	 *
-	 * @return string
-	 */
-	private function fallback_id(): string {
-		return 'e-gv-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );
 	}
 
 	// =========================================================================

@@ -702,10 +702,12 @@ namespace Elementor\Modules\GlobalClasses {
 // ---------------------------------------------------------------------------
 // Elementor Variables (design tokens) stubs
 //
-// In-memory stand-ins for Elementor's Variables_Repository / Variables_Collection
-// / Variable entity + storage exceptions, so the Variables write abilities'
-// functional tests can exercise create/edit/delete/restore/list/get end to end.
-// State is a per-process static store keyed by id; reset via Variables_Repository::__reset().
+// In-memory stand-in for Elementor's canonical Variables Repository
+// (modules/variables/storage/repository.php) + its storage exceptions, so the
+// Variables write abilities' functional tests exercise create/edit/delete/
+// restore/list/get end to end. Records are raw arrays keyed by id, matching the
+// real repository — tombstones carry BOTH `deleted` and `deleted_at`. Reset via
+// Repository::__reset().
 // ---------------------------------------------------------------------------
 
 namespace Elementor\Modules\Variables\Storage\Exceptions {
@@ -713,97 +715,12 @@ namespace Elementor\Modules\Variables\Storage\Exceptions {
 		class RecordNotFound extends \Exception {}
 		class DuplicatedLabel extends \Exception {}
 		class VariablesLimitReached extends \Exception {}
-		class Type_Mismatch extends \Exception {}
-		class InvalidVariable extends \Exception {}
-	}
-}
-
-namespace Elementor\Modules\Variables\Storage\Entities {
-
-	use Elementor\Modules\Variables\Storage\Exceptions\InvalidVariable;
-
-	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Entities\\Variable' ) ) {
-		class Variable {
-			/** @var array */
-			private $data;
-
-			private function __construct( array $data ) {
-				$this->data = $data;
-			}
-
-			public static function create_new( array $data ): self {
-				foreach ( array( 'id', 'type', 'label', 'value' ) as $key ) {
-					if ( ! array_key_exists( $key, $data ) ) {
-						throw new \InvalidArgumentException( "Missing required field '$key'" );
-					}
-				}
-				$now                = gmdate( 'Y-m-d H:i:s' );
-				$data['created_at'] = $now;
-				$data['updated_at'] = $now;
-				return new self( $data );
-			}
-
-			public static function from_array( array $data ): self {
-				return new self( $data );
-			}
-
-			public function apply_changes( array $data ): void {
-				$this->validate();
-				foreach ( array( 'label', 'value', 'order', 'type' ) as $field ) {
-					if ( isset( $data[ $field ] ) ) {
-						$this->data[ $field ] = $data[ $field ];
-					}
-				}
-				$this->data['updated_at'] = gmdate( 'Y-m-d H:i:s' );
-			}
-
-			public function soft_delete(): void {
-				$this->data['deleted_at'] = gmdate( 'Y-m-d H:i:s' );
-			}
-
-			public function restore(): void {
-				unset( $this->data['deleted_at'] );
-			}
-
-			public function validate(): bool {
-				if ( strpos( $this->label(), ' ' ) !== false ) {
-					throw new InvalidVariable( 'Label cannot contain spaces' );
-				}
-				if ( strlen( $this->label() ) > 50 ) {
-					throw new InvalidVariable( 'Label cannot be longer than 50 characters' );
-				}
-				return true;
-			}
-
-			public function to_array(): array {
-				return array_diff_key( $this->data, array_flip( array( 'id' ) ) );
-			}
-
-			public function id(): string {
-				return (string) $this->data['id'];
-			}
-			public function label(): string {
-				return (string) $this->data['label'];
-			}
-			public function value() {
-				return $this->data['value'];
-			}
-			public function type() {
-				return $this->data['type'];
-			}
-			public function order(): int {
-				return (int) ( $this->data['order'] ?? 0 );
-			}
-			public function is_deleted(): bool {
-				return isset( $this->data['deleted_at'] );
-			}
-		}
+		class FatalError extends \Exception {}
 	}
 }
 
 namespace Elementor\Modules\Variables\Storage {
 
-	use Elementor\Modules\Variables\Storage\Entities\Variable;
 	use Elementor\Modules\Variables\Storage\Exceptions\RecordNotFound;
 	use Elementor\Modules\Variables\Storage\Exceptions\DuplicatedLabel;
 	use Elementor\Modules\Variables\Storage\Exceptions\VariablesLimitReached;
@@ -815,100 +732,120 @@ namespace Elementor\Modules\Variables\Storage {
 		}
 	}
 
-	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Variables_Collection' ) ) {
-		class Variables_Collection {
-			public function all(): array {
-				return Variables_Repository::$store;
-			}
-			public function get( string $id ) {
-				return Variables_Repository::$store[ $id ] ?? null;
-			}
-			public function add_variable( Variable $v ): void {
-				Variables_Repository::$store[ $v->id() ] = $v;
-			}
-			public function find_or_fail( string $id ): Variable {
-				$v = $this->get( $id );
-				if ( null === $v ) {
-					throw new RecordNotFound( 'Variable not found' );
-				}
-				return $v;
-			}
-			public function assert_label_is_unique( string $label, ?string $ignore_id = null ): void {
-				foreach ( Variables_Repository::$store as $v ) {
-					if ( $v->is_deleted() ) {
-						continue;
-					}
-					if ( null !== $ignore_id && $v->id() === $ignore_id ) {
-						continue;
-					}
-					if ( strcasecmp( $v->label(), $label ) === 0 ) {
-						throw new DuplicatedLabel( "Variable label '$label' already exists." );
-					}
-				}
-			}
-			public function assert_limit_not_reached(): void {
-				$active = 0;
-				foreach ( Variables_Repository::$store as $v ) {
-					if ( ! $v->is_deleted() ) {
-						++$active;
-					}
-				}
-				if ( Constants::TOTAL_VARIABLES_COUNT <= $active ) {
-					throw new VariablesLimitReached( 'Total variables count limit reached' );
-				}
-			}
-			public function next_id(): string {
-				return 'e-gv-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );
-			}
-			public function get_next_order(): int {
-				$highest = 0;
-				foreach ( Variables_Repository::$store as $v ) {
-					if ( ! $v->is_deleted() && $v->order() > $highest ) {
-						$highest = $v->order();
-					}
-				}
-				return $highest + 1;
-			}
-			public function serialize( bool $include_deleted = false ): array {
-				$data = array();
-				foreach ( Variables_Repository::$store as $v ) {
-					if ( ! $include_deleted && $v->is_deleted() ) {
-						continue;
-					}
-					$arr = $v->to_array();
-					if ( $include_deleted && $v->is_deleted() ) {
-						$arr['deleted'] = true;
-					}
-					$data[ $v->id() ] = $arr;
-				}
-				return array( 'data' => $data, 'watermark' => 1, 'version' => 1 );
-			}
-		}
-	}
-
-	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Variables_Repository' ) ) {
-		class Variables_Repository {
-			/** @var array<string,Variable> id => Variable (shared static store). */
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Repository' ) ) {
+		class Repository {
+			/** @var array<string,array> id => raw record. */
 			public static $store = array();
-			/** @var bool Force save() to report failure, for the write-failed path. */
-			public static $fail_save = false;
 
 			public function __construct( $kit ) {}
 
-			public function load(): Variables_Collection {
-				return new Variables_Collection();
+			public function variables(): array {
+				return self::$store;
 			}
 
-			public function save( Variables_Collection $collection ) {
-				// The collection mutates the shared static store directly, so there is
-				// nothing to persist; just report a watermark (int) or false.
-				return self::$fail_save ? false : 1;
+			public function create( array $variable ) {
+				$data = self::$store;
+				$this->assert_label_unique( $data, array( 'label' => $variable['label'] ?? '' ) );
+				$id  = 'e-gv-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );
+				$rec = array(
+					'type'  => $variable['type'] ?? '',
+					'label' => $variable['label'] ?? '',
+					'value' => $variable['value'] ?? '',
+					'order' => $variable['order'] ?? $this->next_order( $data ),
+				);
+				$data[ $id ] = $rec;
+				$this->assert_limit( $data );
+				self::$store = $data;
+				return array( 'variable' => array_merge( array( 'id' => $id ), $rec ), 'watermark' => 1 );
+			}
+
+			public function update( string $id, array $variable ) {
+				$data = self::$store;
+				if ( ! isset( $data[ $id ] ) ) {
+					throw new RecordNotFound( 'Variable not found' );
+				}
+				$updated = array_merge( $data[ $id ], $this->only( $variable, array( 'label', 'value', 'order' ) ) );
+				$this->assert_label_unique( $data, array_merge( $updated, array( 'id' => $id ) ) );
+				$data[ $id ] = $updated;
+				self::$store = $data;
+				return array( 'variable' => array_merge( array( 'id' => $id ), $updated ), 'watermark' => 1 );
+			}
+
+			public function delete( string $id ) {
+				if ( ! isset( self::$store[ $id ] ) ) {
+					throw new RecordNotFound( 'Variable not found' );
+				}
+				self::$store[ $id ]['deleted']    = true;
+				self::$store[ $id ]['deleted_at'] = '2026-01-01 00:00:00';
+				return array( 'variable' => array_merge( array( 'id' => $id ), self::$store[ $id ] ), 'watermark' => 1 );
+			}
+
+			public function restore( string $id, $overrides = array() ) {
+				$data = self::$store;
+				if ( ! isset( $data[ $id ] ) ) {
+					throw new RecordNotFound( 'Variable not found' );
+				}
+				// Rebuild from the persisted fields only — drops deleted/deleted_at.
+				$restored = $this->only( $data[ $id ], array( 'label', 'value', 'type', 'order' ) );
+				$this->assert_label_unique( $data, array_merge( $restored, array( 'id' => $id ) ) );
+				$data[ $id ] = $restored;
+				$this->assert_limit( $data );
+				self::$store = $data;
+				return array( 'variable' => array_merge( array( 'id' => $id ), $restored ), 'watermark' => 1 );
 			}
 
 			/** Test helper: reset the in-memory store between tests. */
 			public static function __reset( array $store = array() ): void {
-				self::$store     = $store;
-				self::$fail_save = false;
+				self::$store = $store;
+			}
+
+			private function only( array $src, array $keys ): array {
+				$out = array();
+				foreach ( $keys as $k ) {
+					if ( array_key_exists( $k, $src ) ) {
+						$out[ $k ] = $src[ $k ];
+					}
+				}
+				return $out;
+			}
+
+			private function next_order( array $data ): int {
+				$h = 0;
+				foreach ( $data as $v ) {
+					if ( empty( $v['deleted'] ) && isset( $v['order'] ) && $v['order'] > $h ) {
+						$h = (int) $v['order'];
+					}
+				}
+				return $h + 1;
+			}
+
+			private function assert_label_unique( array $data, array $variable ): void {
+				foreach ( $data as $id => $existing ) {
+					if ( ! empty( $existing['deleted'] ) ) {
+						continue;
+					}
+					if ( isset( $variable['id'] ) && $variable['id'] === $id ) {
+						continue;
+					}
+					if ( ! isset( $variable['label'], $existing['label'] ) ) {
+						continue;
+					}
+					if ( strtolower( $existing['label'] ) === strtolower( $variable['label'] ) ) {
+						throw new DuplicatedLabel( 'Variable label already exists' );
+					}
+				}
+			}
+
+			private function assert_limit( array $data ): void {
+				$in_use = 0;
+				foreach ( $data as $v ) {
+					if ( empty( $v['deleted'] ) ) {
+						++$in_use;
+					}
+				}
+				if ( Constants::TOTAL_VARIABLES_COUNT < $in_use ) {
+					throw new VariablesLimitReached( 'Total variables count limit reached' );
+				}
 			}
 		}
 	}

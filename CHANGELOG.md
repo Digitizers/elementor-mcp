@@ -4,12 +4,12 @@ All notable changes to MCP Tools for Elementor are documented in this file.
 
 ## 1.15.0 — {{DATE}}
 
-- New: **Variables (design tokens) CRUD** (Elementor 4.0+) — six tools that let an agent author Elementor 4's Variables: the global color / font / size tokens that Global Classes and atomic styles reference. Registers only when Elementor exposes the Variables repository; writes are gated on `manage_options`, reads on `edit_posts`. Variables live on the active kit (`_elementor_global_variables`).
+- New: **Variables (design tokens) CRUD** (Elementor 4.0+) — six tools that let an agent author Elementor 4's Variables: the global color / font / size tokens that Global Classes and atomic styles reference. Writes go through Elementor's canonical Variables `Repository` (the REST backend) on the active kit (`_elementor_global_variables`), so token records, uniqueness/count-limit enforcement and the tombstone shape match the editor exactly. Registers only when the Variables repository is present **and** the `e_variables` + Atomic Widgets experiments are active (class-existence alone would let writes land while the runtime feature is off); writes are gated on `manage_options`, reads on `edit_posts`.
   - New: `list-variables` — lists all Variables (colors, fonts, sizes) in public shape `{ id, type, label, value, order }`, excluding soft-deleted.
   - New: `get-variable` — returns a single Variable by id, or a `not_found` error.
   - New: `create-variable` — creates a Variable from `label` + `type` (color|font|size) + `value`. Validates the value per type (color = strict hex `#RGB`/`#RRGGBB`/`#RRGGBBAA`, named colors rejected; size = `<number><unit>` or a CSS-function expression like `clamp()`/`calc()`; font = a font-family name), resolves the internal type key (a size expression stores as `global-custom-size-variable`, a plain dimension as `global-size-variable`), mints an `e-gv-` id, and enforces Elementor's label-uniqueness + count limit — mapping each to a clear error.
-  - New: `edit-variable` — edits a Variable in place (label and/or value), preserving its id so bindings survive. The public type is fixed; a size token's internal dimension↔expression form is recomputed automatically when its value changes and passed through Elementor's `apply_changes` (which permits exactly that transition).
-  - New: `delete-variable` — soft-deletes a Variable by id (tombstoned, not purged), so it can be brought back.
+  - New: `edit-variable` — edits a Variable in place (label and/or value), preserving its id so bindings survive. The public type is fixed (matching the editor's own update semantics); the new label/value are validated before the write.
+  - New: `delete-variable` — soft-deletes a Variable by id — tombstoned (BOTH `deleted` + `deleted_at`, so Elementor's own services/renderer/snapshot filters all hide it), not purged, so it can be brought back.
   - New: `restore-variable` — restores a previously soft-deleted Variable back into the active token set (guarded when a build lacks `restore()`).
 
 ## 1.14.0 — 2026-07-06

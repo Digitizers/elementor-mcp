@@ -136,28 +136,9 @@ class PremiumTierUnlockedTest extends Ability_Test_Case {
 	}
 
 	// -------------------------------------------------------------------------
-	// The v4 defaults migration un-disables exactly the unlocked tools. The
-	// admin's slug lists drive that migration, so they must stay in lockstep
-	// with the ability classes — a new SEO/a11y/widget tool added to a pack but
-	// not to its slug list would silently stay disabled after the unlock.
+	// The always-on unlock reconciliation derives its slug set from the ability
+	// classes, so it can never drift from the real tool surface.
 	// -------------------------------------------------------------------------
-
-	public function test_migration_slug_lists_match_the_unlocked_ability_surface(): void {
-		$seo  = ( new \Elementor_MCP_Seo_Abilities( new Elementor_MCP_Data() ) )->get_ability_names();
-		$a11y = ( new \Elementor_MCP_A11y_Abilities( new Elementor_MCP_Data() ) )->get_ability_names();
-		sort( $seo );
-		$a11y_seo = array_merge( $seo, $a11y );
-		sort( $a11y_seo );
-		$slugs = \Elementor_MCP_Admin::seo_a11y_tool_slugs();
-		sort( $slugs );
-		$this->assertSame( $a11y_seo, $slugs, 'seo_a11y_tool_slugs() must cover exactly the SEO + A11y ability names' );
-
-		$wb    = ( new \Elementor_MCP_Widget_Builder_Abilities() )->get_ability_names();
-		$wbslu = \Elementor_MCP_Admin::widget_builder_tool_slugs();
-		sort( $wb );
-		sort( $wbslu );
-		$this->assertSame( $wb, $wbslu, 'widget_builder_tool_slugs() must cover exactly the Widget Builder ability names' );
-	}
 
 	public function test_plugin_unlock_slugs_are_the_seo_a11y_and_widget_builder_surface(): void {
 		// The always-on unlock reconciliation (runs on every request path, not

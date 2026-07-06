@@ -161,45 +161,6 @@ class Elementor_MCP_Admin {
 	const DEFAULTS_VERSION = 3;
 
 	/**
-	 * SEO/A11y Pro MCP tool slugs that ship disabled-by-default (v2 defaults).
-	 *
-	 * @since 1.8.0
-	 *
-	 * @return string[]
-	 */
-	public static function seo_a11y_tool_slugs(): array {
-		return array(
-			'elementor-mcp/audit-page-seo',
-			'elementor-mcp/extract-keywords-from-content',
-			'elementor-mcp/generate-meta-tags',
-			'elementor-mcp/generate-schema-markup',
-			'elementor-mcp/audit-page-a11y',
-			'elementor-mcp/fix-color-contrast',
-			'elementor-mcp/add-alt-text-from-context',
-		);
-	}
-
-	/**
-	 * Widget Builder Pro MCP tool slugs that ship disabled-by-default (v3).
-	 *
-	 * @since 1.9.0
-	 *
-	 * @return string[]
-	 */
-	public static function widget_builder_tool_slugs(): array {
-		return array(
-			'elementor-mcp/list-control-types',
-			'elementor-mcp/validate-widget-spec',
-			'elementor-mcp/create-custom-widget',
-			'elementor-mcp/update-custom-widget',
-			'elementor-mcp/get-custom-widget',
-			'elementor-mcp/list-custom-widgets',
-			'elementor-mcp/set-widget-status',
-			'elementor-mcp/delete-custom-widget',
-		);
-	}
-
-	/**
 	 * Seeds default disabled-tools on install/upgrade so new Pro tool batches
 	 * ship off-by-default (keeping sites under client tool caps), then records
 	 * the applied version. Each version step adds ONLY its newly-introduced
@@ -232,16 +193,12 @@ class Elementor_MCP_Admin {
 			}
 		}
 
-		// v2 — SEO/A11y Pro MCP tools ship disabled-by-default. Adding only the
-		// new slugs means an existing user's other choices survive the upgrade.
-		if ( $applied < 2 ) {
-			$add = array_merge( $add, self::seo_a11y_tool_slugs() );
-		}
-
-		// v3 — Widget Builder Pro MCP tools ship disabled-by-default.
-		if ( $applied < 3 ) {
-			$add = array_merge( $add, self::widget_builder_tool_slugs() );
-		}
+		// (v2/v3 removed in 1.13.0.) These previously seeded the SEO/A11y and
+		// Widget Builder slugs disabled-by-default because they were paid-tier
+		// Pro tools. The fork unlocks them, so they must NOT be seeded off — and
+		// their 'pro' badges were dropped so v1 no longer disables them either.
+		// Existing installs that already carry those slugs are cleaned up once by
+		// Elementor_MCP_Plugin::ensure_premium_unlock_applied() on any request.
 
 		$merged = array_values( array_unique( array_merge( $existing, $add ) ) );
 
@@ -1474,37 +1431,37 @@ class Elementor_MCP_Admin {
 					'elementor-mcp/audit-page-seo'                 => array(
 						'label'       => __( 'Audit Page SEO', 'elementor-mcp' ),
 						'description' => __( 'Scored on-page SEO report (H1, title/meta, canonical, alts, links, word count).', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'read-only' ),
+						'badges'      => array( 'read-only' ),
 					),
 					'elementor-mcp/extract-keywords-from-content'  => array(
 						'label'       => __( 'Extract Keywords', 'elementor-mcp' ),
 						'description' => __( 'Frequency keyword + phrase extraction from page content.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'read-only' ),
+						'badges'      => array( 'read-only' ),
 					),
 					'elementor-mcp/generate-meta-tags'             => array(
 						'label'       => __( 'Generate Meta Tags', 'elementor-mcp' ),
 						'description' => __( 'Proposes (apply:true writes to Yoast/Rank Math) an SEO title and meta description. Dry-run by default.', 'elementor-mcp' ),
-						'badges'      => array( 'pro' ),
+						'badges'      => array(),
 					),
 					'elementor-mcp/generate-schema-markup'         => array(
 						'label'       => __( 'Generate Schema Markup', 'elementor-mcp' ),
 						'description' => __( 'Generates (apply:true injects) JSON-LD structured data (Article, LocalBusiness, FAQPage, etc.). Dry-run by default.', 'elementor-mcp' ),
-						'badges'      => array( 'pro' ),
+						'badges'      => array(),
 					),
 					'elementor-mcp/audit-page-a11y'                => array(
 						'label'       => __( 'Audit Page Accessibility', 'elementor-mcp' ),
 						'description' => __( 'WCAG-oriented report: contrast, alts, heading order, link text, form labels.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'read-only' ),
+						'badges'      => array( 'read-only' ),
 					),
 					'elementor-mcp/fix-color-contrast'             => array(
 						'label'       => __( 'Fix Color Contrast', 'elementor-mcp' ),
 						'description' => __( 'Proposes (apply:true to write) adjusted text colors so failing pairs meet WCAG AA. Dry-run by default.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'destructive' ),
+						'badges'      => array( 'destructive' ),
 					),
 					'elementor-mcp/add-alt-text-from-context'      => array(
 						'label'       => __( 'Add Alt Text from Context', 'elementor-mcp' ),
 						'description' => __( 'Proposes (apply:true to write) alt text for images lacking it, from filename/heading/title. Dry-run by default.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'destructive' ),
+						'badges'      => array( 'destructive' ),
 					),
 				),
 			);
@@ -1515,42 +1472,42 @@ class Elementor_MCP_Admin {
 					'elementor-mcp/list-control-types'   => array(
 						'label'       => __( 'List Control Types', 'elementor-mcp' ),
 						'description' => __( 'Returns the control types and template syntax for building widget specs.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'read-only' ),
+						'badges'      => array( 'read-only' ),
 					),
 					'elementor-mcp/validate-widget-spec' => array(
 						'label'       => __( 'Validate Widget Spec', 'elementor-mcp' ),
 						'description' => __( 'Validates a widget spec and dry-runs the generator without saving.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'read-only' ),
+						'badges'      => array( 'read-only' ),
 					),
 					'elementor-mcp/create-custom-widget' => array(
 						'label'       => __( 'Create Custom Widget', 'elementor-mcp' ),
 						'description' => __( 'Generates a custom Elementor widget from a spec into an isolated sandbox and activates it.', 'elementor-mcp' ),
-						'badges'      => array( 'pro' ),
+						'badges'      => array(),
 					),
 					'elementor-mcp/update-custom-widget' => array(
 						'label'       => __( 'Update Custom Widget', 'elementor-mcp' ),
 						'description' => __( 'Replaces a custom widget\'s spec and regenerates its code.', 'elementor-mcp' ),
-						'badges'      => array( 'pro' ),
+						'badges'      => array(),
 					),
 					'elementor-mcp/get-custom-widget'    => array(
 						'label'       => __( 'Get Custom Widget', 'elementor-mcp' ),
 						'description' => __( 'Returns a custom widget\'s spec, generated PHP, status, and last error.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'read-only' ),
+						'badges'      => array( 'read-only' ),
 					),
 					'elementor-mcp/list-custom-widgets'  => array(
 						'label'       => __( 'List Custom Widgets', 'elementor-mcp' ),
 						'description' => __( 'Lists all generated custom widgets with their status.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'read-only' ),
+						'badges'      => array( 'read-only' ),
 					),
 					'elementor-mcp/set-widget-status'    => array(
 						'label'       => __( 'Set Widget Status', 'elementor-mcp' ),
 						'description' => __( 'Activates or deactivates a custom widget.', 'elementor-mcp' ),
-						'badges'      => array( 'pro' ),
+						'badges'      => array(),
 					),
 					'elementor-mcp/delete-custom-widget' => array(
 						'label'       => __( 'Delete Custom Widget', 'elementor-mcp' ),
 						'description' => __( 'Permanently deletes a custom widget and its sandbox file.', 'elementor-mcp' ),
-						'badges'      => array( 'pro', 'destructive' ),
+						'badges'      => array( 'destructive' ),
 					),
 				),
 			);

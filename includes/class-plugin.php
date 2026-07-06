@@ -137,27 +137,53 @@ class Elementor_MCP_Plugin {
 	}
 
 	/**
-	 * The slugs the fork unlocked (SEO/A11y audits + Widget Builder), derived
-	 * from the ability classes themselves so this list can never drift from the
-	 * real tool surface.
+	 * The unlocked tool slugs, grouped by the defaults version that used to seed
+	 * each pack disabled: SEO/A11y (seeded at defaults v2) and Widget Builder
+	 * (v3). Derived from the ability classes so the lists can't drift.
+	 *
+	 * @since 1.13.0
+	 *
+	 * @return array<int,string[]> Map of minimum defaults-version → slug list.
+	 */
+	public static function premium_unlock_packs(): array {
+		$data = new Elementor_MCP_Data();
+		return array(
+			2 => array_values( array_unique( array_merge(
+				( new Elementor_MCP_Seo_Abilities( $data ) )->get_ability_names(),
+				( new Elementor_MCP_A11y_Abilities( $data ) )->get_ability_names()
+			) ) ),
+			3 => ( new Elementor_MCP_Widget_Builder_Abilities() )->get_ability_names(),
+		);
+	}
+
+	/**
+	 * Flat list of every unlocked slug (both packs). Kept for callers/tests that
+	 * want the whole surface rather than the per-pack grouping.
 	 *
 	 * @since 1.13.0
 	 *
 	 * @return string[]
 	 */
 	public static function premium_unlock_slugs(): array {
-		$data = new Elementor_MCP_Data();
-		return array_values( array_unique( array_merge(
-			( new Elementor_MCP_Seo_Abilities( $data ) )->get_ability_names(),
-			( new Elementor_MCP_A11y_Abilities( $data ) )->get_ability_names(),
-			( new Elementor_MCP_Widget_Builder_Abilities() )->get_ability_names()
-		) ) );
+		$slugs = array();
+		foreach ( self::premium_unlock_packs() as $pack ) {
+			$slugs = array_merge( $slugs, $pack );
+		}
+		return array_values( array_unique( $slugs ) );
 	}
 
 	/**
-	 * Removes the unlocked slugs from a previously-seeded disabled-tools option
-	 * so the unlock takes effect on upgraded installs regardless of request
-	 * path. One-time, flag-guarded, and a no-op when the pack is disabled.
+	 * One-time reconciliation so the premium unlock reaches installs upgraded by
+	 * any request path (headless/cron/WP-CLI), not just those that hit wp-admin.
+	 *
+	 * Preserves deliberate admin choices: a pack's slugs are removed from the
+	 * disabled-tools option ONLY when (a) the old defaults seeder actually
+	 * default-disabled that pack (`elementor_mcp_defaults_applied` ≥ its version)
+	 * and (b) EVERY tool in the pack is still disabled — i.e. the pristine
+	 * default. If an admin has enabled any tool in the pack they've curated it,
+	 * so the whole pack is left untouched. (The one ambiguous case — an admin who
+	 * manually disabled an entire pack — is indistinguishable from the default
+	 * and gets re-enabled; they can re-disable per tool.)
 	 *
 	 * @since 1.13.0
 	 */
@@ -171,13 +197,37 @@ class Elementor_MCP_Plugin {
 
 		$disabled = get_option( 'elementor_mcp_disabled_tools', array() );
 		if ( is_array( $disabled ) && ! empty( $disabled ) ) {
-			$reconciled = array_values( array_diff( $disabled, self::premium_unlock_slugs() ) );
-			if ( $reconciled !== $disabled ) {
+			$applied     = (int) get_option( 'elementor_mcp_defaults_applied', 0 );
+			$reconciled  = self::reconcile_disabled_tools( $disabled, $applied );
+			if ( $reconciled !== array_values( $disabled ) ) {
 				update_option( 'elementor_mcp_disabled_tools', $reconciled );
 			}
 		}
 
 		update_option( 'elementor_mcp_premium_unlock_applied', '1' );
+	}
+
+	/**
+	 * Pure computation for {@see ensure_premium_unlock_applied()}: given the
+	 * current disabled-tools list and the defaults-seeder version that ran,
+	 * returns the list with the pristine default-disabled unlock packs removed
+	 * (deliberate admin disables preserved). Side-effect-free for testability.
+	 *
+	 * @since 1.13.0
+	 *
+	 * @param string[] $disabled Current disabled slugs.
+	 * @param int      $applied  Value of elementor_mcp_defaults_applied.
+	 * @return string[] Reconciled disabled slugs.
+	 */
+	public static function reconcile_disabled_tools( array $disabled, int $applied ): array {
+		foreach ( self::premium_unlock_packs() as $min_version => $pack ) {
+			// Only packs the seeder default-disabled, and only while still
+			// pristine (every pack slug disabled — no admin re-enable).
+			if ( $applied >= $min_version && empty( array_diff( $pack, $disabled ) ) ) {
+				$disabled = array_diff( $disabled, $pack );
+			}
+		}
+		return array_values( $disabled );
 	}
 
 	/**

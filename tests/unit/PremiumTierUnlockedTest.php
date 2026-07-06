@@ -154,4 +154,45 @@ class PremiumTierUnlockedTest extends Ability_Test_Case {
 		$this->assertSame( $expected, $actual );
 		$this->assertCount( 15, $actual, 'expected 7 SEO/A11y + 8 Widget Builder slugs' );
 	}
+
+	// -------------------------------------------------------------------------
+	// reconcile_disabled_tools() — un-disable pristine default packs, preserve
+	// deliberate admin choices.
+	// -------------------------------------------------------------------------
+
+	public function test_reconcile_removes_pristine_default_packs(): void {
+		$packs    = \Elementor_MCP_Plugin::premium_unlock_packs();
+		$disabled = array_merge( $packs[2], $packs[3] ); // both packs fully disabled (default)
+		$out      = \Elementor_MCP_Plugin::reconcile_disabled_tools( $disabled, 3 );
+		$this->assertSame( array(), $out, 'a pristine full default set should be fully un-disabled' );
+	}
+
+	public function test_reconcile_preserves_a_deliberately_disabled_tool(): void {
+		// Admin disabled ONE widget-builder tool and left the rest enabled — the
+		// pack is not pristine, so it must be preserved untouched (Codex's case).
+		$out = \Elementor_MCP_Plugin::reconcile_disabled_tools(
+			array( 'elementor-mcp/create-custom-widget' ),
+			3
+		);
+		$this->assertContains( 'elementor-mcp/create-custom-widget', $out );
+	}
+
+	public function test_reconcile_skips_packs_the_seeder_never_disabled(): void {
+		// applied < 2: the SEO/A11y pack was never default-seeded, so any of its
+		// slugs in the disabled list are a user choice — leave them.
+		$packs = \Elementor_MCP_Plugin::premium_unlock_packs();
+		$out   = \Elementor_MCP_Plugin::reconcile_disabled_tools( $packs[2], 1 );
+		sort( $packs[2] );
+		sort( $out );
+		$this->assertSame( $packs[2], $out );
+	}
+
+	public function test_reconcile_leaves_unrelated_disabled_tools(): void {
+		$packs = \Elementor_MCP_Plugin::premium_unlock_packs();
+		$out   = \Elementor_MCP_Plugin::reconcile_disabled_tools(
+			array_merge( $packs[2], $packs[3], array( 'elementor-mcp/add-custom-css' ) ),
+			3
+		);
+		$this->assertSame( array( 'elementor-mcp/add-custom-css' ), $out );
+	}
 }

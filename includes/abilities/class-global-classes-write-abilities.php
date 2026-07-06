@@ -13,11 +13,15 @@
  *
  * Context: writes go through the repository's default (frontend/published)
  * context — `Global_Classes_Repository::make()->put()` — deliberately NOT the
- * editor preview context. This matches the shipping Novamira Pro reference and
- * respects the publish boundary: writing the preview context would clobber a
- * user's unpublished in-editor Global Class draft. Consequence: changes are live
- * on the published frontend immediately and appear in the editor on next open;
- * an already-open editor may need a refresh (standard for any external edit).
+ * editor preview context, respecting the publish boundary (a preview write would
+ * clobber a user's unpublished in-editor Global Class draft). We do NOT manually
+ * mirror the labels/order into the `_preview` meta either: Elementor's own put()
+ * already reconciles the preview context for touched ids (it clears their
+ * preview overrides so they fall back to the frontend overlay), so a manual
+ * frontend->preview copy would be redundant AND would clobber the preview drafts
+ * of *unrelated* classes. Consequence: changes are live on the published
+ * frontend immediately and appear in the editor on next open; an already-open
+ * editor may need a refresh (standard for any external edit).
  *
  * @package Elementor_MCP
  * @since   1.14.0
@@ -347,7 +351,6 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 			return $put;
 		}
 
-		$this->sync_preview_context();
 		$this->clear_cache();
 
 		return array(
@@ -427,7 +430,6 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 			return $put;
 		}
 
-		$this->sync_preview_context();
 		$this->clear_cache();
 
 		return array(
@@ -478,7 +480,6 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 			return $put;
 		}
 
-		$this->sync_preview_context();
 		$this->clear_cache();
 
 		return array(
@@ -851,8 +852,12 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	 * `number` prop type. Wrapping these as string (the fallback) would be
 	 * rejected by Style_Schema / persisted with the wrong type.
 	 */
+	// NB: no 'opacity' — its atomic prop type (Size/percent vs plain number) is
+	// version-dependent and not confidently determinable here, so it's left out
+	// rather than mis-typed; passed anyway it falls through to string and the
+	// schema surfaces an honest mismatch.
 	const NUMBER_PROPS = array(
-		'z-index', 'order', 'flex-grow', 'flex-shrink', 'opacity',
+		'z-index', 'order', 'flex-grow', 'flex-shrink',
 		'column-count', 'flex-order',
 	);
 
@@ -1096,67 +1101,8 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	}
 
 	// =========================================================================
-	// Editor visibility (preview meta) + cache
+	// Cache
 	// =========================================================================
-
-	/**
-	 * Mirrors the kit's live Global Classes meta into its `_preview` counterparts.
-	 *
-	 * Without this the editor canvas renders elements as raw `g-` ids with no
-	 * CSS, because the editor reads the *preview* copy of the labels/order. Copy
-	 * `_elementor_global_classes_labels` -> `_elementor_global_classes_labels_preview`
-	 * and `_elementor_global_classes_order` -> `_elementor_global_classes_order_preview`
-	 * on the active kit. Everything is guarded so unit stubs never fatal.
-	 */
-	private function sync_preview_context(): void {
-		$kit_id = $this->active_kit_id();
-		if ( ! $kit_id ) {
-			return;
-		}
-
-		$pairs = array(
-			'_elementor_global_classes_labels' => '_elementor_global_classes_labels_preview',
-			'_elementor_global_classes_order'  => '_elementor_global_classes_order_preview',
-		);
-		foreach ( $pairs as $source => $target ) {
-			$value = get_post_meta( $kit_id, $source, true );
-			update_post_meta( $kit_id, $target, $value );
-		}
-	}
-
-	/**
-	 * Resolves the active kit's main post id, defensively.
-	 *
-	 * @return int 0 when no kit is resolvable.
-	 */
-	private function active_kit_id(): int {
-		if ( ! class_exists( '\\Elementor\\Plugin' ) ) {
-			return 0;
-		}
-		$elementor = \Elementor\Plugin::$instance ?? null;
-		if ( ! is_object( $elementor ) || ! isset( $elementor->kits_manager ) || ! is_object( $elementor->kits_manager ) ) {
-			return 0;
-		}
-		if ( ! method_exists( $elementor->kits_manager, 'get_active_kit' ) ) {
-			return 0;
-		}
-
-		try {
-			$kit = $elementor->kits_manager->get_active_kit();
-		} catch ( \Throwable $e ) {
-			return 0;
-		}
-		if ( ! is_object( $kit ) ) {
-			return 0;
-		}
-		if ( method_exists( $kit, 'get_main_id' ) ) {
-			return (int) $kit->get_main_id();
-		}
-		if ( method_exists( $kit, 'get_id' ) ) {
-			return (int) $kit->get_id();
-		}
-		return 0;
-	}
 
 	/**
 	 * Clears Elementor's file cache so regenerated CSS picks up the change.

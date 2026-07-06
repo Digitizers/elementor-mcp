@@ -95,6 +95,19 @@ class GlobalClassesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( 'tablet', $entry['variants'][1]['meta']['breakpoint'] );
 	}
 
+	public function test_create_wraps_numeric_props_as_number(): void {
+		$res = $this->ability->execute_create( array(
+			'label'  => 'stack',
+			'styles' => array( 'z-index' => 5, 'order' => '3' ),
+		) );
+		$this->assertNotWPError( $res );
+		$base = Global_Classes_Repository::$store_items[ $res['id'] ]['variants'][0]['props'];
+		$this->assertSame( 'number', $base['z-index']['$$type'] );
+		$this->assertSame( 5, $base['z-index']['value'] );
+		$this->assertSame( 'number', $base['order']['$$type'] );
+		$this->assertSame( 3, $base['order']['value'] );
+	}
+
 	public function test_create_requires_label(): void {
 		$res = $this->ability->execute_create( array( 'styles' => array( 'color' => '#111' ) ) );
 		$this->assertWPError( $res, 'missing_label' );

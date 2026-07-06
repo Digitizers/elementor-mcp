@@ -789,6 +789,16 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	);
 
 	/**
+	 * CSS property names whose ergonomic value is a unitless number — the atomic
+	 * `number` prop type. Wrapping these as string (the fallback) would be
+	 * rejected by Style_Schema / persisted with the wrong type.
+	 */
+	const NUMBER_PROPS = array(
+		'z-index', 'order', 'flex-grow', 'flex-shrink', 'opacity',
+		'column-count', 'flex-order',
+	);
+
+	/**
 	 * Wraps an ergonomic CSS-prop->value map into atomic $$type props, then
 	 * (when Elementor's Style_Schema is present) validates the wrapped props
 	 * against it — rejecting unknown properties / type mismatches with a
@@ -835,6 +845,19 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 
 		if ( in_array( $prop, self::SIZE_PROPS, true ) ) {
 			return $this->wrap_size( $value );
+		}
+
+		if ( in_array( $prop, self::NUMBER_PROPS, true ) ) {
+			// Unitless number ($$type:number). Keep ints as ints; a numeric string
+			// like "3" becomes 3. Non-numeric input falls through to string so the
+			// schema surfaces an honest mismatch rather than a silent 0.
+			if ( is_int( $value ) || is_float( $value ) ) {
+				return Elementor_MCP_Atomic_Props::number( $value );
+			}
+			if ( is_string( $value ) && is_numeric( trim( $value ) ) ) {
+				$num = trim( $value );
+				return Elementor_MCP_Atomic_Props::number( false === strpos( $num, '.' ) ? (int) $num : (float) $num );
+			}
 		}
 
 		// Fallback: plain string prop (font-weight, text-align, display, ...).

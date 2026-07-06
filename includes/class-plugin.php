@@ -126,6 +126,58 @@ class Elementor_MCP_Plugin {
 		// MCP REST endpoint would otherwise never see this filter and would
 		// expose every registered tool regardless of what the user disabled.
 		add_filter( 'elementor_mcp_ability_names', array( $this, 'filter_disabled_tools' ) );
+
+		// One-time reconciliation of the premium unlock. Runs on EVERY request
+		// path (not just admin) so headless / cron / WP-CLI-upgraded installs —
+		// which may never load a wp-admin page — also get the newly-unlocked
+		// SEO/A11y + Widget Builder slugs removed from a v2/v3-seeded
+		// disabled-tools option. Guarded by its own flag, so it's a cheap no-op
+		// after the first run.
+		add_action( 'init', array( $this, 'ensure_premium_unlock_applied' ), 20 );
+	}
+
+	/**
+	 * The slugs the fork unlocked (SEO/A11y audits + Widget Builder), derived
+	 * from the ability classes themselves so this list can never drift from the
+	 * real tool surface.
+	 *
+	 * @since 1.13.0
+	 *
+	 * @return string[]
+	 */
+	public static function premium_unlock_slugs(): array {
+		$data = new Elementor_MCP_Data();
+		return array_values( array_unique( array_merge(
+			( new Elementor_MCP_Seo_Abilities( $data ) )->get_ability_names(),
+			( new Elementor_MCP_A11y_Abilities( $data ) )->get_ability_names(),
+			( new Elementor_MCP_Widget_Builder_Abilities() )->get_ability_names()
+		) ) );
+	}
+
+	/**
+	 * Removes the unlocked slugs from a previously-seeded disabled-tools option
+	 * so the unlock takes effect on upgraded installs regardless of request
+	 * path. One-time, flag-guarded, and a no-op when the pack is disabled.
+	 *
+	 * @since 1.13.0
+	 */
+	public function ensure_premium_unlock_applied(): void {
+		if ( ! function_exists( 'emcp_fork_premium_tools_enabled' ) || ! emcp_fork_premium_tools_enabled() ) {
+			return;
+		}
+		if ( '1' === (string) get_option( 'elementor_mcp_premium_unlock_applied', '' ) ) {
+			return;
+		}
+
+		$disabled = get_option( 'elementor_mcp_disabled_tools', array() );
+		if ( is_array( $disabled ) && ! empty( $disabled ) ) {
+			$reconciled = array_values( array_diff( $disabled, self::premium_unlock_slugs() ) );
+			if ( $reconciled !== $disabled ) {
+				update_option( 'elementor_mcp_disabled_tools', $reconciled );
+			}
+		}
+
+		update_option( 'elementor_mcp_premium_unlock_applied', '1' );
 	}
 
 	/**

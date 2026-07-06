@@ -158,7 +158,7 @@ class Elementor_MCP_Admin {
 	 *
 	 * @since 1.8.0
 	 */
-	const DEFAULTS_VERSION = 4;
+	const DEFAULTS_VERSION = 3;
 
 	/**
 	 * SEO/A11y Pro MCP tool slugs that ship disabled-by-default (v2 defaults).
@@ -245,15 +245,10 @@ class Elementor_MCP_Admin {
 
 		$merged = array_values( array_unique( array_merge( $existing, $add ) ) );
 
-		// v4 — the fork unlocked the SEO/A11y + Widget Builder packs for
-		// everyone, so they should ship ENABLED, not disabled. Remove those
-		// slugs the earlier versions seeded off (and that a licensed upgrader
-		// may still carry), so the unlock actually takes effect. Users can
-		// re-disable any of them per-tool in the Tools tab afterwards.
-		if ( $applied < 4 ) {
-			$unlocked = array_merge( self::seo_a11y_tool_slugs(), self::widget_builder_tool_slugs() );
-			$merged   = array_values( array_diff( $merged, $unlocked ) );
-		}
+		// NOTE: the fork's premium unlock removes the SEO/A11y + Widget Builder
+		// slugs from this option so they ship ENABLED — that reconciliation lives
+		// in Elementor_MCP_Plugin::ensure_premium_unlock_applied(), which runs on
+		// every request path (headless/cron installs never hit admin_init).
 
 		update_option( self::OPTION_DISABLED_TOOLS, $merged );
 		update_option( self::OPTION_DEFAULTS_APPLIED, (string) self::DEFAULTS_VERSION );

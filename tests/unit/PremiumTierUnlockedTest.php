@@ -158,4 +158,19 @@ class PremiumTierUnlockedTest extends Ability_Test_Case {
 		sort( $wbslu );
 		$this->assertSame( $wb, $wbslu, 'widget_builder_tool_slugs() must cover exactly the Widget Builder ability names' );
 	}
+
+	public function test_plugin_unlock_slugs_are_the_seo_a11y_and_widget_builder_surface(): void {
+		// The always-on unlock reconciliation (runs on every request path, not
+		// just admin) derives its slug set straight from the ability classes.
+		$expected = array_merge(
+			( new \Elementor_MCP_Seo_Abilities( new Elementor_MCP_Data() ) )->get_ability_names(),
+			( new \Elementor_MCP_A11y_Abilities( new Elementor_MCP_Data() ) )->get_ability_names(),
+			( new \Elementor_MCP_Widget_Builder_Abilities() )->get_ability_names()
+		);
+		$actual = \Elementor_MCP_Plugin::premium_unlock_slugs();
+		sort( $expected );
+		sort( $actual );
+		$this->assertSame( $expected, $actual );
+		$this->assertCount( 15, $actual, 'expected 7 SEO/A11y + 8 Widget Builder slugs' );
+	}
 }

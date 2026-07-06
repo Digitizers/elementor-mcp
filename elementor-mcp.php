@@ -118,6 +118,7 @@ function elementor_mcp_after_uninstall() {
     delete_option( 'elementor_mcp_disabled_tools' );
     delete_option( 'elementor_mcp_low_tool_mode' );
     delete_option( 'elementor_mcp_defaults_applied' );
+    delete_option( 'elementor_mcp_premium_unlock_applied' );
     delete_transient( 'elementor_mcp_pro_prompts_bundle' );
     delete_transient( 'elementor_mcp_pro_templates_bundle' );
     delete_transient( 'elementor_mcp_pro_brand_kits_bundle' );

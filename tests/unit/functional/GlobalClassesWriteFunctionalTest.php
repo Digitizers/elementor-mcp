@@ -73,7 +73,7 @@ class GlobalClassesWriteFunctionalTest extends Ability_Test_Case {
 
 		// Base variant carries wrapped ($$type) props.
 		$base = $entry['variants'][0];
-		$this->assertNull( $base['meta']['breakpoint'] );
+		$this->assertSame( 'desktop', $base['meta']['breakpoint'], 'base variant stored with string desktop breakpoint' );
 		$this->assertNull( $base['meta']['state'] );
 		$this->assertSame( 'color', $base['props']['color']['$$type'] );
 		$this->assertSame( '#111111', $base['props']['color']['value'] );
@@ -145,11 +145,12 @@ class GlobalClassesWriteFunctionalTest extends Ability_Test_Case {
 		$variants = Global_Classes_Repository::$store_items[ $id ]['variants'];
 		$this->assertCount( 2, $variants, 'tablet variant must be preserved' );
 
-		// Base (breakpoint null) replaced.
+		// Base (breakpoint null|desktop) replaced — rebuilt variants store the
+		// base as the string 'desktop'.
 		$base = null;
 		$tablet = null;
 		foreach ( $variants as $v ) {
-			if ( null === $v['meta']['breakpoint'] ) {
+			if ( null === $v['meta']['breakpoint'] || 'desktop' === $v['meta']['breakpoint'] ) {
 				$base = $v;
 			} elseif ( 'tablet' === $v['meta']['breakpoint'] ) {
 				$tablet = $v;

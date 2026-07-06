@@ -651,7 +651,13 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	private function build_variant( ?string $breakpoint, ?string $state, array $props ): array {
 		return array(
 			'meta'       => array(
-				'breakpoint' => $breakpoint,
+				// Elementor's atomic style parser expects a string breakpoint; the
+				// base (responsive-default) variant is stored as 'desktop' — matching
+				// the editor's own variant builder and this fork's create_local_class
+				// (class-atomic-styles.php). A null base can fail to round-trip
+				// through the Class Manager/REST parser. Reads normalize either way
+				// (norm_breakpoint / the read class both fold 'desktop' <-> base).
+				'breakpoint' => null === $breakpoint ? 'desktop' : $breakpoint,
 				'state'      => $state,
 			),
 			'props'      => $props,
@@ -756,8 +762,12 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	/**
 	 * CSS property names whose ergonomic value is a color.
 	 */
+	// NB: no 'background-color' — Elementor v4's atomic schema represents
+	// backgrounds through the structured `background` prop, not a top-level
+	// `background-color`, so it would be rejected (schema present) or silently
+	// ignored by the renderer (schema absent).
 	const COLOR_PROPS = array(
-		'color', 'background-color', 'border-color', 'border-top-color',
+		'color', 'border-color', 'border-top-color',
 		'border-right-color', 'border-bottom-color', 'border-left-color',
 		'fill', 'stroke', 'outline-color', 'text-decoration-color',
 	);

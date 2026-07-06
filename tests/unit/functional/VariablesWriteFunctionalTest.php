@@ -46,6 +46,24 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertNotWPError( $this->ability->execute_create( array( 'label' => 'C', 'type' => 'color', 'value' => '#111111' ) ) );
 	}
 
+	public function test_non_pro_size_tokens_are_hidden_from_reads(): void {
+		// A stored size token on a non-Pro site: Elementor hides it, so must we.
+		Repository::__reset( array(
+			'e-gv-sz'  => array( 'type' => 'global-size-variable', 'label' => 'Sz', 'value' => '24px', 'order' => 1 ),
+			'e-gv-col' => array( 'type' => 'global-color-variable', 'label' => 'Col', 'value' => '#111111', 'order' => 2 ),
+		) );
+		$GLOBALS['_has_pro'] = false;
+
+		$list = $this->ability->execute_list( array() );
+		$this->assertSame( 1, $list['count'], 'size token hidden on non-Pro' );
+		$this->assertSame( 'color', $list['variables'][0]['type'] );
+		$this->assertWPError( $this->ability->execute_get( array( 'variable_id' => 'e-gv-sz' ) ), 'not_found' );
+
+		// With Pro, the size token is visible again.
+		$GLOBALS['_has_pro'] = true;
+		$this->assertSame( 2, $this->ability->execute_list( array() )['count'] );
+	}
+
 	public function test_list_unwraps_prop_typed_array_values(): void {
 		// Tokens created via Elementor's own manager store prop-typed ARRAY values.
 		Repository::__reset( array(

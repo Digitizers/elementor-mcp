@@ -411,8 +411,8 @@ class Elementor_MCP_Variables_Write_Abilities {
 		$out = array();
 		foreach ( $records as $id => $record ) {
 			$record = (array) $record;
-			if ( $this->is_tombstoned( $record ) ) {
-				continue; // Tombstoned — hidden from the active list.
+			if ( ! $this->is_readable( $record ) ) {
+				continue; // Tombstoned, or a size token Elementor hides on non-Pro.
 			}
 			$out[] = $this->public_shape_from_raw( (string) $id, $record );
 		}
@@ -453,10 +453,9 @@ class Elementor_MCP_Variables_Write_Abilities {
 		}
 		$record = (array) $records[ $variable_id ];
 
-		// Report tombstoned (soft-deleted) tokens as not_found so get stays
-		// consistent with list — an agent re-reading a token it just deleted must
-		// not see it as active and re-bind it.
-		if ( $this->is_tombstoned( $record ) ) {
+		// Not_found for anything not active-and-visible (tombstoned, or a size
+		// token Elementor hides on non-Pro) — keeps get consistent with list.
+		if ( ! $this->is_readable( $record ) ) {
 			return $this->not_found( $variable_id );
 		}
 
@@ -581,7 +580,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 		} catch ( \Throwable $e ) {
 			return $this->map_exception( $e );
 		}
-		if ( ! isset( $records[ $variable_id ] ) || $this->is_tombstoned( (array) $records[ $variable_id ] ) ) {
+		if ( ! isset( $records[ $variable_id ] ) || ! $this->is_readable( (array) $records[ $variable_id ] ) ) {
 			return $this->not_found( $variable_id );
 		}
 		$current = (array) $records[ $variable_id ];
@@ -886,6 +885,27 @@ class Elementor_MCP_Variables_Write_Abilities {
 	 */
 	private function is_tombstoned( array $record ): bool {
 		return ! empty( $record['deleted'] ) || ! empty( $record['deleted_at'] );
+	}
+
+	/**
+	 * Whether a raw record should appear as an active, usable token — i.e. not
+	 * tombstoned, and not a size variable on a non-Pro site (Elementor's own
+	 * Variables_Service::load() filters `global-size-variable` out when
+	 * `Utils::has_pro()` is false, so those tokens exist in storage but are never
+	 * exposed/rendered; listing them would let an agent bind to unusable tokens).
+	 *
+	 * @param array $record Raw variable record.
+	 * @return bool
+	 */
+	private function is_readable( array $record ): bool {
+		if ( $this->is_tombstoned( $record ) ) {
+			return false;
+		}
+		$type = isset( $record['type'] ) ? (string) $record['type'] : '';
+		if ( ( self::TYPE_SIZE === $type || self::TYPE_CUSTOM_SIZE === $type ) && ! $this->pro_active() ) {
+			return false;
+		}
+		return true;
 	}
 
 	/**

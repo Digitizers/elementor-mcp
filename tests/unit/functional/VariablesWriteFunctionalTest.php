@@ -111,6 +111,22 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertWPError( $res, 'label_not_unique' );
 	}
 
+	public function test_create_rejects_css_injecting_label(): void {
+		// Label becomes a raw custom-property name in :root — must be ident-safe.
+		foreach ( array( 'brand;color:red', 'brand}html{a', 'a:b', 'a{b' ) as $bad ) {
+			$res = $this->ability->execute_create( array( 'label' => $bad, 'type' => 'color', 'value' => '#111111' ) );
+			$this->assertWPError( $res, 'invalid_variable' );
+		}
+	}
+
+	public function test_create_rejects_css_injecting_value(): void {
+		// Font + size-expression values are emitted raw into a CSS declaration.
+		$font = $this->ability->execute_create( array( 'label' => 'F', 'type' => 'font', 'value' => 'Arial;color:red' ) );
+		$this->assertWPError( $font, 'invalid_value' );
+		$size = $this->ability->execute_create( array( 'label' => 'S', 'type' => 'size', 'value' => 'calc(1px)}html{a:b' ) );
+		$this->assertWPError( $size, 'invalid_value' );
+	}
+
 	public function test_create_rejects_at_limit(): void {
 		$this->seed_active( 1000, 'e-gv-lim' );
 		$res = $this->ability->execute_create( array( 'label' => 'OneTooMany', 'type' => 'color', 'value' => '#000000' ) );

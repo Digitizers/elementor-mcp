@@ -883,6 +883,14 @@ class Elementor_MCP_Variables_Write_Abilities {
 		if ( strlen( $label ) > 50 ) {
 			return new \WP_Error( 'invalid_variable', __( 'Variable label cannot be longer than 50 characters.', 'elementor-mcp' ) );
 		}
+		// The label becomes a CSS custom-property name emitted RAW into the kit's
+		// generated `:root { --<label>:<value>; }` stylesheet (Elementor's
+		// css-renderer only runs sanitize_text_field, which leaves `;{}:` intact),
+		// so a label like `brand;color:red` would inject a global declaration.
+		// Constrain to a CSS-ident-safe slug.
+		if ( ! preg_match( '/^[A-Za-z0-9_-]+$/', $label ) ) {
+			return new \WP_Error( 'invalid_variable', __( 'Variable label may only contain letters, digits, hyphens and underscores.', 'elementor-mcp' ) );
+		}
 		return true;
 	}
 
@@ -894,6 +902,16 @@ class Elementor_MCP_Variables_Write_Abilities {
 	 * @return true|\WP_Error
 	 */
 	private function validate_value( string $public_type, string $value ) {
+		// The value is emitted RAW into `--<label>:<value>;` inside the kit's
+		// generated `:root {}` (Elementor's css-renderer only sanitize_text_field's
+		// it), so CSS-structural characters would let a value like `Arial;color:red`
+		// or `calc(1px)}html{...` inject/break global styles. Reject them up front
+		// (the color + plain-dimension patterns below already exclude these; this
+		// covers font values and size CSS-function expressions).
+		if ( preg_match( '/[;{}<]/', $value ) ) {
+			return new \WP_Error( 'invalid_value', __( 'Variable value cannot contain the characters ; { } or <.', 'elementor-mcp' ) );
+		}
+
 		switch ( $public_type ) {
 			case 'color':
 				if ( ! preg_match( '/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $value ) ) {

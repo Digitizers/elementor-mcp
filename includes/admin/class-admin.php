@@ -1420,27 +1420,14 @@ class Elementor_MCP_Admin {
 			);
 		}
 
-		// Brand Kits (Pro). Only shown to licensed sites — the underlying
-		// abilities register only for Pro, matching this gate. No 'pro' badge so
-		// they are NOT auto-disabled by maybe_apply_default_disabled_tools (this
-		// is a headline Pro feature, on by default for licensed users).
-		if (
-			class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
-			&& Elementor_MCP_Pro_Brand_Kits::user_has_access()
-		) {
-			$tools['brand_kits'] = array(
-				'label' => __( 'Brand Kits', 'elementor-mcp' ),
+		// System Kit writers. Fork: these act on THIS site's own Elementor kit
+		// (no hosted content), so they unlock for everyone and must be visible +
+		// toggleable here — otherwise they'd be MCP-exposed but invisible in the
+		// Tools tab. No 'pro' badge → not auto-disabled by the defaults seeder.
+		if ( function_exists( 'emcp_fork_premium_tools_enabled' ) && emcp_fork_premium_tools_enabled() ) {
+			$tools['system_kit'] = array(
+				'label' => __( 'System Kit', 'elementor-mcp' ),
 				'tools' => array(
-					'elementor-mcp/list-brand-kits'           => array(
-						'label'       => __( 'List Brand Kits', 'elementor-mcp' ),
-						'description' => __( 'Lists available premium brand kits from the cached library.', 'elementor-mcp' ),
-						'badges'      => array( 'read-only' ),
-					),
-					'elementor-mcp/apply-brand-kit'           => array(
-						'label'       => __( 'Apply Brand Kit', 'elementor-mcp' ),
-						'description' => __( 'Applies a brand kit: replaces system colors + typography site-wide.', 'elementor-mcp' ),
-						'badges'      => array( 'destructive' ),
-					),
 					'elementor-mcp/replace-system-colors'     => array(
 						'label'       => __( 'Replace System Colors', 'elementor-mcp' ),
 						'description' => __( 'Replaces the four Elementor system color slots atomically.', 'elementor-mcp' ),
@@ -1449,6 +1436,30 @@ class Elementor_MCP_Admin {
 					'elementor-mcp/replace-system-typography' => array(
 						'label'       => __( 'Replace System Typography', 'elementor-mcp' ),
 						'description' => __( 'Replaces the four Elementor system typography slots atomically.', 'elementor-mcp' ),
+						'badges'      => array( 'destructive' ),
+					),
+				),
+			);
+		}
+
+		// Brand Kits (hosted). list/apply pull from upstream's licensed content
+		// service, which the fork does not unlock, so these two register only on
+		// a site that actually carries a license — matching the ability gate.
+		if (
+			class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
+			&& Elementor_MCP_Pro_Brand_Kits::user_has_access()
+		) {
+			$tools['brand_kits'] = array(
+				'label' => __( 'Brand Kits', 'elementor-mcp' ),
+				'tools' => array(
+					'elementor-mcp/list-brand-kits' => array(
+						'label'       => __( 'List Brand Kits', 'elementor-mcp' ),
+						'description' => __( 'Lists available premium brand kits from the cached library.', 'elementor-mcp' ),
+						'badges'      => array( 'read-only' ),
+					),
+					'elementor-mcp/apply-brand-kit' => array(
+						'label'       => __( 'Apply Brand Kit', 'elementor-mcp' ),
+						'description' => __( 'Applies a brand kit: replaces system colors + typography site-wide.', 'elementor-mcp' ),
 						'badges'      => array( 'destructive' ),
 					),
 				),

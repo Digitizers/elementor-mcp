@@ -932,6 +932,12 @@ class Elementor_MCP_Variables_Write_Abilities {
 		if ( preg_match( '/[;{}<]/', $value ) ) {
 			return new \WP_Error( 'invalid_value', __( 'Variable value cannot contain the characters ; { } or <.', 'elementor-mcp' ) );
 		}
+		// CSS comment delimiters would start/close a comment in the generated
+		// stylesheet — `Arial/*` leaves an unterminated comment that swallows the
+		// rest of the kit CSS. (Individual `/` and `*` are allowed: valid in calc().)
+		if ( false !== strpos( $value, '/*' ) || false !== strpos( $value, '*/' ) ) {
+			return new \WP_Error( 'invalid_value', __( 'Variable value cannot contain CSS comment delimiters (/* or */).', 'elementor-mcp' ) );
+		}
 
 		switch ( $public_type ) {
 			case 'color':

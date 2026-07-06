@@ -150,6 +150,15 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertWPError( $size, 'invalid_value' );
 	}
 
+	public function test_create_rejects_css_comment_delimiters_in_value(): void {
+		$open = $this->ability->execute_create( array( 'label' => 'F', 'type' => 'font', 'value' => 'Arial/*' ) );
+		$this->assertWPError( $open, 'invalid_value' );
+		$close = $this->ability->execute_create( array( 'label' => 'S', 'type' => 'size', 'value' => 'calc(1px)*/' ) );
+		$this->assertWPError( $close, 'invalid_value' );
+		// calc division/multiplication (single / or *) stays valid.
+		$this->assertNotWPError( $this->ability->execute_create( array( 'label' => 'Div', 'type' => 'size', 'value' => 'calc(100% / 3)' ) ) );
+	}
+
 	public function test_create_rejects_at_limit(): void {
 		$this->seed_active( 1000, 'e-gv-lim' );
 		$res = $this->ability->execute_create( array( 'label' => 'OneTooMany', 'type' => 'color', 'value' => '#000000' ) );

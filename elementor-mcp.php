@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor (Digitizers fork)
  * Plugin URI:        https://github.com/Digitizers/elementor-mcp
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
- * Version:           1.12.2
+ * Version:           1.13.0
  * Requires at least: 6.9
  * Tested up to:      6.9
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.12.2' );
+define( 'ELEMENTOR_MCP_VERSION', '1.13.0' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -64,6 +64,35 @@ if ( ! function_exists( 'emcp_pro_fs' ) ) {
     emcp_pro_fs();
     // Signal that SDK was initiated.
     do_action( 'emcp_pro_fs_loaded' );
+}
+
+/**
+ * Whether the fork's premium-tier GPL tools are enabled.
+ *
+ * Upstream gated 19 MCP tools (brand kits, SEO audits, a11y audits, Widget
+ * Builder) plus the generated-widget loader/store behind a Freemius paid
+ * license. This fork ships no paid plans (`has_paid_plans => false`), so
+ * that gate left GPL code living in this repo permanently dormant. The fork
+ * enables it for everyone; the filter lets an operator turn the pack off.
+ *
+ * NOTE: this deliberately does NOT unlock the admin marketplace fetchers
+ * (Pro templates / prompts / brand-kit bundles / skills downloads) — those
+ * gate access to upstream's licensed hosted content on emcp.msrbuilds.com,
+ * which is not ours to unlock.
+ *
+ * @since 1.13.0
+ *
+ * @return bool
+ */
+function emcp_fork_premium_tools_enabled(): bool {
+	/**
+	 * Filters whether the fork's premium-tier tools register.
+	 *
+	 * @since 1.13.0
+	 *
+	 * @param bool $enabled Default true.
+	 */
+	return (bool) apply_filters( 'emcp_fork_premium_tools_enabled', true );
 }
 
 /**

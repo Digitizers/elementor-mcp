@@ -82,7 +82,9 @@ class Elementor_MCP_Widget_Store {
 	 * @return bool
 	 */
 	public static function user_has_access(): bool {
-		if ( ! function_exists( 'emcp_pro_fs' ) || ! emcp_pro_fs()->can_use_premium_code() ) {
+		// Fork: the Freemius paid gate is gone — the capability check is the
+		// real guard (filterable via emcp_fork_premium_tools_enabled).
+		if ( ! function_exists( 'emcp_fork_premium_tools_enabled' ) || ! emcp_fork_premium_tools_enabled() ) {
 			return false;
 		}
 		return current_user_can( 'manage_options' );

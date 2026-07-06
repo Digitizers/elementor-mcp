@@ -2,6 +2,11 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.13.0 — 2026-07-06
+
+- **Premium tier unlocked.** The 19 tools upstream gated behind a Freemius paid license — brand kits (list/apply/replace-system-colors/replace-system-typography), SEO audits (audit-page-seo, extract-keywords-from-content, generate-meta-tags, generate-schema-markup), accessibility audits (audit-page-a11y, fix-color-contrast, add-alt-text-from-context), and the full Widget Builder (8 tools) — now register for everyone, along with the generated-widget loader/store runtime. This fork ships no paid plans, so that gate only kept GPL code in this repo permanently dormant. A new `emcp_fork_premium_tools_enabled` filter (default `true`) lets an operator disable the pack. The admin marketplace fetchers for upstream's hosted Pro content (templates/prompts/brand-kit bundles/skills downloads from emcp.msrbuilds.com) remain gated — that content is not ours to unlock.
+- Regression suite: `PremiumTierUnlockedTest` pins the unlocked tool surface, the filter kill-switch, and the Widget Store's remaining `manage_options` guard.
+
 ## 1.12.2 — 2026-06-13
 
 - Plugin header now reflects the Digitizers fork identity (`Author: Digitizers`, `Plugin URI: github.com/Digitizers/elementor-mcp`); the original author (Mian Shahzad Raza / msrbuilds) is credited in the description. Also fixed a malformed `Plugin URI`.

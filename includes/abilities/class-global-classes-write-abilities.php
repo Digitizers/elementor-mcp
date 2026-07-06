@@ -11,6 +11,14 @@
  * (Elementor 4.0+). Writes are gated on `manage_options` — mutating the shared
  * design system is a site-wide operation, not per-post.
  *
+ * Context: writes go through the repository's default (frontend/published)
+ * context — `Global_Classes_Repository::make()->put()` — deliberately NOT the
+ * editor preview context. This matches the shipping Novamira Pro reference and
+ * respects the publish boundary: writing the preview context would clobber a
+ * user's unpublished in-editor Global Class draft. Consequence: changes are live
+ * on the published frontend immediately and appear in the editor on next open;
+ * an already-open editor may need a refresh (standard for any external edit).
+ *
  * @package Elementor_MCP
  * @since   1.14.0
  */

@@ -72,12 +72,50 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	}
 
 	/**
-	 * Whether Elementor exposes the Global Classes repository on this site.
+	 * Whether Elementor exposes a Global Classes repository we can WRITE through.
+	 *
+	 * The repository's write API changed shape over Elementor's v4 line:
+	 *   get/delete/patch (2024-11) → put( string $id, array $value ) per-class
+	 *   (2024-11 … 2025-01) → put( array $items, array $order ) bulk (2025-02+)
+	 *   → apply_changes( $touched, $changes, $order ) added (2026-05+).
+	 * We only support the two write paths apply_change() actually uses — the
+	 * touched-item `apply_changes()` (preferred) and the bulk `put(array, …)`
+	 * fallback — so on ancient per-class-`put()` / get-delete-patch builds the
+	 * write tools simply don't register rather than failing at call time.
 	 *
 	 * @return bool
 	 */
 	public static function is_available(): bool {
-		return class_exists( self::REPOSITORY );
+		if ( ! class_exists( self::REPOSITORY ) ) {
+			return false;
+		}
+		if ( method_exists( self::REPOSITORY, 'apply_changes' ) ) {
+			return true;
+		}
+		return self::has_bulk_put();
+	}
+
+	/**
+	 * Whether the repository exposes the bulk `put( array $items, array $order )`
+	 * signature (vs the historical per-class `put( string $id, array $value )`),
+	 * checked via reflection on the first parameter's type.
+	 *
+	 * @return bool
+	 */
+	private static function has_bulk_put(): bool {
+		if ( ! method_exists( self::REPOSITORY, 'put' ) ) {
+			return false;
+		}
+		try {
+			$params = ( new \ReflectionMethod( self::REPOSITORY, 'put' ) )->getParameters();
+			if ( empty( $params ) ) {
+				return false;
+			}
+			$type = $params[0]->getType();
+			return $type instanceof \ReflectionNamedType && 'array' === $type->getName();
+		} catch ( \Throwable $e ) {
+			return false;
+		}
 	}
 
 	/**

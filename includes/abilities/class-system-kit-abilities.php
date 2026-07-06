@@ -40,45 +40,64 @@ class Elementor_MCP_System_Kit_Abilities {
 	 * @return bool
 	 */
 	private function has_access(): bool {
-		// Fork: the Freemius paid gate is gone — this GPL tool pack ships
-		// enabled (filterable via emcp_fork_premium_tools_enabled).
+		// Fork: the Freemius paid gate is gone — the local system-kit writers
+		// (replace-system-colors/typography) operate on THIS site's own kit and
+		// need no hosted content, so they ship enabled (filterable via
+		// emcp_fork_premium_tools_enabled).
 		return function_exists( 'emcp_fork_premium_tools_enabled' ) && emcp_fork_premium_tools_enabled();
 	}
 
 	/**
-	 * Returns the ability names registered by this class. Empty for non-Pro
-	 * sites so they never appear in the MCP tool surface (or count against
-	 * client tool caps).
+	 * Whether the HOSTED brand-kit library is reachable. list-brand-kits and
+	 * apply-brand-kit fetch kits from upstream's licensed content service
+	 * (emcp.msrbuilds.com) — the fork does not unlock that content, so these
+	 * two tools only surface on a site that actually carries a valid license.
+	 * Otherwise they'd register but every call would return `no_license`.
+	 *
+	 * @return bool
+	 */
+	private function has_hosted_kit_access(): bool {
+		return class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
+			&& Elementor_MCP_Pro_Brand_Kits::user_has_access();
+	}
+
+	/**
+	 * Returns the ability names registered by this class. The two local writers
+	 * ship on any fork install; the two hosted-library tools only when a license
+	 * makes the content reachable — so nothing surfaces that always fails.
 	 *
 	 * @since 1.8.0
 	 *
 	 * @return string[]
 	 */
 	public function get_ability_names(): array {
-		if ( ! $this->has_access() ) {
-			return array();
+		$names = array();
+		if ( $this->has_access() ) {
+			$names[] = 'elementor-mcp/replace-system-colors';
+			$names[] = 'elementor-mcp/replace-system-typography';
 		}
-		return array(
-			'elementor-mcp/list-brand-kits',
-			'elementor-mcp/apply-brand-kit',
-			'elementor-mcp/replace-system-colors',
-			'elementor-mcp/replace-system-typography',
-		);
+		if ( $this->has_hosted_kit_access() ) {
+			$names[] = 'elementor-mcp/list-brand-kits';
+			$names[] = 'elementor-mcp/apply-brand-kit';
+		}
+		return $names;
 	}
 
 	/**
-	 * Registers all brand-kit abilities (Pro only).
+	 * Registers system-kit abilities. Local writers on any fork install; the
+	 * hosted-library tools only when their content is reachable.
 	 *
 	 * @since 1.8.0
 	 */
 	public function register(): void {
-		if ( ! $this->has_access() ) {
-			return;
+		if ( $this->has_access() ) {
+			$this->register_replace_system_colors();
+			$this->register_replace_system_typography();
 		}
-		$this->register_list_brand_kits();
-		$this->register_apply_brand_kit();
-		$this->register_replace_system_colors();
-		$this->register_replace_system_typography();
+		if ( $this->has_hosted_kit_access() ) {
+			$this->register_list_brand_kits();
+			$this->register_apply_brand_kit();
+		}
 	}
 
 	/**
@@ -202,8 +221,8 @@ class Elementor_MCP_System_Kit_Abilities {
 	 * @return array|\WP_Error
 	 */
 	public function execute_list_brand_kits( $input ) {
-		if ( ! $this->has_access() ) {
-			return new \WP_Error( 'no_license', __( 'A valid EMCP Tools Pro license is required to list brand kits.', 'elementor-mcp' ) );
+		if ( ! $this->has_hosted_kit_access() ) {
+			return new \WP_Error( 'no_license', __( 'The hosted brand-kit library requires a valid EMCP Tools Pro license.', 'elementor-mcp' ) );
 		}
 
 		$category_filter = isset( $input['category_slug'] ) ? sanitize_key( (string) $input['category_slug'] ) : '';
@@ -293,8 +312,8 @@ class Elementor_MCP_System_Kit_Abilities {
 	 * @return array|\WP_Error
 	 */
 	public function execute_apply_brand_kit( $input ) {
-		if ( ! $this->has_access() ) {
-			return new \WP_Error( 'no_license', __( 'A valid EMCP Tools Pro license is required to apply brand kits.', 'elementor-mcp' ) );
+		if ( ! $this->has_hosted_kit_access() ) {
+			return new \WP_Error( 'no_license', __( 'The hosted brand-kit library requires a valid EMCP Tools Pro license.', 'elementor-mcp' ) );
 		}
 
 		$kit_slug = isset( $input['kit_slug'] ) ? sanitize_key( (string) $input['kit_slug'] ) : '';

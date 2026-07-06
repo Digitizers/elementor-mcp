@@ -158,7 +158,7 @@ class Elementor_MCP_Admin {
 	 *
 	 * @since 1.8.0
 	 */
-	const DEFAULTS_VERSION = 3;
+	const DEFAULTS_VERSION = 4;
 
 	/**
 	 * SEO/A11y Pro MCP tool slugs that ship disabled-by-default (v2 defaults).
@@ -244,6 +244,17 @@ class Elementor_MCP_Admin {
 		}
 
 		$merged = array_values( array_unique( array_merge( $existing, $add ) ) );
+
+		// v4 — the fork unlocked the SEO/A11y + Widget Builder packs for
+		// everyone, so they should ship ENABLED, not disabled. Remove those
+		// slugs the earlier versions seeded off (and that a licensed upgrader
+		// may still carry), so the unlock actually takes effect. Users can
+		// re-disable any of them per-tool in the Tools tab afterwards.
+		if ( $applied < 4 ) {
+			$unlocked = array_merge( self::seo_a11y_tool_slugs(), self::widget_builder_tool_slugs() );
+			$merged   = array_values( array_diff( $merged, $unlocked ) );
+		}
+
 		update_option( self::OPTION_DISABLED_TOOLS, $merged );
 		update_option( self::OPTION_DEFAULTS_APPLIED, (string) self::DEFAULTS_VERSION );
 	}
@@ -1444,11 +1455,13 @@ class Elementor_MCP_Admin {
 			);
 		}
 
-		// SEO & Accessibility toolkit (Pro). Shown to licensed sites only —
-		// matching the ability gate. Carries the 'pro' badge so they ship
-		// disabled-by-default (see maybe_apply_default_disabled_tools v2);
-		// users re-enable individual tools here. All five are read-only.
-		if ( function_exists( 'emcp_pro_fs' ) && emcp_pro_fs()->can_use_premium_code() ) {
+		// SEO & Accessibility toolkit + Widget Builder. Fork: these GPL packs
+		// are unlocked for everyone (they were dormant behind a Freemius gate
+		// this fork cannot activate), so they render for any install with the
+		// pack enabled — otherwise the Tools tab would give no way to toggle
+		// the newly-unlocked tools. Enabled by default via the v4 defaults
+		// migration; users trim per-tool here or via Low-tools mode.
+		if ( function_exists( 'emcp_fork_premium_tools_enabled' ) && emcp_fork_premium_tools_enabled() ) {
 			$tools['seo_a11y'] = array(
 				'label' => __( 'SEO & Accessibility', 'elementor-mcp' ),
 				'tools' => array(

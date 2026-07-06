@@ -34,6 +34,7 @@
         </testsuite>
         <testsuite name="Unit">
             <file>tests/unit/WidgetGeneratorTest.php</file>
+            <file>tests/unit/PremiumTierUnlockedTest.php</file>
         </testsuite>
     </testsuites>
 

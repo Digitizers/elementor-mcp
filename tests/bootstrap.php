@@ -660,6 +660,7 @@ namespace {
 			'Elementor_MCP_Atomic_Widget_Abilities' => 'includes/abilities/class-atomic-widget-abilities.php',
 			'Elementor_MCP_Atomic_Layout_Abilities' => 'includes/abilities/class-atomic-layout-abilities.php',
 			// Premium-tier pack (unlocked by the fork in 1.13.0)
+			'Elementor_MCP_Admin'                  => 'includes/admin/class-admin.php',
 			'Elementor_MCP_System_Kit_Abilities'   => 'includes/abilities/class-system-kit-abilities.php',
 			'Elementor_MCP_Widget_Builder_Abilities' => 'includes/abilities/class-widget-builder-abilities.php',
 			'Elementor_MCP_Widget_Store'           => 'includes/class-widget-store.php',

@@ -23,6 +23,8 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 	protected function setUp(): void {
 		parent::setUp();
 		Variables_Repository::__reset( array() );
+		// is_available() requires the e_variables experiment + atomic support.
+		$GLOBALS['_active_experiments'] = array( 'e_variables', 'e_atomic_elements' );
 		// active_kit() resolves via kits_manager->get_active_kit(), which the
 		// bootstrap stub reads from $GLOBALS['_active_kit'].
 		$GLOBALS['_active_kit'] = new \stdClass();

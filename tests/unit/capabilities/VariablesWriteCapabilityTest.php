@@ -20,6 +20,8 @@ class VariablesWriteCapabilityTest extends Ability_Test_Case {
 
     protected function setUp(): void {
         parent::setUp();
+        // is_available()/get_ability_names() require the e_variables experiment + atomic support.
+        $GLOBALS['_active_experiments'] = array('e_variables', 'e_atomic_elements');
         $data          = $this->createStub(\Elementor_MCP_Data::class);
         $this->ability = new \Elementor_MCP_Variables_Write_Abilities($data);
     }
@@ -46,6 +48,14 @@ class VariablesWriteCapabilityTest extends Ability_Test_Case {
     public function test_read_permission_accepted_with_edit_posts(): void {
         $this->allow_caps('edit_posts');
         $this->assertTrue($this->ability->check_read_permission());
+    }
+
+    /** @test @group t0 */
+    public function test_not_available_when_e_variables_experiment_off(): void {
+        // Atomic supported but the Variables experiment is disabled → no tools.
+        $GLOBALS['_active_experiments'] = array('e_atomic_elements');
+        $this->assertFalse(\Elementor_MCP_Variables_Write_Abilities::is_available());
+        $this->assertCount(0, $this->ability->get_ability_names());
     }
 
     /** @test @group t0 */

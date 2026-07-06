@@ -82,15 +82,52 @@ class Elementor_MCP_Variables_Write_Abilities {
 	/**
 	 * Whether Elementor exposes the Variables repository we can read/write through.
 	 *
-	 * Class-existence is the registration gate (mirroring how the Global Classes
-	 * write class gates on its repository). At runtime Elementor also requires the
-	 * `e_variables` + AtomicWidgets experiments, but those are enforced by
-	 * Elementor itself once we construct the repository.
+	 * Gate: the repository class must exist AND the runtime feature must be
+	 * active. class_exists() alone is insufficient — Elementor's autoloader loads
+	 * the Variables storage classes even when the `e_variables` / Atomic Widgets
+	 * experiments are OFF and the Variables module has returned early; the
+	 * repository's load()/save() only touch kit meta, so nothing would stop us
+	 * writing `_elementor_global_variables` that the inactive runtime ignores (the
+	 * same silent-no-op trap `Elementor_MCP_Atomic_Props::is_atomic_supported()`
+	 * guards against). So we also require the `e_variables` experiment and atomic
+	 * support before the six tools register.
 	 *
 	 * @return bool
 	 */
 	public static function is_available(): bool {
-		return class_exists( self::REPOSITORY );
+		if ( ! class_exists( self::REPOSITORY ) ) {
+			return false;
+		}
+		if ( ! self::e_variables_active() ) {
+			return false;
+		}
+		return class_exists( 'Elementor_MCP_Atomic_Props' )
+			? \Elementor_MCP_Atomic_Props::is_atomic_supported()
+			: true;
+	}
+
+	/**
+	 * Whether Elementor's `e_variables` experiment is active. Permissive only when
+	 * the experiments API can't be reached (class_exists already gated); strict
+	 * (false) when the API is present and reports the feature off — the case
+	 * Codex flagged.
+	 *
+	 * @return bool
+	 */
+	private static function e_variables_active(): bool {
+		if ( ! class_exists( '\\Elementor\\Plugin' ) ) {
+			return false;
+		}
+		$elementor = \Elementor\Plugin::$instance ?? null;
+		if ( ! is_object( $elementor ) || ! isset( $elementor->experiments ) || ! is_object( $elementor->experiments )
+			|| ! method_exists( $elementor->experiments, 'is_feature_active' ) ) {
+			return true;
+		}
+		try {
+			return (bool) $elementor->experiments->is_feature_active( 'e_variables' );
+		} catch ( \Throwable $e ) {
+			return true;
+		}
 	}
 
 	/**

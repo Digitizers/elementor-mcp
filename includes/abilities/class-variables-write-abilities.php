@@ -553,6 +553,14 @@ class Elementor_MCP_Variables_Write_Abilities {
 			if ( '' === $label ) {
 				return new \WP_Error( 'missing_label', __( 'label cannot be empty.', 'elementor-mcp' ) );
 			}
+			// Validate the NEW label's format here: Elementor's apply_changes()
+			// validates the entity BEFORE applying $changes, i.e. the OLD label, so
+			// an invalid new label (spaces / >50 chars) would otherwise persist even
+			// though create rejects it.
+			$label_check = $this->validate_label( $label );
+			if ( is_wp_error( $label_check ) ) {
+				return $label_check;
+			}
 			try {
 				if ( method_exists( $collection, 'assert_label_is_unique' ) ) {
 					$collection->assert_label_is_unique( $label, $variable_id );
@@ -687,6 +695,18 @@ class Elementor_MCP_Variables_Write_Abilities {
 					__( 'This Elementor build does not support restoring soft-deleted Variables.', 'elementor-mcp' )
 				);
 			}
+
+			// Restoring reactivates the token, so re-check the constraints that only
+			// apply to active variables: it must not collide with an active label,
+			// and it must not push the active set past Elementor's cap. (The token is
+			// still soft-deleted at this point, so it's excluded from both checks.)
+			if ( method_exists( $collection, 'assert_limit_not_reached' ) ) {
+				$collection->assert_limit_not_reached();
+			}
+			if ( method_exists( $collection, 'assert_label_is_unique' ) ) {
+				$collection->assert_label_is_unique( $this->call_accessor( $var, 'label' ), $variable_id );
+			}
+
 			$var->restore();
 		} catch ( \Throwable $e ) {
 			return $this->map_exception( $e );
@@ -975,6 +995,25 @@ class Elementor_MCP_Variables_Write_Abilities {
 	 */
 	private function is_size_expression( string $value ): bool {
 		return (bool) preg_match( '/(?:clamp|calc|min|max|var|env)\s*\(/i', $value );
+	}
+
+	/**
+	 * Validates a label against Elementor's Variable rules (no spaces, ≤50 chars).
+	 * Mirrors Variable::validate(), applied to a *new* label on create/edit so an
+	 * invalid rename can't slip past apply_changes() (which validates the old
+	 * label before applying the change).
+	 *
+	 * @param string $label The label.
+	 * @return true|\WP_Error
+	 */
+	private function validate_label( string $label ) {
+		if ( strpos( $label, ' ' ) !== false ) {
+			return new \WP_Error( 'invalid_variable', __( 'Variable label cannot contain spaces.', 'elementor-mcp' ) );
+		}
+		if ( strlen( $label ) > 50 ) {
+			return new \WP_Error( 'invalid_variable', __( 'Variable label cannot be longer than 50 characters.', 'elementor-mcp' ) );
+		}
+		return true;
 	}
 
 	/**

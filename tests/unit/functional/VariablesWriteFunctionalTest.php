@@ -158,6 +158,45 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( 'global-custom-size-variable', Variables_Repository::$store[ $id ]->type() );
 	}
 
+	public function test_edit_rejects_invalid_new_label(): void {
+		$created = $this->ability->execute_create( array( 'label' => 'Ok', 'type' => 'color', 'value' => '#111111' ) );
+		// apply_changes() validates the OLD label first, so the new one must be
+		// pre-validated by our edit path.
+		$spaces = $this->ability->execute_edit( array( 'variable_id' => $created['id'], 'label' => 'has space' ) );
+		$this->assertWPError( $spaces, 'invalid_variable' );
+		$long = $this->ability->execute_edit( array( 'variable_id' => $created['id'], 'label' => str_repeat( 'x', 51 ) ) );
+		$this->assertWPError( $long, 'invalid_variable' );
+		// Original label untouched.
+		$this->assertSame( 'Ok', Variables_Repository::$store[ $created['id'] ]->label() );
+	}
+
+	public function test_restore_rejects_when_label_now_taken(): void {
+		$a  = $this->ability->execute_create( array( 'label' => 'Shared', 'type' => 'color', 'value' => '#111111' ) );
+		$this->ability->execute_delete( array( 'variable_id' => $a['id'] ) );
+		// A new active variable reuses the freed label.
+		$this->ability->execute_create( array( 'label' => 'Shared', 'type' => 'color', 'value' => '#222222' ) );
+
+		$res = $this->ability->execute_restore( array( 'variable_id' => $a['id'] ) );
+		$this->assertWPError( $res, 'label_not_unique' );
+		$this->assertTrue( Variables_Repository::$store[ $a['id'] ]->is_deleted(), 'stays deleted on rejected restore' );
+	}
+
+	public function test_restore_rejects_when_at_limit(): void {
+		$victim = $this->ability->execute_create( array( 'label' => 'Victim', 'type' => 'color', 'value' => '#111111' ) );
+		$this->ability->execute_delete( array( 'variable_id' => $victim['id'] ) );
+		// Fill the active set to the cap while the victim is soft-deleted.
+		$store = Variables_Repository::$store;
+		for ( $i = 0; $i < 1000; $i++ ) {
+			$store[ "e-gv-fill$i" ] = \Elementor\Modules\Variables\Storage\Entities\Variable::create_new(
+				array( 'id' => "e-gv-fill$i", 'type' => 'global-color-variable', 'label' => "fill$i", 'value' => '#000000', 'order' => $i )
+			);
+		}
+		Variables_Repository::__reset( $store );
+
+		$res = $this->ability->execute_restore( array( 'variable_id' => $victim['id'] ) );
+		$this->assertWPError( $res, 'limit_reached' );
+	}
+
 	public function test_edit_requires_a_field(): void {
 		$created = $this->ability->execute_create( array( 'label' => 'X', 'type' => 'color', 'value' => '#111111' ) );
 		$res     = $this->ability->execute_edit( array( 'variable_id' => $created['id'] ) );

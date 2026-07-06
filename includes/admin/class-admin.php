@@ -1396,9 +1396,13 @@ class Elementor_MCP_Admin {
 
 		// Brand Kits (hosted). list/apply pull from upstream's licensed content
 		// service, which the fork does not unlock, so these two register only on
-		// a site that actually carries a license — matching the ability gate.
+		// a site that actually carries a license AND has the pack enabled —
+		// matching Elementor_MCP_System_Kit_Abilities::has_hosted_kit_access(),
+		// so the Tools tab never lists toggles for abilities that won't register.
 		if (
-			class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
+			function_exists( 'emcp_fork_premium_tools_enabled' )
+			&& emcp_fork_premium_tools_enabled()
+			&& class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
 			&& Elementor_MCP_Pro_Brand_Kits::user_has_access()
 		) {
 			$tools['brand_kits'] = array(

@@ -12,16 +12,16 @@
  * design system is a site-wide operation, not per-post.
  *
  * Context: writes go through the repository's default (frontend/published)
- * context — `Global_Classes_Repository::make()->put()` — deliberately NOT the
- * editor preview context, respecting the publish boundary (a preview write would
- * clobber a user's unpublished in-editor Global Class draft). We do NOT manually
- * mirror the labels/order into the `_preview` meta either: Elementor's own put()
- * already reconciles the preview context for touched ids (it clears their
- * preview overrides so they fall back to the frontend overlay), so a manual
- * frontend->preview copy would be redundant AND would clobber the preview drafts
- * of *unrelated* classes. Consequence: changes are live on the published
- * frontend immediately and appear in the editor on next open; an already-open
- * editor may need a refresh (standard for any external edit).
+ * context, deliberately NOT the editor preview context, respecting the publish
+ * boundary (a preview write would clobber a user's unpublished in-editor Global
+ * Class draft). Each mutation uses the touched-item API `apply_changes( $touched,
+ * $changes, $order )` (see apply_change()) so that only the class actually being
+ * created/updated/deleted has its preview override reconciled — the bulk `put()`
+ * would instead mark every existing id as "modified" and clear ALL preview
+ * overrides, discarding unrelated in-editor drafts. We also do NOT manually
+ * mirror labels/order into the `_preview` meta. Consequence: changes are live on
+ * the published frontend immediately and appear in the editor on next open; an
+ * already-open editor may need a refresh (standard for any external edit).
  *
  * @package Elementor_MCP
  * @since   1.14.0
@@ -346,7 +346,12 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 		);
 		$order[]      = $id;
 
-		$put = $this->put( $items, $order );
+		$put = $this->apply_change(
+			array( $id => $items[ $id ] ),
+			array( 'added' => array( $id ), 'modified' => array(), 'deleted' => array(), 'order' => true ),
+			$order,
+			$items
+		);
 		if ( is_wp_error( $put ) ) {
 			return $put;
 		}
@@ -425,7 +430,12 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 
 		$items[ $class_id ] = $entry;
 
-		$put = $this->put( $items, $order );
+		$put = $this->apply_change(
+			array( $class_id => $entry ),
+			array( 'added' => array(), 'modified' => array( $class_id ), 'deleted' => array(), 'order' => false ),
+			$order,
+			$items
+		);
 		if ( is_wp_error( $put ) ) {
 			return $put;
 		}
@@ -475,7 +485,12 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 			)
 		);
 
-		$put = $this->put( $items, $order );
+		$put = $this->apply_change(
+			array(),
+			array( 'added' => array(), 'modified' => array(), 'deleted' => array( $class_id ), 'order' => true ),
+			$order,
+			$items
+		);
 		if ( is_wp_error( $put ) ) {
 			return $put;
 		}
@@ -637,16 +652,35 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	}
 
 	/**
-	 * Writes the items map + order back to the repository.
+	 * Writes a single Global Classes mutation, preserving OTHER classes' preview
+	 * drafts.
 	 *
-	 * @param array $items The class items map.
-	 * @param array $order The class id order.
+	 * Prefers Elementor's touched-item API `apply_changes( $touched, $changes,
+	 * $order )` when the build exposes it: it clears the preview overrides only
+	 * for the ids named in $changes (added/modified/deleted). The bulk
+	 * `put( $items, $order )` cannot be used for this — it derives
+	 * `modified = array_intersect( new_ids, current_ids )` (i.e. EVERY existing id
+	 * in the passed map, not a value-diff) and then `bulk_clear_preview_meta()` +
+	 * `clear_preview_labels_for_ids()` over all of them, discarding a user's
+	 * unpublished in-editor drafts for unrelated classes. We fall back to put()
+	 * only on older builds without apply_changes() (correctness over the
+	 * draft-preservation nicety there).
+	 *
+	 * @param array $touched Map id=>item for added/updated classes ([] for delete).
+	 * @param array $changes { added:[], modified:[], deleted:[], order:bool }.
+	 * @param array $order   Full new class-id order.
+	 * @param array $items   Full items map (fallback put()).
 	 * @return true|\WP_Error
 	 */
-	private function put( array $items, array $order ) {
+	private function apply_change( array $touched, array $changes, array $order, array $items ) {
 		$repo = self::REPOSITORY;
 		try {
-			$repo::make()->put( $items, array_values( $order ) );
+			$r = $repo::make();
+			if ( method_exists( $r, 'apply_changes' ) ) {
+				$r->apply_changes( $touched, $changes, array_values( $order ) );
+			} else {
+				$r->put( $items, array_values( $order ) );
+			}
 		} catch ( \Throwable $e ) {
 			return new \WP_Error( 'write_failed', $e->getMessage() );
 		}

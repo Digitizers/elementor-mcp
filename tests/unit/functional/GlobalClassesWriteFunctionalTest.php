@@ -127,6 +127,35 @@ class GlobalClassesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertCount( 100, Global_Classes_Repository::$store_items, 'nothing written past the cap' );
 	}
 
+	public function test_writes_use_the_touched_item_api_and_preserve_others(): void {
+		// An unrelated pre-existing class that must never appear in the touched set
+		// (on real Elementor, touching it would clear its preview draft).
+		Global_Classes_Repository::__reset(
+			array( 'g-other01' => array( 'id' => 'g-other01', 'type' => 'class', 'label' => 'keep', 'variants' => array() ) ),
+			array( 'g-other01' )
+		);
+
+		// create → added:[newid], modified:[], deleted:[]
+		$res = $this->ability->execute_create( array( 'label' => 'new', 'styles' => array( 'color' => '#111111' ) ) );
+		$this->assertNotWPError( $res );
+		$new_id = $res['id'];
+		$this->assertSame( array( $new_id ), Global_Classes_Repository::$last_changes['added'] );
+		$this->assertSame( array(), Global_Classes_Repository::$last_changes['modified'] );
+		$this->assertSame( array( $new_id ), array_keys( Global_Classes_Repository::$last_touched ), 'only the new class is touched' );
+		$this->assertArrayHasKey( 'g-other01', Global_Classes_Repository::$store_items, 'unrelated class preserved' );
+
+		// update → modified:[newid]
+		$this->ability->execute_update( array( 'class_id' => $new_id, 'styles' => array( 'color' => '#222222' ) ) );
+		$this->assertSame( array( $new_id ), Global_Classes_Repository::$last_changes['modified'] );
+		$this->assertSame( array( $new_id ), array_keys( Global_Classes_Repository::$last_touched ) );
+
+		// delete → deleted:[newid], nothing touched
+		$this->ability->execute_delete( array( 'class_id' => $new_id ) );
+		$this->assertSame( array( $new_id ), Global_Classes_Repository::$last_changes['deleted'] );
+		$this->assertSame( array(), Global_Classes_Repository::$last_touched, 'delete touches no item data' );
+		$this->assertArrayHasKey( 'g-other01', Global_Classes_Repository::$store_items, 'unrelated class still preserved' );
+	}
+
 	public function test_create_requires_label(): void {
 		$res = $this->ability->execute_create( array( 'styles' => array( 'color' => '#111' ) ) );
 		$this->assertWPError( $res, 'missing_label' );

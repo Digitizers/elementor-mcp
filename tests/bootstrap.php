@@ -659,10 +659,35 @@ namespace Elementor\Modules\GlobalClasses {
 				self::$store_order = array_values( $order );
 			}
 
+			/** @var array Last $changes passed to apply_changes() (touched-item API). */
+			public static $last_changes = array();
+			/** @var array Last $touched map passed to apply_changes(). */
+			public static $last_touched = array();
+
+			/**
+			 * Touched-item write API — applies only the named changes, leaving other
+			 * classes (and, on real Elementor, their preview drafts) untouched.
+			 */
+			public function apply_changes( array $touched, array $changes, array $order ): void {
+				self::$last_changes = $changes;
+				self::$last_touched = $touched;
+				foreach ( array_merge( $changes['added'] ?? array(), $changes['modified'] ?? array() ) as $id ) {
+					if ( isset( $touched[ $id ] ) ) {
+						self::$store_items[ $id ] = $touched[ $id ];
+					}
+				}
+				foreach ( $changes['deleted'] ?? array() as $id ) {
+					unset( self::$store_items[ $id ] );
+				}
+				self::$store_order = array_values( $order );
+			}
+
 			/** Test helper: reset the in-memory store between tests. */
 			public static function __reset( array $items = array(), array $order = array() ): void {
 				self::$store_items = $items;
 				self::$store_order = $order;
+				self::$last_changes = array();
+				self::$last_touched = array();
 			}
 		}
 	}

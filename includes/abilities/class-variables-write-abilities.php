@@ -508,7 +508,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return $label_check;
 		}
 
-		$internal_type = $this->resolve_internal_type( $type, $value );
+		$internal_type = $this->resolve_internal_type( $type );
 
 		$repo = $this->repo();
 		if ( is_wp_error( $repo ) ) {
@@ -802,13 +802,19 @@ class Elementor_MCP_Variables_Write_Abilities {
 	// =========================================================================
 
 	/**
-	 * Resolves a public type + value into the internal (stored) type key.
+	 * Resolves a public type into the internal (stored) type key.
+	 *
+	 * All size tokens — plain dimensions AND CSS-function expressions — store as
+	 * `global-size-variable`: that is the only size type Elementor actually
+	 * REGISTERS (`Size_Variable_Prop_Type::get_key()`). `global-custom-size-variable`
+	 * is an internal Prop_Type_Adapter alias, not a registered/stored type — a
+	 * token stored under it would not be recognized as a size variable by the
+	 * editor or bindings. The custom-ness of an expression rides on the value.
 	 *
 	 * @param string $public_type One of color|font|size.
-	 * @param string $value       The token value.
 	 * @return string Internal type key.
 	 */
-	private function resolve_internal_type( string $public_type, string $value ): string {
+	private function resolve_internal_type( string $public_type ): string {
 		switch ( $public_type ) {
 			case 'color':
 				return self::TYPE_COLOR;
@@ -816,7 +822,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 				return self::TYPE_FONT;
 			case 'size':
 			default:
-				return $this->is_size_expression( $value ) ? self::TYPE_CUSTOM_SIZE : self::TYPE_SIZE;
+				return self::TYPE_SIZE;
 		}
 	}
 

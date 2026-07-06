@@ -74,10 +74,13 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( 'global-size-variable', $this->stored( $res['id'] )['type'] );
 	}
 
-	public function test_create_size_expression_is_custom_size_type(): void {
+	public function test_create_size_expression_uses_registered_size_type(): void {
+		// Expressions store under the registered `global-size-variable` type (the
+		// custom-size key is an adapter-internal alias, not a stored/registered type).
 		$res = $this->ability->execute_create( array( 'label' => 'Fluid', 'type' => 'size', 'value' => 'clamp(1rem, 2vw, 3rem)' ) );
 		$this->assertNotWPError( $res );
-		$this->assertSame( 'global-custom-size-variable', $this->stored( $res['id'] )['type'] );
+		$this->assertSame( 'global-size-variable', $this->stored( $res['id'] )['type'] );
+		$this->assertSame( 'clamp(1rem, 2vw, 3rem)', $this->stored( $res['id'] )['value'] );
 	}
 
 	public function test_create_font_variable(): void {
@@ -238,8 +241,9 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$active = $this->ability->execute_create( array( 'label' => 'Live', 'type' => 'color', 'value' => '#111111' ) );
 		$this->seed_active( 999, 'e-gv-pad' ); // 999 + the active target = 1000 at cap
 
+		// Restoring an already-active token no-ops instead of hitting the cap.
 		$res = $this->ability->execute_restore( array( 'variable_id' => $active['id'] ) );
-		$this->assertNotWPError( $res, 'restoring an already-active token no-ops instead of hitting the cap' );
+		$this->assertNotWPError( $res );
 		$this->assertTrue( $res['restored'] );
 		$this->assertTrue( $res['already_active'] );
 	}

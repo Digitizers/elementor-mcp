@@ -302,6 +302,23 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 		}
 		list( $items, $order ) = $state;
 
+		// Elementor V4 caps the Global Classes count (100 as of current; 50 in
+		// alpha). The cap is enforced at Elementor's REST/save layer, not in the
+		// repository's put(), so a direct write can push past it and then wedge the
+		// editor's own Class Manager saves until a class is removed. Refuse up front.
+		$limit = $this->class_limit();
+		if ( count( $items ) >= $limit ) {
+			return new \WP_Error(
+				'class_limit_reached',
+				sprintf(
+					/* translators: %d: the Global Classes limit */
+					__( 'Elementor\'s Global Classes limit (%d) has been reached. Delete an unused class before creating a new one.', 'elementor-mcp' ),
+					$limit
+				),
+				array( 'limit' => $limit, 'count' => count( $items ) )
+			);
+		}
+
 		// Build the base variant props (validated) plus any extra variants.
 		$base_props = $this->wrap_and_validate( (array) $input['styles'] );
 		if ( is_wp_error( $base_props ) ) {
@@ -642,6 +659,34 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	 * @param array $items Existing items map.
 	 * @return string
 	 */
+	/**
+	 * The Global Classes count cap Elementor enforces at its save layer. Defaults
+	 * to Elementor's current 100 (was 50 in alpha), read from Elementor's own
+	 * constant when one is exposed, and filterable for forward-compat.
+	 *
+	 * @return int
+	 */
+	private function class_limit(): int {
+		$limit = 100;
+		// Prefer Elementor's own constant if a build exposes one.
+		foreach ( array( self::REPOSITORY . '::MAX_ITEMS', '\\Elementor\\Modules\\GlobalClasses\\Global_Classes_REST::MAX_ITEMS' ) as $const ) {
+			if ( defined( $const ) ) {
+				$val = (int) constant( $const );
+				if ( $val > 0 ) {
+					$limit = $val;
+					break;
+				}
+			}
+		}
+		/**
+		 * Filters the Global Classes count cap enforced before create.
+		 *
+		 * @since 1.14.0
+		 * @param int $limit The maximum number of global classes.
+		 */
+		return (int) apply_filters( 'elementor_mcp_global_classes_limit', $limit );
+	}
+
 	private function mint_id( array $items ): string {
 		do {
 			$id = 'g-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );

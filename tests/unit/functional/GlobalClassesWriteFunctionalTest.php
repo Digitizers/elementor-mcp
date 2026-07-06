@@ -108,6 +108,25 @@ class GlobalClassesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( 3, $base['order']['value'] );
 	}
 
+	public function test_create_rejects_at_class_limit(): void {
+		// Seed the repository at Elementor's 100-class cap.
+		$items = array();
+		$order = array();
+		for ( $i = 0; $i < 100; $i++ ) {
+			$id           = 'g-lim' . $i;
+			$items[ $id ] = array( 'id' => $id, 'type' => 'class', 'label' => 'c' . $i, 'variants' => array() );
+			$order[]      = $id;
+		}
+		Global_Classes_Repository::__reset( $items, $order );
+
+		$res = $this->ability->execute_create( array(
+			'label'  => 'one-too-many',
+			'styles' => array( 'color' => '#000000' ),
+		) );
+		$this->assertWPError( $res, 'class_limit_reached' );
+		$this->assertCount( 100, Global_Classes_Repository::$store_items, 'nothing written past the cap' );
+	}
+
 	public function test_create_requires_label(): void {
 		$res = $this->ability->execute_create( array( 'styles' => array( 'color' => '#111' ) ) );
 		$this->assertWPError( $res, 'missing_label' );

@@ -772,14 +772,19 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 		'fill', 'stroke', 'outline-color', 'text-decoration-color',
 	);
 
-	/**
-	 * CSS property names whose ergonomic value is a size (number + unit).
-	 */
+	// CSS property names whose ergonomic value is a size (number + unit).
+	// NB: no 'gap'/'row-gap'/'column-gap' — on Elementor v4 atomic, flex gap is
+	// the structured `layout-direction` prop { row, column } (each a Size), and a
+	// flat `gap` Size is dropped by the renderer (see class-atomic-styles.php gap
+	// handling). Wrapping it as a plain size here would save but not render, so
+	// it's deliberately excluded from the ergonomic map; structured gap support
+	// is a follow-up. A `gap` passed anyway falls through to a string $$type and
+	// is rejected by Style_Schema (honest failure) rather than silently dropped.
 	const SIZE_PROPS = array(
 		'padding', 'margin', 'width', 'height', 'min-width', 'max-width',
 		'min-height', 'max-height', 'font-size', 'line-height', 'letter-spacing',
-		'word-spacing', 'border-radius', 'border-width', 'gap', 'row-gap',
-		'column-gap', 'top', 'right', 'bottom', 'left', 'flex-basis',
+		'word-spacing', 'border-radius', 'border-width',
+		'top', 'right', 'bottom', 'left', 'flex-basis',
 		'text-indent', 'outline-width',
 	);
 

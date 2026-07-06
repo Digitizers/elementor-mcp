@@ -607,6 +607,15 @@ namespace Elementor {
 		Plugin::$instance = Plugin::getInstance();
 	}
 
+	if ( ! class_exists( 'Elementor\\Utils' ) ) {
+		/** Stub \Elementor\Utils::has_pro() reading $GLOBALS['_has_pro'] (default true). */
+		class Utils {
+			public static function has_pro(): bool {
+				return $GLOBALS['_has_pro'] ?? true;
+			}
+		}
+	}
+
 }  // end namespace Elementor
 
 // ---------------------------------------------------------------------------

@@ -492,6 +492,12 @@ class Elementor_MCP_Variables_Write_Abilities {
 				sprintf( /* translators: %s: the given type */ __( 'type "%s" is not valid. Use one of: color, font, size.', 'elementor-mcp' ), $type )
 			);
 		}
+		// Size Variables are Pro-only: Elementor's variables service filters
+		// `global-size-variable` out on non-Pro sites, so it would save but never
+		// render. Refuse up front instead of creating an unusable token.
+		if ( 'size' === $type && ! $this->pro_active() ) {
+			return new \WP_Error( 'requires_pro', __( 'Size Variables require Elementor Pro. Create color or font variables, or activate Elementor Pro.', 'elementor-mcp' ) );
+		}
 		if ( '' === $value ) {
 			return new \WP_Error( 'missing_value', __( 'value is required.', 'elementor-mcp' ) );
 		}
@@ -994,8 +1000,59 @@ class Elementor_MCP_Variables_Write_Abilities {
 		if ( is_scalar( $value ) ) {
 			return (string) $value;
 		}
-		$json = wp_json_encode( $value );
-		return false === $json ? '' : $json;
+		if ( is_array( $value ) ) {
+			// Tokens written through Elementor's own manager go via
+			// Variables_Repository -> Prop_Type_Adapter::to_storage(), which stores
+			// prop-typed ARRAY values (e.g. { $$type:'size', value:{ size, unit } }).
+			// Unwrap them to a public scalar rather than returning a JSON blob.
+			if ( class_exists( 'Elementor_MCP_Atomic_Props' ) ) {
+				try {
+					$value = \Elementor_MCP_Atomic_Props::unwrap( $value );
+				} catch ( \Throwable $e ) {
+					// fall through
+				}
+			}
+			if ( is_string( $value ) ) {
+				return $value;
+			}
+			if ( is_scalar( $value ) ) {
+				return (string) $value;
+			}
+			if ( is_array( $value ) ) {
+				// Size shape { size, unit } → "<size><unit>" (unit 'custom' rides on
+				// the size, which is the raw CSS expression).
+				if ( isset( $value['size'] ) && is_scalar( $value['size'] ) ) {
+					$unit = ( isset( $value['unit'] ) && is_scalar( $value['unit'] ) && 'custom' !== $value['unit'] ) ? (string) $value['unit'] : '';
+					return (string) $value['size'] . $unit;
+				}
+				// Generic single-value wrapper.
+				if ( isset( $value['value'] ) && is_scalar( $value['value'] ) ) {
+					return (string) $value['value'];
+				}
+			}
+		}
+		// Unknown shape — empty rather than leaking an opaque blob.
+		return '';
+	}
+
+	/**
+	 * Whether Elementor Pro is active. Size Variables are Pro-only — Elementor's
+	 * own variables service filters `global-size-variable` out when
+	 * `Elementor\Utils::has_pro()` is false, so a size token created on a Free
+	 * site saves but never reaches the editor/runtime. Permissive only when
+	 * has_pro() can't be resolved.
+	 *
+	 * @return bool
+	 */
+	private function pro_active(): bool {
+		if ( class_exists( '\\Elementor\\Utils' ) && method_exists( '\\Elementor\\Utils', 'has_pro' ) ) {
+			try {
+				return (bool) \Elementor\Utils::has_pro();
+			} catch ( \Throwable $e ) {
+				return true;
+			}
+		}
+		return true;
 	}
 
 	// =========================================================================

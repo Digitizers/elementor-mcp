@@ -33,9 +33,32 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 	}
 
 	protected function tearDown(): void {
-		unset( $GLOBALS['_active_kit'] );
+		unset( $GLOBALS['_active_kit'], $GLOBALS['_has_pro'] );
 		Repository::__reset( array() );
 		parent::tearDown();
+	}
+
+	public function test_create_size_requires_pro(): void {
+		$GLOBALS['_has_pro'] = false;
+		$res = $this->ability->execute_create( array( 'label' => 'Gap', 'type' => 'size', 'value' => '24px' ) );
+		$this->assertWPError( $res, 'requires_pro' );
+		// color/font still fine on Free.
+		$this->assertNotWPError( $this->ability->execute_create( array( 'label' => 'C', 'type' => 'color', 'value' => '#111111' ) ) );
+	}
+
+	public function test_list_unwraps_prop_typed_array_values(): void {
+		// Tokens created via Elementor's own manager store prop-typed ARRAY values.
+		Repository::__reset( array(
+			'e-gv-c' => array( 'type' => 'global-color-variable', 'label' => 'C', 'value' => array( '$$type' => 'color', 'value' => '#abcdef' ), 'order' => 1 ),
+			'e-gv-s' => array( 'type' => 'global-size-variable', 'label' => 'S', 'value' => array( '$$type' => 'size', 'value' => array( 'size' => 24, 'unit' => 'px' ) ), 'order' => 2 ),
+		) );
+		$res    = $this->ability->execute_list( array() );
+		$byId   = array();
+		foreach ( $res['variables'] as $v ) {
+			$byId[ $v['id'] ] = $v['value'];
+		}
+		$this->assertSame( '#abcdef', $byId['e-gv-c'], 'color prop array unwrapped to hex' );
+		$this->assertSame( '24px', $byId['e-gv-s'], 'size prop array unwrapped to <n><unit>' );
 	}
 
 	/** @return array The stored raw record for an id. */

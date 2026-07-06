@@ -191,6 +191,23 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertTrue( Variables_Repository::$store[ $a['id'] ]->is_deleted(), 'stays deleted on rejected restore' );
 	}
 
+	public function test_restore_already_active_is_idempotent_noop_even_at_cap(): void {
+		$active = $this->ability->execute_create( array( 'label' => 'Live', 'type' => 'color', 'value' => '#111111' ) );
+		// Pad the active set to the cap (including the target).
+		$store = Variables_Repository::$store;
+		for ( $i = 0; $i < 999; $i++ ) {
+			$store[ "e-gv-pad$i" ] = \Elementor\Modules\Variables\Storage\Entities\Variable::create_new(
+				array( 'id' => "e-gv-pad$i", 'type' => 'global-color-variable', 'label' => "pad$i", 'value' => '#000000', 'order' => $i )
+			);
+		}
+		Variables_Repository::__reset( $store );
+
+		$res = $this->ability->execute_restore( array( 'variable_id' => $active['id'] ) );
+		$this->assertNotWPError( $res, 'restoring an already-active token no-ops instead of hitting the cap' );
+		$this->assertTrue( $res['restored'] );
+		$this->assertTrue( $res['already_active'] );
+	}
+
 	public function test_restore_rejects_when_at_limit(): void {
 		$victim = $this->ability->execute_create( array( 'label' => 'Victim', 'type' => 'color', 'value' => '#111111' ) );
 		$this->ability->execute_delete( array( 'variable_id' => $victim['id'] ) );

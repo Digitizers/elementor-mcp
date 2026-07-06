@@ -734,6 +734,18 @@ class Elementor_MCP_Variables_Write_Abilities {
 			if ( null === $var ) {
 				return $this->not_found( $variable_id );
 			}
+
+			// Idempotent: restoring an already-active token is a no-op. Return early
+			// BEFORE the cap/uniqueness re-checks — otherwise a retry at the 1000-cap
+			// would count the target itself and wrongly report limit_reached.
+			if ( method_exists( $var, 'is_deleted' ) && ! $var->is_deleted() ) {
+				return array(
+					'id'            => $variable_id,
+					'restored'      => true,
+					'already_active' => true,
+				);
+			}
+
 			if ( ! method_exists( $var, 'restore' ) ) {
 				return new \WP_Error(
 					'restore_unsupported',

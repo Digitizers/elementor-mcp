@@ -229,6 +229,21 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( 1, $this->ability->execute_list( array() )['count'] );
 	}
 
+	public function test_deleted_at_only_tombstone_is_honored(): void {
+		// A token deleted via Elementor's entity/service path can carry `deleted_at`
+		// without a `deleted` flag — it must still count as tombstoned everywhere.
+		Repository::__reset( array(
+			'e-gv-old' => array( 'type' => 'global-color-variable', 'label' => 'Old', 'value' => '#111111', 'order' => 1, 'deleted_at' => '2025-01-01 00:00:00' ),
+		) );
+		$this->assertSame( 0, $this->ability->execute_list( array() )['count'], 'deleted_at-only token hidden from list' );
+		$this->assertWPError( $this->ability->execute_get( array( 'variable_id' => 'e-gv-old' ) ), 'not_found' );
+		// restore treats it as tombstoned (not a no-op) and clears it.
+		$res = $this->ability->execute_restore( array( 'variable_id' => 'e-gv-old' ) );
+		$this->assertNotWPError( $res );
+		$this->assertArrayNotHasKey( 'already_active', $res );
+		$this->assertSame( 1, $this->ability->execute_list( array() )['count'] );
+	}
+
 	public function test_delete_missing_is_not_found(): void {
 		$res = $this->ability->execute_delete( array( 'variable_id' => 'e-gv-nope' ) );
 		$this->assertWPError( $res, 'not_found' );

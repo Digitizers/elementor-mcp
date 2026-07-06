@@ -411,7 +411,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 		$out = array();
 		foreach ( $records as $id => $record ) {
 			$record = (array) $record;
-			if ( ! empty( $record['deleted'] ) ) {
+			if ( $this->is_tombstoned( $record ) ) {
 				continue; // Tombstoned — hidden from the active list.
 			}
 			$out[] = $this->public_shape_from_raw( (string) $id, $record );
@@ -456,7 +456,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 		// Report tombstoned (soft-deleted) tokens as not_found so get stays
 		// consistent with list — an agent re-reading a token it just deleted must
 		// not see it as active and re-bind it.
-		if ( ! empty( $record['deleted'] ) ) {
+		if ( $this->is_tombstoned( $record ) ) {
 			return $this->not_found( $variable_id );
 		}
 
@@ -575,7 +575,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 		} catch ( \Throwable $e ) {
 			return $this->map_exception( $e );
 		}
-		if ( ! isset( $records[ $variable_id ] ) || ! empty( $records[ $variable_id ]['deleted'] ) ) {
+		if ( ! isset( $records[ $variable_id ] ) || $this->is_tombstoned( (array) $records[ $variable_id ] ) ) {
 			return $this->not_found( $variable_id );
 		}
 		$current = (array) $records[ $variable_id ];
@@ -701,7 +701,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 		// Repository::restore's cap/uniqueness re-checks — otherwise a retry while
 		// the active set is at the 1000-cap would count the target itself and
 		// wrongly report limit_reached.
-		if ( empty( $records[ $variable_id ]['deleted'] ) ) {
+		if ( ! $this->is_tombstoned( (array) $records[ $variable_id ] ) ) {
 			return array(
 				'id'             => $variable_id,
 				'restored'       => true,
@@ -865,6 +865,21 @@ class Elementor_MCP_Variables_Write_Abilities {
 	 */
 	private function is_size_expression( string $value ): bool {
 		return (bool) preg_match( '/(?:clamp|calc|min|max|var|env)\s*\(/i', $value );
+	}
+
+	/**
+	 * Whether a raw variable record is tombstoned (soft-deleted).
+	 *
+	 * Treats EITHER marker as a tombstone: the canonical Repository::delete sets
+	 * both `deleted` + `deleted_at`, but the entity path / other Elementor flows
+	 * can leave a record carrying only `deleted_at`. Checking just one would let
+	 * such tokens leak back into list/get/edit and fool restore into a no-op.
+	 *
+	 * @param array $record Raw variable record.
+	 * @return bool
+	 */
+	private function is_tombstoned( array $record ): bool {
+		return ! empty( $record['deleted'] ) || ! empty( $record['deleted_at'] );
 	}
 
 	/**

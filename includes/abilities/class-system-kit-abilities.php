@@ -57,7 +57,12 @@ class Elementor_MCP_System_Kit_Abilities {
 	 * @return bool
 	 */
 	private function has_hosted_kit_access(): bool {
-		return class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
+		// Also gated by the fork kill switch: the check_*_permission callbacks
+		// require has_access(), so if the pack is disabled the hosted tools must
+		// not register either — otherwise they'd be advertised but denied on
+		// every call.
+		return $this->has_access()
+			&& class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
 			&& Elementor_MCP_Pro_Brand_Kits::user_has_access();
 	}
 

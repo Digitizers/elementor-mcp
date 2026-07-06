@@ -301,6 +301,14 @@ namespace {
 		}
 	}
 
+	if ( ! function_exists( 'emcp_fork_premium_tools_enabled' ) ) {
+		// Mirrors the production helper in elementor-mcp.php (default true,
+		// filterable). Tests toggle the kill-switch path via the global.
+		function emcp_fork_premium_tools_enabled(): bool {
+			return (bool) ( $GLOBALS['_emcp_fork_premium_enabled'] ?? true );
+		}
+	}
+
 	if ( ! function_exists( 'wp_remote_get' ) ) {
 		function wp_remote_get( string $url, array $args = [] ) {
 			return new \WP_Error( 'http_request_failed', 'HTTP requests are disabled in unit tests.' );
@@ -651,6 +659,14 @@ namespace {
 			'Elementor_MCP_Widget_Abilities'       => 'includes/abilities/class-widget-abilities.php',
 			'Elementor_MCP_Atomic_Widget_Abilities' => 'includes/abilities/class-atomic-widget-abilities.php',
 			'Elementor_MCP_Atomic_Layout_Abilities' => 'includes/abilities/class-atomic-layout-abilities.php',
+			// Premium-tier pack (unlocked by the fork in 1.13.0)
+			'Elementor_MCP_Plugin'                 => 'includes/class-plugin.php',
+			'Elementor_MCP_Admin'                  => 'includes/admin/class-admin.php',
+			'Elementor_MCP_System_Kit_Abilities'   => 'includes/abilities/class-system-kit-abilities.php',
+			'Elementor_MCP_Widget_Builder_Abilities' => 'includes/abilities/class-widget-builder-abilities.php',
+			'Elementor_MCP_Widget_Store'           => 'includes/class-widget-store.php',
+			'Elementor_MCP_Widget_Loader'          => 'includes/class-widget-loader.php',
+			'Elementor_MCP_Widget_Generator'       => 'includes/class-widget-generator.php',
 		];
 
 		if ( isset( $map[ $class ] ) ) {

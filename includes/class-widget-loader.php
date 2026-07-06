@@ -56,7 +56,9 @@ class Elementor_MCP_Widget_Loader {
 	 * @return bool
 	 */
 	private function has_access(): bool {
-		return function_exists( 'emcp_pro_fs' ) && emcp_pro_fs()->can_use_premium_code();
+		// Fork: the Freemius paid gate is gone — generated widgets load when
+		// the pack is enabled (filterable via emcp_fork_premium_tools_enabled).
+		return function_exists( 'emcp_fork_premium_tools_enabled' ) && emcp_fork_premium_tools_enabled();
 	}
 
 	/**

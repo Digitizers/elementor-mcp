@@ -585,14 +585,19 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 		try {
 			$ctx = $repo::make()->all();
 
-			$items = method_exists( $ctx, 'get_items' ) ? $ctx->get_items() : ( is_array( $ctx ) && isset( $ctx['items'] ) ? $ctx['items'] : $ctx );
+			// NB: is_object() before method_exists() — on PHP 8 method_exists()
+			// TypeErrors on an array arg, which would otherwise kill the array-shape
+			// fallback (and be caught as read_failed).
+			$items = ( is_object( $ctx ) && method_exists( $ctx, 'get_items' ) )
+				? $ctx->get_items()
+				: ( is_array( $ctx ) && isset( $ctx['items'] ) ? $ctx['items'] : $ctx );
 			if ( is_object( $items ) && method_exists( $items, 'all' ) ) {
 				$items = $items->all();
 			}
 			$items = (array) $items;
 
 			$order = array();
-			if ( method_exists( $ctx, 'get_order' ) ) {
+			if ( is_object( $ctx ) && method_exists( $ctx, 'get_order' ) ) {
 				$order = $ctx->get_order();
 			} elseif ( is_array( $ctx ) && isset( $ctx['order'] ) ) {
 				$order = $ctx['order'];

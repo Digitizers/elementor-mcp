@@ -405,6 +405,14 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return $this->not_found( $variable_id );
 		}
 
+		// The collection still returns tombstoned (soft-deleted) tokens by id.
+		// Report them as not_found so get-variable stays consistent with
+		// list-variables (which hides them) — an agent re-reading a token it just
+		// deleted must not see it as active and re-bind it.
+		if ( is_object( $var ) && method_exists( $var, 'is_deleted' ) && $var->is_deleted() ) {
+			return $this->not_found( $variable_id );
+		}
+
 		return $this->public_shape_from_variable( $var );
 	}
 

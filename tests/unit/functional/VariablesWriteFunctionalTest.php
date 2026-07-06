@@ -134,6 +134,14 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertWPError( $res, 'not_found' );
 	}
 
+	public function test_get_soft_deleted_is_not_found(): void {
+		$created = $this->ability->execute_create( array( 'label' => 'Gone', 'type' => 'color', 'value' => '#111111' ) );
+		$this->ability->execute_delete( array( 'variable_id' => $created['id'] ) );
+		// Consistent with list-variables hiding it.
+		$res = $this->ability->execute_get( array( 'variable_id' => $created['id'] ) );
+		$this->assertWPError( $res, 'not_found' );
+	}
+
 	// -------------------------------------------------------------------------
 	// edit
 	// -------------------------------------------------------------------------

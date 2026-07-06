@@ -1,0 +1,1156 @@
+<?php
+/**
+ * Elementor v4 Variables (design tokens) CRUD MCP abilities — Elementor 4.0+.
+ *
+ * Six write/read tools that let an agent author Elementor 4's Variables (global
+ * design tokens): list / get / create / edit / delete / restore. Companion to
+ * the Global Classes write tools — where Global Classes are reusable style
+ * bundles, Variables are the atomic tokens (colors, fonts, sizes) those styles
+ * reference.
+ *
+ * Registers only when Elementor's Variables_Repository is present (Elementor
+ * 4.0+ with the e_variables + AtomicWidgets experiments). Writes are gated on
+ * `manage_options` — mutating the shared token set is a site-wide operation, not
+ * per-post; the two read tools (list/get) are gated on `edit_posts`.
+ *
+ * Storage: variables live in the active kit's json-meta `_elementor_global_variables`,
+ * accessed through Variables_Repository( Kit )->load()/->save( Variables_Collection ).
+ *
+ * @package Elementor_MCP
+ * @since   1.15.0
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Exposes Elementor v4 Variables (design tokens) CRUD over MCP.
+ *
+ * @since 1.15.0
+ */
+class Elementor_MCP_Variables_Write_Abilities {
+
+	/**
+	 * Elementor's Variables repository class (the availability gate).
+	 */
+	const REPOSITORY = '\\Elementor\\Modules\\Variables\\Storage\\Variables_Repository';
+
+	/**
+	 * Elementor's Variable entity class.
+	 */
+	const VARIABLE = '\\Elementor\\Modules\\Variables\\Storage\\Entities\\Variable';
+
+	/**
+	 * Internal (stored) type key for a public `color` variable.
+	 */
+	const TYPE_COLOR = 'global-color-variable';
+
+	/**
+	 * Internal (stored) type key for a public `font` variable.
+	 */
+	const TYPE_FONT = 'global-font-variable';
+
+	/**
+	 * Internal (stored) type key for a public `size` variable (plain dimension).
+	 */
+	const TYPE_SIZE = 'global-size-variable';
+
+	/**
+	 * Internal (stored) type key for a public `size` variable whose value is a
+	 * CSS-function expression (clamp/calc/min/max/var/env).
+	 */
+	const TYPE_CUSTOM_SIZE = 'global-custom-size-variable';
+
+	/**
+	 * The data access layer (kept for parity with the Global Classes write class;
+	 * Variables live on the kit, not a page, so it is unused here).
+	 *
+	 * @var Elementor_MCP_Data
+	 */
+	private $data;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param Elementor_MCP_Data $data The data access layer.
+	 */
+	public function __construct( Elementor_MCP_Data $data ) {
+		$this->data = $data;
+	}
+
+	/**
+	 * Whether Elementor exposes the Variables repository we can read/write through.
+	 *
+	 * Class-existence is the registration gate (mirroring how the Global Classes
+	 * write class gates on its repository). At runtime Elementor also requires the
+	 * `e_variables` + AtomicWidgets experiments, but those are enforced by
+	 * Elementor itself once we construct the repository.
+	 *
+	 * @return bool
+	 */
+	public static function is_available(): bool {
+		return class_exists( self::REPOSITORY );
+	}
+
+	/**
+	 * Returns the ability names registered by this class.
+	 *
+	 * @return string[]
+	 */
+	public function get_ability_names(): array {
+		if ( ! self::is_available() ) {
+			return array();
+		}
+		return array(
+			'elementor-mcp/list-variables',
+			'elementor-mcp/get-variable',
+			'elementor-mcp/create-variable',
+			'elementor-mcp/edit-variable',
+			'elementor-mcp/delete-variable',
+			'elementor-mcp/restore-variable',
+		);
+	}
+
+	/**
+	 * Permission check for Variables WRITES (create/edit/delete/restore).
+	 *
+	 * Mutating the shared design-token set is a site-wide operation, gated on
+	 * `manage_options`.
+	 *
+	 * @return bool
+	 */
+	public function check_write_permission(): bool {
+		return current_user_can( 'manage_options' );
+	}
+
+	/**
+	 * Permission check for Variables READS (list/get). Requires `edit_posts`.
+	 *
+	 * @return bool
+	 */
+	public function check_read_permission(): bool {
+		return current_user_can( 'edit_posts' );
+	}
+
+	/**
+	 * Registers the Variables abilities.
+	 */
+	public function register(): void {
+		if ( ! self::is_available() ) {
+			return;
+		}
+
+		$this->register_list();
+		$this->register_get();
+		$this->register_create();
+		$this->register_edit();
+		$this->register_delete();
+		$this->register_restore();
+	}
+
+	// =========================================================================
+	// Registration
+	// =========================================================================
+
+	private function register_list(): void {
+		elementor_mcp_register_ability(
+			'elementor-mcp/list-variables',
+			array(
+				'label'               => __( 'List Variables', 'elementor-mcp' ),
+				'description'         => __( 'Lists all Elementor 4.0+ Variables (global design tokens) — colors, fonts and sizes — excluding soft-deleted ones. Returns each variable\'s id, type (color|font|size), label, value and order. Requires edit_posts.', 'elementor-mcp' ),
+				'category'            => 'elementor-mcp',
+				'execute_callback'    => array( $this, 'execute_list' ),
+				'permission_callback' => array( $this, 'check_read_permission' ),
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'count'     => array( 'type' => 'integer' ),
+						'variables' => array( 'type' => 'array' ),
+					),
+				),
+				'meta'                => array(
+					'annotations'  => array( 'readonly' => true, 'destructive' => false, 'idempotent' => true ),
+					'show_in_rest' => true,
+				),
+			)
+		);
+	}
+
+	private function register_get(): void {
+		elementor_mcp_register_ability(
+			'elementor-mcp/get-variable',
+			array(
+				'label'               => __( 'Get Variable', 'elementor-mcp' ),
+				'description'         => __( 'Returns a single Elementor 4.0+ Variable (design token) by its id, in public shape { id, type (color|font|size), label, value, order }. Requires edit_posts.', 'elementor-mcp' ),
+				'category'            => 'elementor-mcp',
+				'execute_callback'    => array( $this, 'execute_get' ),
+				'permission_callback' => array( $this, 'check_read_permission' ),
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'variable_id' => array( 'type' => 'string', 'description' => __( 'The Variable id (e-gv-<hash>).', 'elementor-mcp' ) ),
+					),
+					'required'   => array( 'variable_id' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'id'    => array( 'type' => 'string' ),
+						'type'  => array( 'type' => 'string' ),
+						'label' => array( 'type' => 'string' ),
+						'value' => array( 'type' => 'string' ),
+						'order' => array( 'type' => 'integer' ),
+					),
+				),
+				'meta'                => array(
+					'annotations'  => array( 'readonly' => true, 'destructive' => false, 'idempotent' => true ),
+					'show_in_rest' => true,
+				),
+			)
+		);
+	}
+
+	private function register_create(): void {
+		elementor_mcp_register_ability(
+			'elementor-mcp/create-variable',
+			array(
+				'label'               => __( 'Create Variable', 'elementor-mcp' ),
+				'description'         => __( 'Creates a new Elementor 4.0+ Variable (global design token). Pass label, type (color|font|size) and value. color = strict hex (e.g. #111 / #112233 / #11223344, named colors rejected); size = <number><unit> (px/em/rem/%/vw/vh/vmin/vmax/ch/pt/pc/ex/fr) OR a CSS-function expression (clamp/calc/min/max/var/env); font = a font-family name. Returns the minted e-gv- id. Requires manage_options.', 'elementor-mcp' ),
+				'category'            => 'elementor-mcp',
+				'execute_callback'    => array( $this, 'execute_create' ),
+				'permission_callback' => array( $this, 'check_write_permission' ),
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'label' => array( 'type' => 'string', 'description' => __( 'Human-readable token name (no spaces, max 50 chars), e.g. "brand-primary".', 'elementor-mcp' ) ),
+						'type'  => array( 'type' => 'string', 'enum' => array( 'color', 'font', 'size' ), 'description' => __( 'Token type: color | font | size.', 'elementor-mcp' ) ),
+						'value' => array( 'type' => 'string', 'description' => __( 'Token value (hex color, font-family name, or dimension / CSS-function expression).', 'elementor-mcp' ) ),
+					),
+					'required'   => array( 'label', 'type', 'value' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'id'      => array( 'type' => 'string' ),
+						'label'   => array( 'type' => 'string' ),
+						'type'    => array( 'type' => 'string' ),
+						'created' => array( 'type' => 'boolean' ),
+					),
+				),
+				'meta'                => array(
+					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
+					'show_in_rest' => true,
+				),
+			)
+		);
+	}
+
+	private function register_edit(): void {
+		elementor_mcp_register_ability(
+			'elementor-mcp/edit-variable',
+			array(
+				'label'               => __( 'Edit Variable', 'elementor-mcp' ),
+				'description'         => __( 'Edits an existing Elementor 4.0+ Variable in place, preserving its id so bindings survive. Pass variable_id plus at least one of: label (rename), value (change token value). The public type is fixed and cannot be changed here (a size variable\'s internal dimension↔expression form is recomputed automatically when its value changes). Requires manage_options.', 'elementor-mcp' ),
+				'category'            => 'elementor-mcp',
+				'execute_callback'    => array( $this, 'execute_edit' ),
+				'permission_callback' => array( $this, 'check_write_permission' ),
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'variable_id' => array( 'type' => 'string', 'description' => __( 'The Variable id to edit.', 'elementor-mcp' ) ),
+						'label'       => array( 'type' => 'string', 'description' => __( 'Optional new label.', 'elementor-mcp' ) ),
+						'value'       => array( 'type' => 'string', 'description' => __( 'Optional new value (validated against the variable\'s fixed type).', 'elementor-mcp' ) ),
+					),
+					'required'   => array( 'variable_id' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'id'      => array( 'type' => 'string' ),
+						'updated' => array( 'type' => 'boolean' ),
+					),
+				),
+				'meta'                => array(
+					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
+					'show_in_rest' => true,
+				),
+			)
+		);
+	}
+
+	private function register_delete(): void {
+		elementor_mcp_register_ability(
+			'elementor-mcp/delete-variable',
+			array(
+				'label'               => __( 'Delete Variable', 'elementor-mcp' ),
+				'description'         => __( 'Soft-deletes an Elementor 4.0+ Variable by id (tombstoned, not purged — it can be brought back with restore-variable). Elements referencing the token keep the dangling reference. Idempotent. Requires manage_options.', 'elementor-mcp' ),
+				'category'            => 'elementor-mcp',
+				'execute_callback'    => array( $this, 'execute_delete' ),
+				'permission_callback' => array( $this, 'check_write_permission' ),
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'variable_id' => array( 'type' => 'string', 'description' => __( 'The Variable id to soft-delete.', 'elementor-mcp' ) ),
+					),
+					'required'   => array( 'variable_id' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'id'      => array( 'type' => 'string' ),
+						'deleted' => array( 'type' => 'boolean' ),
+					),
+				),
+				'meta'                => array(
+					'annotations'  => array( 'readonly' => false, 'destructive' => true, 'idempotent' => true ),
+					'show_in_rest' => true,
+				),
+			)
+		);
+	}
+
+	private function register_restore(): void {
+		elementor_mcp_register_ability(
+			'elementor-mcp/restore-variable',
+			array(
+				'label'               => __( 'Restore Variable', 'elementor-mcp' ),
+				'description'         => __( 'Restores a previously soft-deleted Elementor 4.0+ Variable by id, bringing it back into the active token set. Requires manage_options.', 'elementor-mcp' ),
+				'category'            => 'elementor-mcp',
+				'execute_callback'    => array( $this, 'execute_restore' ),
+				'permission_callback' => array( $this, 'check_write_permission' ),
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(
+						'variable_id' => array( 'type' => 'string', 'description' => __( 'The Variable id to restore.', 'elementor-mcp' ) ),
+					),
+					'required'   => array( 'variable_id' ),
+				),
+				'output_schema'       => array(
+					'type'       => 'object',
+					'properties' => array(
+						'id'       => array( 'type' => 'string' ),
+						'restored' => array( 'type' => 'boolean' ),
+					),
+				),
+				'meta'                => array(
+					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
+					'show_in_rest' => true,
+				),
+			)
+		);
+	}
+
+	// =========================================================================
+	// Execute — read
+	// =========================================================================
+
+	/**
+	 * @param array $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function execute_list( $input ) {
+		if ( ! self::is_available() ) {
+			return $this->unavailable();
+		}
+
+		$loaded = $this->load();
+		if ( is_wp_error( $loaded ) ) {
+			return $loaded;
+		}
+		list( , $collection ) = $loaded;
+
+		$rows = $this->serialize_active( $collection );
+		if ( is_wp_error( $rows ) ) {
+			return $rows;
+		}
+
+		return array(
+			'count'     => count( $rows ),
+			'variables' => array_values( $rows ),
+		);
+	}
+
+	/**
+	 * @param array $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function execute_get( $input ) {
+		if ( ! self::is_available() ) {
+			return $this->unavailable();
+		}
+
+		$variable_id = isset( $input['variable_id'] ) ? sanitize_text_field( $input['variable_id'] ) : '';
+		if ( '' === $variable_id ) {
+			return new \WP_Error( 'missing_variable_id', __( 'variable_id is required.', 'elementor-mcp' ) );
+		}
+
+		$loaded = $this->load();
+		if ( is_wp_error( $loaded ) ) {
+			return $loaded;
+		}
+		list( , $collection ) = $loaded;
+
+		try {
+			$var = method_exists( $collection, 'get' ) ? $collection->get( $variable_id ) : null;
+		} catch ( \Throwable $e ) {
+			$var = null;
+		}
+
+		if ( null === $var ) {
+			return $this->not_found( $variable_id );
+		}
+
+		return $this->public_shape_from_variable( $var );
+	}
+
+	// =========================================================================
+	// Execute — create
+	// =========================================================================
+
+	/**
+	 * @param array $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function execute_create( $input ) {
+		if ( ! self::is_available() ) {
+			return $this->unavailable();
+		}
+
+		$label = isset( $input['label'] ) ? sanitize_text_field( $input['label'] ) : '';
+		$type  = isset( $input['type'] ) ? sanitize_text_field( $input['type'] ) : '';
+		$value = isset( $input['value'] ) ? $this->sanitize_value( $input['value'] ) : '';
+
+		if ( '' === $label ) {
+			return new \WP_Error( 'missing_label', __( 'label is required.', 'elementor-mcp' ) );
+		}
+		if ( '' === $type ) {
+			return new \WP_Error( 'missing_type', __( 'type is required (color | font | size).', 'elementor-mcp' ) );
+		}
+		if ( ! in_array( $type, array( 'color', 'font', 'size' ), true ) ) {
+			return new \WP_Error(
+				'invalid_type',
+				sprintf( /* translators: %s: the given type */ __( 'type "%s" is not valid. Use one of: color, font, size.', 'elementor-mcp' ), $type )
+			);
+		}
+		if ( '' === $value ) {
+			return new \WP_Error( 'missing_value', __( 'value is required.', 'elementor-mcp' ) );
+		}
+
+		$value_check = $this->validate_value( $type, $value );
+		if ( is_wp_error( $value_check ) ) {
+			return $value_check;
+		}
+
+		$internal_type = $this->resolve_internal_type( $type, $value );
+
+		$loaded = $this->load();
+		if ( is_wp_error( $loaded ) ) {
+			return $loaded;
+		}
+		list( $repo, $collection ) = $loaded;
+
+		// Enforce Elementor's own limit + label uniqueness through the collection's
+		// asserts, mapping their exceptions to clear WP_Errors.
+		try {
+			if ( method_exists( $collection, 'assert_limit_not_reached' ) ) {
+				$collection->assert_limit_not_reached();
+			}
+			if ( method_exists( $collection, 'assert_label_is_unique' ) ) {
+				$collection->assert_label_is_unique( $label );
+			}
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
+		}
+
+		$variable_class = self::VARIABLE;
+		try {
+			$id    = method_exists( $collection, 'next_id' ) ? (string) $collection->next_id() : $this->fallback_id();
+			$order = method_exists( $collection, 'get_next_order' ) ? (int) $collection->get_next_order() : 0;
+
+			$var = $variable_class::create_new(
+				array(
+					'id'    => $id,
+					'type'  => $internal_type,
+					'label' => $label,
+					'value' => $value,
+					'order' => $order,
+				)
+			);
+
+			// validate() is only present on some builds — guard gracefully.
+			if ( is_object( $var ) && method_exists( $var, 'validate' ) ) {
+				$var->validate();
+			}
+
+			$collection->add_variable( $var );
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
+		}
+
+		$saved = $this->save( $repo, $collection );
+		if ( is_wp_error( $saved ) ) {
+			return $saved;
+		}
+
+		$this->clear_cache();
+
+		return array(
+			'id'      => $id,
+			'label'   => $label,
+			'type'    => $type,
+			'created' => true,
+		);
+	}
+
+	// =========================================================================
+	// Execute — edit
+	// =========================================================================
+
+	/**
+	 * @param array $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function execute_edit( $input ) {
+		if ( ! self::is_available() ) {
+			return $this->unavailable();
+		}
+
+		$variable_id = isset( $input['variable_id'] ) ? sanitize_text_field( $input['variable_id'] ) : '';
+		if ( '' === $variable_id ) {
+			return new \WP_Error( 'missing_variable_id', __( 'variable_id is required.', 'elementor-mcp' ) );
+		}
+
+		$has_label = array_key_exists( 'label', $input );
+		$has_value = array_key_exists( 'value', $input );
+		if ( ! $has_label && ! $has_value ) {
+			return new \WP_Error( 'nothing_to_update', __( 'Provide at least one of: label, value.', 'elementor-mcp' ) );
+		}
+
+		$loaded = $this->load();
+		if ( is_wp_error( $loaded ) ) {
+			return $loaded;
+		}
+		list( $repo, $collection ) = $loaded;
+
+		try {
+			$var = method_exists( $collection, 'find_or_fail' ) ? $collection->find_or_fail( $variable_id ) : $collection->get( $variable_id );
+			if ( null === $var ) {
+				return $this->not_found( $variable_id );
+			}
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
+		}
+
+		$changes = array();
+
+		if ( $has_label ) {
+			$label = sanitize_text_field( $input['label'] );
+			if ( '' === $label ) {
+				return new \WP_Error( 'missing_label', __( 'label cannot be empty.', 'elementor-mcp' ) );
+			}
+			try {
+				if ( method_exists( $collection, 'assert_label_is_unique' ) ) {
+					$collection->assert_label_is_unique( $label, $variable_id );
+				}
+			} catch ( \Throwable $e ) {
+				return $this->map_exception( $e );
+			}
+			$changes['label'] = $label;
+		}
+
+		if ( $has_value ) {
+			$value = $this->sanitize_value( $input['value'] );
+			if ( '' === $value ) {
+				return new \WP_Error( 'missing_value', __( 'value cannot be empty.', 'elementor-mcp' ) );
+			}
+
+			// Derive the public type from the variable's current (internal) type so
+			// we validate the new value against the token's fixed kind.
+			$public_type = $this->public_type( $this->variable_type( $var ) );
+			$value_check = $this->validate_value( $public_type, $value );
+			if ( is_wp_error( $value_check ) ) {
+				return $value_check;
+			}
+			$changes['value'] = $value;
+
+			// For a size token, recompute the internal dimension↔expression form and
+			// pass the (possibly flipped) type through apply_changes — which permits
+			// exactly the size↔custom-size transition.
+			if ( 'size' === $public_type ) {
+				$changes['type'] = $this->resolve_internal_type( 'size', $value );
+			}
+		}
+
+		try {
+			if ( method_exists( $var, 'apply_changes' ) ) {
+				$var->apply_changes( $changes );
+			}
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
+		}
+
+		$saved = $this->save( $repo, $collection );
+		if ( is_wp_error( $saved ) ) {
+			return $saved;
+		}
+
+		$this->clear_cache();
+
+		return array(
+			'id'      => $variable_id,
+			'updated' => true,
+		);
+	}
+
+	// =========================================================================
+	// Execute — delete / restore
+	// =========================================================================
+
+	/**
+	 * @param array $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function execute_delete( $input ) {
+		if ( ! self::is_available() ) {
+			return $this->unavailable();
+		}
+
+		$variable_id = isset( $input['variable_id'] ) ? sanitize_text_field( $input['variable_id'] ) : '';
+		if ( '' === $variable_id ) {
+			return new \WP_Error( 'missing_variable_id', __( 'variable_id is required.', 'elementor-mcp' ) );
+		}
+
+		$loaded = $this->load();
+		if ( is_wp_error( $loaded ) ) {
+			return $loaded;
+		}
+		list( $repo, $collection ) = $loaded;
+
+		try {
+			$var = method_exists( $collection, 'find_or_fail' ) ? $collection->find_or_fail( $variable_id ) : $collection->get( $variable_id );
+			if ( null === $var ) {
+				return $this->not_found( $variable_id );
+			}
+			if ( method_exists( $var, 'soft_delete' ) ) {
+				$var->soft_delete();
+			}
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
+		}
+
+		$saved = $this->save( $repo, $collection );
+		if ( is_wp_error( $saved ) ) {
+			return $saved;
+		}
+
+		$this->clear_cache();
+
+		return array(
+			'id'      => $variable_id,
+			'deleted' => true,
+		);
+	}
+
+	/**
+	 * @param array $input Input.
+	 * @return array|\WP_Error
+	 */
+	public function execute_restore( $input ) {
+		if ( ! self::is_available() ) {
+			return $this->unavailable();
+		}
+
+		$variable_id = isset( $input['variable_id'] ) ? sanitize_text_field( $input['variable_id'] ) : '';
+		if ( '' === $variable_id ) {
+			return new \WP_Error( 'missing_variable_id', __( 'variable_id is required.', 'elementor-mcp' ) );
+		}
+
+		$loaded = $this->load();
+		if ( is_wp_error( $loaded ) ) {
+			return $loaded;
+		}
+		list( $repo, $collection ) = $loaded;
+
+		try {
+			$var = method_exists( $collection, 'find_or_fail' ) ? $collection->find_or_fail( $variable_id ) : $collection->get( $variable_id );
+			if ( null === $var ) {
+				return $this->not_found( $variable_id );
+			}
+			if ( ! method_exists( $var, 'restore' ) ) {
+				return new \WP_Error(
+					'restore_unsupported',
+					__( 'This Elementor build does not support restoring soft-deleted Variables.', 'elementor-mcp' )
+				);
+			}
+			$var->restore();
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
+		}
+
+		$saved = $this->save( $repo, $collection );
+		if ( is_wp_error( $saved ) ) {
+			return $saved;
+		}
+
+		$this->clear_cache();
+
+		return array(
+			'id'       => $variable_id,
+			'restored' => true,
+		);
+	}
+
+	// =========================================================================
+	// Repository / collection helpers
+	// =========================================================================
+
+	/**
+	 * Resolves the active Elementor kit, constructs the Variables repository, and
+	 * loads the collection.
+	 *
+	 * @return array{0: object, 1: object}|\WP_Error [ $repo, $collection ] or WP_Error.
+	 */
+	private function load() {
+		$kit = $this->active_kit();
+		if ( is_wp_error( $kit ) ) {
+			return $kit;
+		}
+
+		$repo_class = self::REPOSITORY;
+		try {
+			$repo       = new $repo_class( $kit );
+			$collection = method_exists( $repo, 'load' ) ? $repo->load() : null;
+		} catch ( \Throwable $e ) {
+			return new \WP_Error( 'read_failed', $e->getMessage() );
+		}
+
+		if ( ! is_object( $collection ) ) {
+			return new \WP_Error( 'read_failed', __( 'Could not load the Variables collection.', 'elementor-mcp' ) );
+		}
+
+		return array( $repo, $collection );
+	}
+
+	/**
+	 * Resolves the active Elementor kit (the repository's constructor argument).
+	 * Guards class_exists / isset / method_exists like the Global Classes code's
+	 * active-kit resolution.
+	 *
+	 * @return object|\WP_Error The Kit document, or WP_Error.
+	 */
+	private function active_kit() {
+		if ( ! class_exists( '\\Elementor\\Plugin' ) ) {
+			return new \WP_Error( 'unavailable', __( 'Elementor is not active.', 'elementor-mcp' ) );
+		}
+		$elementor = \Elementor\Plugin::$instance ?? null;
+		if ( ! is_object( $elementor ) || ! isset( $elementor->kits_manager ) || ! is_object( $elementor->kits_manager )
+			|| ! method_exists( $elementor->kits_manager, 'get_active_kit' ) ) {
+			return new \WP_Error( 'unavailable', __( 'Elementor kits manager is not available.', 'elementor-mcp' ) );
+		}
+
+		try {
+			$kit = $elementor->kits_manager->get_active_kit();
+		} catch ( \Throwable $e ) {
+			return new \WP_Error( 'unavailable', $e->getMessage() );
+		}
+
+		if ( ! is_object( $kit ) ) {
+			return new \WP_Error( 'no_active_kit', __( 'No active Elementor kit was found.', 'elementor-mcp' ) );
+		}
+
+		return $kit;
+	}
+
+	/**
+	 * Persists the collection through the repository. save() returns an int
+	 * watermark on success or false on failure.
+	 *
+	 * @param object $repo       The Variables repository.
+	 * @param object $collection The Variables collection.
+	 * @return true|\WP_Error
+	 */
+	private function save( $repo, $collection ) {
+		try {
+			$result = method_exists( $repo, 'save' ) ? $repo->save( $collection ) : false;
+		} catch ( \Throwable $e ) {
+			return $this->map_exception( $e );
+		}
+		if ( false === $result ) {
+			return new \WP_Error( 'write_failed', __( 'Elementor failed to save the Variables collection.', 'elementor-mcp' ) );
+		}
+		return true;
+	}
+
+	/**
+	 * Returns the active (non-deleted) variables in public shape, keyed by id.
+	 *
+	 * Prefers the collection's serialize( false ) output (which excludes deleted
+	 * entries); defensively skips any row still carrying a `deleted`/`deleted_at`
+	 * marker.
+	 *
+	 * @param object $collection The Variables collection.
+	 * @return array<int,array>|\WP_Error
+	 */
+	private function serialize_active( $collection ) {
+		try {
+			if ( method_exists( $collection, 'serialize' ) ) {
+				$serialized = $collection->serialize( false );
+				$data       = is_array( $serialized ) && isset( $serialized['data'] ) && is_array( $serialized['data'] )
+					? $serialized['data']
+					: array();
+
+				$out = array();
+				foreach ( $data as $id => $row ) {
+					$row = (array) $row;
+					if ( ! empty( $row['deleted'] ) || ! empty( $row['deleted_at'] ) ) {
+						continue;
+					}
+					$out[] = array(
+						'id'    => (string) $id,
+						'type'  => $this->public_type( (string) ( $row['type'] ?? '' ) ),
+						'label' => (string) ( $row['label'] ?? '' ),
+						'value' => $this->stringify_value( $row['value'] ?? '' ),
+						'order' => isset( $row['order'] ) ? (int) $row['order'] : 0,
+					);
+				}
+				return $out;
+			}
+
+			// Fallback: iterate Variable objects via all().
+			$out = array();
+			if ( method_exists( $collection, 'all' ) ) {
+				foreach ( (array) $collection->all() as $var ) {
+					if ( is_object( $var ) && method_exists( $var, 'is_deleted' ) && $var->is_deleted() ) {
+						continue;
+					}
+					$out[] = $this->public_shape_from_variable( $var );
+				}
+			}
+			return $out;
+		} catch ( \Throwable $e ) {
+			return new \WP_Error( 'read_failed', $e->getMessage() );
+		}
+	}
+
+	/**
+	 * Builds the public { id, type, label, value, order } shape from a Variable
+	 * entity, tolerating accessor-method variance.
+	 *
+	 * @param object $var Variable entity.
+	 * @return array
+	 */
+	private function public_shape_from_variable( $var ): array {
+		// Prefer to_array() when present (single source of truth), else accessors.
+		$arr = array();
+		if ( is_object( $var ) && method_exists( $var, 'to_array' ) ) {
+			try {
+				$arr = (array) $var->to_array();
+			} catch ( \Throwable $e ) {
+				$arr = array();
+			}
+		}
+
+		$id    = isset( $arr['id'] ) ? (string) $arr['id'] : $this->call_accessor( $var, 'id' );
+		$type  = isset( $arr['type'] ) ? (string) $arr['type'] : $this->variable_type( $var );
+		$label = isset( $arr['label'] ) ? (string) $arr['label'] : $this->call_accessor( $var, 'label' );
+		$value = array_key_exists( 'value', $arr ) ? $arr['value'] : $this->call_accessor( $var, 'value' );
+		$order = isset( $arr['order'] ) ? (int) $arr['order'] : (int) $this->call_accessor( $var, 'order' );
+
+		return array(
+			'id'    => (string) $id,
+			'type'  => $this->public_type( (string) $type ),
+			'label' => (string) $label,
+			'value' => $this->stringify_value( $value ),
+			'order' => $order,
+		);
+	}
+
+	/**
+	 * Reads a Variable's internal type key (accessor or to_array).
+	 *
+	 * @param object $var Variable entity.
+	 * @return string
+	 */
+	private function variable_type( $var ): string {
+		if ( is_object( $var ) && method_exists( $var, 'type' ) ) {
+			try {
+				return (string) $var->type();
+			} catch ( \Throwable $e ) {
+				return '';
+			}
+		}
+		if ( is_object( $var ) && method_exists( $var, 'to_array' ) ) {
+			try {
+				$arr = (array) $var->to_array();
+				return isset( $arr['type'] ) ? (string) $arr['type'] : '';
+			} catch ( \Throwable $e ) {
+				return '';
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Calls a no-arg accessor method on a Variable entity, returning '' on absence.
+	 *
+	 * @param object $var    Variable entity.
+	 * @param string $method Accessor name.
+	 * @return mixed
+	 */
+	private function call_accessor( $var, string $method ) {
+		if ( is_object( $var ) && method_exists( $var, $method ) ) {
+			try {
+				return $var->$method();
+			} catch ( \Throwable $e ) {
+				return '';
+			}
+		}
+		return '';
+	}
+
+	// =========================================================================
+	// Type resolution + value validation
+	// =========================================================================
+
+	/**
+	 * Resolves a public type + value into the internal (stored) type key.
+	 *
+	 * @param string $public_type One of color|font|size.
+	 * @param string $value       The token value.
+	 * @return string Internal type key.
+	 */
+	private function resolve_internal_type( string $public_type, string $value ): string {
+		switch ( $public_type ) {
+			case 'color':
+				return self::TYPE_COLOR;
+			case 'font':
+				return self::TYPE_FONT;
+			case 'size':
+			default:
+				return $this->is_size_expression( $value ) ? self::TYPE_CUSTOM_SIZE : self::TYPE_SIZE;
+		}
+	}
+
+	/**
+	 * Collapses an internal type key back to its public form (color|font|size).
+	 * Both size keys fold to `size`.
+	 *
+	 * @param string $internal_type Internal type key.
+	 * @return string
+	 */
+	private function public_type( string $internal_type ): string {
+		switch ( $internal_type ) {
+			case self::TYPE_COLOR:
+				return 'color';
+			case self::TYPE_FONT:
+				return 'font';
+			case self::TYPE_SIZE:
+			case self::TYPE_CUSTOM_SIZE:
+				return 'size';
+			default:
+				// Best-effort for unknown/future keys: infer from substring.
+				if ( false !== strpos( $internal_type, 'color' ) ) {
+					return 'color';
+				}
+				if ( false !== strpos( $internal_type, 'font' ) ) {
+					return 'font';
+				}
+				if ( false !== strpos( $internal_type, 'size' ) ) {
+					return 'size';
+				}
+				return $internal_type;
+		}
+	}
+
+	/**
+	 * Whether a size value is a CSS-function expression (→ custom-size).
+	 *
+	 * @param string $value Size value.
+	 * @return bool
+	 */
+	private function is_size_expression( string $value ): bool {
+		return (bool) preg_match( '/(?:clamp|calc|min|max|var|env)\s*\(/i', $value );
+	}
+
+	/**
+	 * Validates a value against its public type.
+	 *
+	 * @param string $public_type One of color|font|size.
+	 * @param string $value       The value.
+	 * @return true|\WP_Error
+	 */
+	private function validate_value( string $public_type, string $value ) {
+		switch ( $public_type ) {
+			case 'color':
+				if ( ! preg_match( '/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $value ) ) {
+					return new \WP_Error(
+						'invalid_value',
+						sprintf(
+							/* translators: %s: the rejected color value */
+							__( 'Color value "%s" is not a valid hex color. Use #RGB, #RRGGBB or #RRGGBBAA (named colors are not accepted).', 'elementor-mcp' ),
+							$value
+						)
+					);
+				}
+				return true;
+
+			case 'size':
+				if ( $this->is_size_expression( $value ) ) {
+					return true;
+				}
+				if ( ! preg_match( '/^-?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(px|rem|em|%|vw|vh|vmin|vmax|ch|pt|pc|ex|fr)$/i', $value ) ) {
+					return new \WP_Error(
+						'invalid_value',
+						sprintf(
+							/* translators: %s: the rejected size value */
+							__( 'Size value "%s" is not a valid dimension. Use <number><unit> (px/em/rem/%%/vw/vh/vmin/vmax/ch/pt/pc/ex/fr) or a CSS-function expression (clamp/calc/min/max/var/env).', 'elementor-mcp' ),
+							$value
+						)
+					);
+				}
+				return true;
+
+			case 'font':
+			default:
+				if ( '' === trim( $value ) ) {
+					return new \WP_Error( 'invalid_value', __( 'Font value must be a non-empty font-family name.', 'elementor-mcp' ) );
+				}
+				return true;
+		}
+	}
+
+	/**
+	 * Sanitizes a raw value input, preserving CSS-function expressions (which may
+	 * contain commas/parentheses) while stripping tags.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	private function sanitize_value( $value ): string {
+		if ( is_array( $value ) ) {
+			return '';
+		}
+		return trim( sanitize_text_field( (string) $value ) );
+	}
+
+	/**
+	 * Coerces a stored value (usually a string, but tolerant of arrays) to a
+	 * string for the public shape.
+	 *
+	 * @param mixed $value Stored value.
+	 * @return string
+	 */
+	private function stringify_value( $value ): string {
+		if ( is_string( $value ) ) {
+			return $value;
+		}
+		if ( is_scalar( $value ) ) {
+			return (string) $value;
+		}
+		$json = wp_json_encode( $value );
+		return false === $json ? '' : $json;
+	}
+
+	// =========================================================================
+	// Errors
+	// =========================================================================
+
+	/**
+	 * The standard unavailable WP_Error.
+	 *
+	 * @return \WP_Error
+	 */
+	private function unavailable(): \WP_Error {
+		return new \WP_Error( 'unavailable', __( 'Elementor Variables are not available — Elementor 4.0+ with the Variables experiment is required.', 'elementor-mcp' ) );
+	}
+
+	/**
+	 * The standard not-found WP_Error for a variable id.
+	 *
+	 * @param string $variable_id The id.
+	 * @return \WP_Error
+	 */
+	private function not_found( string $variable_id ): \WP_Error {
+		return new \WP_Error(
+			'not_found',
+			sprintf( /* translators: %s: variable id */ __( 'Variable "%s" was not found.', 'elementor-mcp' ), $variable_id )
+		);
+	}
+
+	/**
+	 * Maps an Elementor Variables exception (or any Throwable) to a clear WP_Error.
+	 *
+	 * Matches on the exception class-name suffix so it is robust whether or not a
+	 * given build defines every exception class (referencing an undefined class in
+	 * a catch is avoided; we string-match instead).
+	 *
+	 * @param \Throwable $e The caught exception.
+	 * @return \WP_Error
+	 */
+	private function map_exception( \Throwable $e ): \WP_Error {
+		$class   = get_class( $e );
+		$message = $e->getMessage();
+
+		if ( false !== strpos( $class, 'DuplicatedLabel' ) ) {
+			return new \WP_Error( 'label_not_unique', '' !== $message ? $message : __( 'A Variable with this label already exists (labels are case-insensitive).', 'elementor-mcp' ) );
+		}
+		if ( false !== strpos( $class, 'VariablesLimitReached' ) ) {
+			return new \WP_Error( 'limit_reached', '' !== $message ? $message : __( 'Elementor\'s Variables limit has been reached. Delete an unused variable first.', 'elementor-mcp' ) );
+		}
+		if ( false !== strpos( $class, 'RecordNotFound' ) ) {
+			return new \WP_Error( 'not_found', '' !== $message ? $message : __( 'Variable was not found.', 'elementor-mcp' ) );
+		}
+		if ( false !== strpos( $class, 'Type_Mismatch' ) ) {
+			return new \WP_Error( 'type_mismatch', '' !== $message ? $message : __( 'The variable type cannot be changed this way.', 'elementor-mcp' ) );
+		}
+		if ( false !== strpos( $class, 'InvalidVariable' ) || $e instanceof \InvalidArgumentException ) {
+			return new \WP_Error( 'invalid_variable', '' !== $message ? $message : __( 'The variable is invalid (label must have no spaces and be at most 50 characters).', 'elementor-mcp' ) );
+		}
+
+		return new \WP_Error( 'write_failed', '' !== $message ? $message : __( 'The Variables operation failed.', 'elementor-mcp' ) );
+	}
+
+	/**
+	 * Fallback id mint when the collection lacks next_id() (defensive; real builds
+	 * always provide it). Mirrors Elementor's `e-gv-<hash>` format.
+	 *
+	 * @return string
+	 */
+	private function fallback_id(): string {
+		return 'e-gv-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );
+	}
+
+	// =========================================================================
+	// Cache
+	// =========================================================================
+
+	/**
+	 * Clears Elementor's file cache so regenerated CSS picks up the change.
+	 * Guarded for unit stubs (the stub Plugin has no files_manager).
+	 */
+	private function clear_cache(): void {
+		if ( ! class_exists( '\\Elementor\\Plugin' ) ) {
+			return;
+		}
+		$elementor = \Elementor\Plugin::$instance ?? null;
+		if ( ! is_object( $elementor ) || ! isset( $elementor->files_manager ) || ! is_object( $elementor->files_manager ) ) {
+			return;
+		}
+		if ( method_exists( $elementor->files_manager, 'clear_cache' ) ) {
+			try {
+				$elementor->files_manager->clear_cache();
+			} catch ( \Throwable $e ) {
+				// Non-fatal — the write already succeeded.
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+					error_log( '[Elementor MCP] variables: clear_cache failed: ' . $e->getMessage() );
+				}
+			}
+		}
+	}
+}

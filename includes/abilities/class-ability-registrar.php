@@ -154,6 +154,13 @@ class Elementor_MCP_Ability_Registrar {
 		$gc_write->register();
 		$this->ability_names = array_merge( $this->ability_names, $gc_write->get_ability_names() );
 
+		// Variables (design tokens) CRUD abilities (Elementor 4.0+). Same
+		// self-guard as the Global Classes groups: no-ops when the Variables
+		// repository is absent, so the six tools never surface on pre-4.0 sites.
+		$variables = new Elementor_MCP_Variables_Write_Abilities( $this->data );
+		$variables->register();
+		$this->ability_names = array_merge( $this->ability_names, $variables->get_ability_names() );
+
 		// Performance Analyzer (analyze-performance — read-only page + server + WP
 		// audit → scored report). Independent of Elementor version; the ability's
 		// manage_options permission callback is the guard.

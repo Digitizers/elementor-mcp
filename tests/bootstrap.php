@@ -578,9 +578,15 @@ namespace Elementor {
 				};
 
 				$this->kits_manager = new class {
-					/** @return null — no active Elementor kit in test env */
+					/**
+					 * Returns the active Elementor kit. Defaults to null (no kit) so
+					 * existing tests are unaffected; the Variables tests inject a stub
+					 * kit object via $GLOBALS['_active_kit'].
+					 *
+					 * @return object|null
+					 */
 					public function get_active_kit() {
-						return null;
+						return $GLOBALS['_active_kit'] ?? null;
 					}
 				};
 			}
@@ -694,6 +700,221 @@ namespace Elementor\Modules\GlobalClasses {
 }
 
 // ---------------------------------------------------------------------------
+// Elementor Variables (design tokens) stubs
+//
+// In-memory stand-ins for Elementor's Variables_Repository / Variables_Collection
+// / Variable entity + storage exceptions, so the Variables write abilities'
+// functional tests can exercise create/edit/delete/restore/list/get end to end.
+// State is a per-process static store keyed by id; reset via Variables_Repository::__reset().
+// ---------------------------------------------------------------------------
+
+namespace Elementor\Modules\Variables\Storage\Exceptions {
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Exceptions\\RecordNotFound' ) ) {
+		class RecordNotFound extends \Exception {}
+		class DuplicatedLabel extends \Exception {}
+		class VariablesLimitReached extends \Exception {}
+		class Type_Mismatch extends \Exception {}
+		class InvalidVariable extends \Exception {}
+	}
+}
+
+namespace Elementor\Modules\Variables\Storage\Entities {
+
+	use Elementor\Modules\Variables\Storage\Exceptions\InvalidVariable;
+
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Entities\\Variable' ) ) {
+		class Variable {
+			/** @var array */
+			private $data;
+
+			private function __construct( array $data ) {
+				$this->data = $data;
+			}
+
+			public static function create_new( array $data ): self {
+				foreach ( array( 'id', 'type', 'label', 'value' ) as $key ) {
+					if ( ! array_key_exists( $key, $data ) ) {
+						throw new \InvalidArgumentException( "Missing required field '$key'" );
+					}
+				}
+				$now                = gmdate( 'Y-m-d H:i:s' );
+				$data['created_at'] = $now;
+				$data['updated_at'] = $now;
+				return new self( $data );
+			}
+
+			public static function from_array( array $data ): self {
+				return new self( $data );
+			}
+
+			public function apply_changes( array $data ): void {
+				$this->validate();
+				foreach ( array( 'label', 'value', 'order', 'type' ) as $field ) {
+					if ( isset( $data[ $field ] ) ) {
+						$this->data[ $field ] = $data[ $field ];
+					}
+				}
+				$this->data['updated_at'] = gmdate( 'Y-m-d H:i:s' );
+			}
+
+			public function soft_delete(): void {
+				$this->data['deleted_at'] = gmdate( 'Y-m-d H:i:s' );
+			}
+
+			public function restore(): void {
+				unset( $this->data['deleted_at'] );
+			}
+
+			public function validate(): bool {
+				if ( strpos( $this->label(), ' ' ) !== false ) {
+					throw new InvalidVariable( 'Label cannot contain spaces' );
+				}
+				if ( strlen( $this->label() ) > 50 ) {
+					throw new InvalidVariable( 'Label cannot be longer than 50 characters' );
+				}
+				return true;
+			}
+
+			public function to_array(): array {
+				return array_diff_key( $this->data, array_flip( array( 'id' ) ) );
+			}
+
+			public function id(): string {
+				return (string) $this->data['id'];
+			}
+			public function label(): string {
+				return (string) $this->data['label'];
+			}
+			public function value() {
+				return $this->data['value'];
+			}
+			public function type() {
+				return $this->data['type'];
+			}
+			public function order(): int {
+				return (int) ( $this->data['order'] ?? 0 );
+			}
+			public function is_deleted(): bool {
+				return isset( $this->data['deleted_at'] );
+			}
+		}
+	}
+}
+
+namespace Elementor\Modules\Variables\Storage {
+
+	use Elementor\Modules\Variables\Storage\Entities\Variable;
+	use Elementor\Modules\Variables\Storage\Exceptions\RecordNotFound;
+	use Elementor\Modules\Variables\Storage\Exceptions\DuplicatedLabel;
+	use Elementor\Modules\Variables\Storage\Exceptions\VariablesLimitReached;
+
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Constants' ) ) {
+		class Constants {
+			public const TOTAL_VARIABLES_COUNT = 1000;
+			public const VARIABLES_META_KEY    = '_elementor_global_variables';
+		}
+	}
+
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Variables_Collection' ) ) {
+		class Variables_Collection {
+			public function all(): array {
+				return Variables_Repository::$store;
+			}
+			public function get( string $id ) {
+				return Variables_Repository::$store[ $id ] ?? null;
+			}
+			public function add_variable( Variable $v ): void {
+				Variables_Repository::$store[ $v->id() ] = $v;
+			}
+			public function find_or_fail( string $id ): Variable {
+				$v = $this->get( $id );
+				if ( null === $v ) {
+					throw new RecordNotFound( 'Variable not found' );
+				}
+				return $v;
+			}
+			public function assert_label_is_unique( string $label, ?string $ignore_id = null ): void {
+				foreach ( Variables_Repository::$store as $v ) {
+					if ( $v->is_deleted() ) {
+						continue;
+					}
+					if ( null !== $ignore_id && $v->id() === $ignore_id ) {
+						continue;
+					}
+					if ( strcasecmp( $v->label(), $label ) === 0 ) {
+						throw new DuplicatedLabel( "Variable label '$label' already exists." );
+					}
+				}
+			}
+			public function assert_limit_not_reached(): void {
+				$active = 0;
+				foreach ( Variables_Repository::$store as $v ) {
+					if ( ! $v->is_deleted() ) {
+						++$active;
+					}
+				}
+				if ( Constants::TOTAL_VARIABLES_COUNT <= $active ) {
+					throw new VariablesLimitReached( 'Total variables count limit reached' );
+				}
+			}
+			public function next_id(): string {
+				return 'e-gv-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );
+			}
+			public function get_next_order(): int {
+				$highest = 0;
+				foreach ( Variables_Repository::$store as $v ) {
+					if ( ! $v->is_deleted() && $v->order() > $highest ) {
+						$highest = $v->order();
+					}
+				}
+				return $highest + 1;
+			}
+			public function serialize( bool $include_deleted = false ): array {
+				$data = array();
+				foreach ( Variables_Repository::$store as $v ) {
+					if ( ! $include_deleted && $v->is_deleted() ) {
+						continue;
+					}
+					$arr = $v->to_array();
+					if ( $include_deleted && $v->is_deleted() ) {
+						$arr['deleted'] = true;
+					}
+					$data[ $v->id() ] = $arr;
+				}
+				return array( 'data' => $data, 'watermark' => 1, 'version' => 1 );
+			}
+		}
+	}
+
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Variables_Repository' ) ) {
+		class Variables_Repository {
+			/** @var array<string,Variable> id => Variable (shared static store). */
+			public static $store = array();
+			/** @var bool Force save() to report failure, for the write-failed path. */
+			public static $fail_save = false;
+
+			public function __construct( $kit ) {}
+
+			public function load(): Variables_Collection {
+				return new Variables_Collection();
+			}
+
+			public function save( Variables_Collection $collection ) {
+				// The collection mutates the shared static store directly, so there is
+				// nothing to persist; just report a watermark (int) or false.
+				return self::$fail_save ? false : 1;
+			}
+
+			/** Test helper: reset the in-memory store between tests. */
+			public static function __reset( array $store = array() ): void {
+				self::$store     = $store;
+				self::$fail_save = false;
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Plugin class autoloader (back in global namespace)
 // ---------------------------------------------------------------------------
 
@@ -725,6 +946,7 @@ namespace {
 			'Elementor_MCP_Media_Library_Abilities' => 'includes/abilities/class-media-library-abilities.php',
 			'Elementor_MCP_Global_Classes_Abilities' => 'includes/abilities/class-global-classes-abilities.php',
 			'Elementor_MCP_Global_Classes_Write_Abilities' => 'includes/abilities/class-global-classes-write-abilities.php',
+			'Elementor_MCP_Variables_Write_Abilities' => 'includes/abilities/class-variables-write-abilities.php',
 			// Performance Analyzer (audit → scored report)
 			'Elementor_MCP_Performance_Finding'    => 'includes/performance/class-performance-finding.php',
 			'Elementor_MCP_Performance_Server_Audit' => 'includes/performance/class-performance-server-audit.php',

@@ -539,12 +539,15 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
-	public function test_broken_page_is_reverted_on_wp_critical_error(): void {
+	public function test_critical_error_text_in_page_copy_is_not_reverted(): void {
+		// A valid 200 page whose COPY contains WordPress's "critical error" sentence
+		// (e.g. docs/support content) must NOT be reverted — a real fatal is a 500,
+		// not a 200 body match (Codex R9 P2).
 		$this->publish( 55 );
 		$this->enable_render_check();
 		$this->fake_http_seq( array(
 			$this->resp( 200, 'ok' ),
-			$this->resp( 200, '<html><body>There has been a critical error on this website.</body></html>' ),
+			$this->resp( 200, '<html><body>Guide: what to do when "There has been a critical error on this website" appears.</body></html>' ),
 		) );
 
 		$result = \Elementor_MCP_Governance::run_governed(
@@ -553,7 +556,26 @@ class GovernanceFunctionalTest extends TestCase {
 			array( 'post_id' => 55 )
 		);
 
-		$this->assertSame( 'governance_render_failed', $result->get_error_code() );
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_same_host_different_port_permalink_is_off_origin(): void {
+		// home_url() is http://example.com (port 80); a permalink on :8080 is a
+		// different origin and must not be probed (Codex R9 P2, SSRF).
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$GLOBALS['_permalink'] = 'http://example.com:8080/foo';
+		$this->fake_http( 500, '' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertArrayNotHasKey( '_http_last_url', $GLOBALS );
 	}
 
 	public function test_pre_existing_5xx_is_not_the_edits_fault_and_keeps_the_write(): void {

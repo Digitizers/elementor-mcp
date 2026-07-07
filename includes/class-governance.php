@@ -410,10 +410,10 @@ class Elementor_MCP_Governance {
 	 * only reverted when a CONFIRMED-healthy baseline turns 'broken', so a baseline
 	 * that was merely inconclusive (never proved healthy) can never trigger a revert.
 	 *
-	 *   - 'broken'       = HTTP 5xx, an empty 2xx body (white screen), or WordPress's
-	 *                      front-end fatal-handler message. (The "critical error"
-	 *                      string is specific enough not to false-positive on
-	 *                      ordinary page copy the way a bare "Fatal error:" scan would.)
+	 *   - 'broken'       = HTTP 5xx (a real PHP fatal is served by WordPress's fatal
+	 *                      handler with a 500 status), or an empty 2xx body (white
+	 *                      screen). We do NOT scan a 200 body for a fatal string —
+	 *                      that would false-positive on legitimate page copy.
 	 *   - 'inconclusive' = a transient loopback failure (timeout/DNS — WP_Error), a
 	 *                      3xx/4xx (auth redirect, WAF 401/403, protected 404), or a
 	 *                      page that is not a published, publicly-viewable page
@@ -493,23 +493,54 @@ class Elementor_MCP_Governance {
 		if ( '' === trim( $body ) ) {
 			return 'broken'; // white screen of death on a 200
 		}
-		if ( false !== stripos( $body, 'There has been a critical error on this' ) ) {
-			return 'broken'; // WordPress front-end fatal handler
-		}
+		// NB: we deliberately do NOT scan a 200 body for WordPress's "critical
+		// error" sentence. A real PHP fatal is served by the fatal handler with a
+		// 500 status (caught above); matching the sentence in a 200 body would
+		// false-positive on legitimate page copy (e.g. docs about WP errors).
 		return 'healthy';
 	}
 
 	/**
-	 * Whether a URL is on this site's own front-end origin (host match). Used to
-	 * refuse probing an off-origin permalink (SSRF guard).
+	 * Whether a URL is on this site's own front-end origin — scheme, host AND port
+	 * must match (default ports normalized). Host-only would let a same-host but
+	 * different-scheme/port permalink (e.g. http://host:8080 vs https://host) slip
+	 * past the SSRF guard. Used to refuse probing an off-origin permalink.
 	 *
 	 * @param string $url The URL to check.
 	 * @return bool
 	 */
 	private static function is_same_origin( string $url ): bool {
-		$site_host = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
-		$url_host  = wp_parse_url( $url, PHP_URL_HOST );
-		return $site_host && $url_host && strtolower( (string) $site_host ) === strtolower( (string) $url_host );
+		$site   = wp_parse_url( home_url( '/' ) );
+		$target = wp_parse_url( $url );
+		if ( ! is_array( $site ) || ! is_array( $target ) ) {
+			return false;
+		}
+		return self::origin_tuple( $site ) === self::origin_tuple( $target );
+	}
+
+	/**
+	 * Normalize parsed-URL parts into a "scheme://host:port" origin string, filling
+	 * the default port for http/https so an explicit :80 / :443 compares equal.
+	 *
+	 * @param array $parts Output of wp_parse_url().
+	 * @return string
+	 */
+	private static function origin_tuple( array $parts ): string {
+		$scheme = strtolower( (string) ( $parts['scheme'] ?? '' ) );
+		$host   = strtolower( (string) ( $parts['host'] ?? '' ) );
+		if ( '' === $host ) {
+			return ''; // no host → cannot be same-origin
+		}
+		if ( isset( $parts['port'] ) ) {
+			$port = (int) $parts['port'];
+		} elseif ( 'https' === $scheme ) {
+			$port = 443;
+		} elseif ( 'http' === $scheme ) {
+			$port = 80;
+		} else {
+			$port = 0;
+		}
+		return $scheme . '://' . $host . ':' . $port;
 	}
 
 	/**

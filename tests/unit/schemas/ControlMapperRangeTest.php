@@ -17,19 +17,46 @@ class ControlMapperRangeTest extends TestCase {
 		return \Elementor_MCP_Control_Mapper::map( $control );
 	}
 
-	public function test_number_emits_min_max_step(): void {
+	public function test_number_emits_min_max_step_when_grid_aligned(): void {
 		$out = $this->map(
 			array(
 				'type' => 'number',
-				'min'  => 1,
+				'min'  => 0,
 				'max'  => 12,
 				'step' => 2,
 			)
 		);
 		$this->assertSame( 'number', $out['type'] );
-		$this->assertSame( 1, $out['minimum'] );
+		$this->assertSame( 0, $out['minimum'] );
 		$this->assertSame( 12, $out['maximum'] );
-		$this->assertSame( 2, $out['multipleOf'] );
+		$this->assertSame( 2, $out['multipleOf'], 'min=0 is a multiple of step, so multipleOf is valid.' );
+	}
+
+	public function test_number_offset_range_omits_multipleof(): void {
+		// min=1, step=2 → valid values 1, 3, 5 … which are NOT multiples of 2.
+		// multipleOf would reject every one of them, so it must be omitted.
+		$out = $this->map(
+			array(
+				'type' => 'number',
+				'min'  => 1,
+				'max'  => 11,
+				'step' => 2,
+			)
+		);
+		$this->assertSame( 1, $out['minimum'] );
+		$this->assertSame( 11, $out['maximum'] );
+		$this->assertArrayNotHasKey( 'multipleOf', $out, 'An offset grid (min not a multiple of step) must not emit multipleOf.' );
+	}
+
+	public function test_number_emits_multipleof_when_min_is_a_multiple_of_step(): void {
+		$out = $this->map(
+			array(
+				'type' => 'number',
+				'min'  => 4,
+				'step' => 2,
+			)
+		);
+		$this->assertSame( 2, $out['multipleOf'], 'min=4 is a multiple of step=2, so multipleOf is valid.' );
 	}
 
 	public function test_number_without_range_stays_bare(): void {

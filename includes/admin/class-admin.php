@@ -1404,6 +1404,50 @@ class Elementor_MCP_Admin {
 					),
 				);
 			}
+
+			// Variables (design tokens) CRUD. Registered only when Elementor's
+			// Variables repository is present; gate the catalog group on the same
+			// availability so it can't drift from the registry. No 'pro' badge ->
+			// enabled by default. delete is destructive; restore recovers a
+			// soft-deleted token; list/get are read-only.
+			if ( class_exists( 'Elementor_MCP_Variables_Write_Abilities' )
+				&& Elementor_MCP_Variables_Write_Abilities::is_available() ) {
+				$tools['variables'] = array(
+					'label' => __( 'Variables (Elementor 4.0+)', 'elementor-mcp' ),
+					'tools' => array(
+						'elementor-mcp/list-variables'    => array(
+							'label'       => __( 'List Variables', 'elementor-mcp' ),
+							'description' => __( 'Lists all Variables (design tokens: colors, fonts, sizes), excluding soft-deleted.', 'elementor-mcp' ),
+							'badges'      => array( 'read-only' ),
+						),
+						'elementor-mcp/get-variable'      => array(
+							'label'       => __( 'Get Variable', 'elementor-mcp' ),
+							'description' => __( 'Returns a single Variable by id in public shape { id, type, label, value, order }.', 'elementor-mcp' ),
+							'badges'      => array( 'read-only' ),
+						),
+						'elementor-mcp/create-variable'   => array(
+							'label'       => __( 'Create Variable', 'elementor-mcp' ),
+							'description' => __( 'Creates a Variable from label + type (color|font|size) + value; mints an e-gv- id.', 'elementor-mcp' ),
+							'badges'      => array(),
+						),
+						'elementor-mcp/edit-variable'     => array(
+							'label'       => __( 'Edit Variable', 'elementor-mcp' ),
+							'description' => __( 'Edits a Variable in place (label and/or value), preserving its id.', 'elementor-mcp' ),
+							'badges'      => array(),
+						),
+						'elementor-mcp/delete-variable'   => array(
+							'label'       => __( 'Delete Variable', 'elementor-mcp' ),
+							'description' => __( 'Soft-deletes a Variable by id (tombstoned, recoverable with restore).', 'elementor-mcp' ),
+							'badges'      => array( 'destructive' ),
+						),
+						'elementor-mcp/restore-variable'  => array(
+							'label'       => __( 'Restore Variable', 'elementor-mcp' ),
+							'description' => __( 'Restores a previously soft-deleted Variable back into the active token set.', 'elementor-mcp' ),
+							'badges'      => array(),
+						),
+					),
+				);
+			}
 		}
 
 		// System Kit writers. Fork: these act on THIS site's own Elementor kit

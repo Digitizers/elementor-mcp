@@ -578,9 +578,15 @@ namespace Elementor {
 				};
 
 				$this->kits_manager = new class {
-					/** @return null — no active Elementor kit in test env */
+					/**
+					 * Returns the active Elementor kit. Defaults to null (no kit) so
+					 * existing tests are unaffected; the Variables tests inject a stub
+					 * kit object via $GLOBALS['_active_kit'].
+					 *
+					 * @return object|null
+					 */
 					public function get_active_kit() {
-						return null;
+						return $GLOBALS['_active_kit'] ?? null;
 					}
 				};
 			}
@@ -599,6 +605,15 @@ namespace Elementor {
 		}
 
 		Plugin::$instance = Plugin::getInstance();
+	}
+
+	if ( ! class_exists( 'Elementor\\Utils' ) ) {
+		/** Stub \Elementor\Utils::has_pro() reading $GLOBALS['_has_pro'] (default true). */
+		class Utils {
+			public static function has_pro(): bool {
+				return $GLOBALS['_has_pro'] ?? true;
+			}
+		}
 	}
 
 }  // end namespace Elementor
@@ -694,6 +709,158 @@ namespace Elementor\Modules\GlobalClasses {
 }
 
 // ---------------------------------------------------------------------------
+// Elementor Variables (design tokens) stubs
+//
+// In-memory stand-in for Elementor's canonical Variables Repository
+// (modules/variables/storage/repository.php) + its storage exceptions, so the
+// Variables write abilities' functional tests exercise create/edit/delete/
+// restore/list/get end to end. Records are raw arrays keyed by id, matching the
+// real repository — tombstones carry BOTH `deleted` and `deleted_at`. Reset via
+// Repository::__reset().
+// ---------------------------------------------------------------------------
+
+namespace Elementor\Modules\Variables\Storage\Exceptions {
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Exceptions\\RecordNotFound' ) ) {
+		class RecordNotFound extends \Exception {}
+		class DuplicatedLabel extends \Exception {}
+		class VariablesLimitReached extends \Exception {}
+		class FatalError extends \Exception {}
+	}
+}
+
+namespace Elementor\Modules\Variables\Storage {
+
+	use Elementor\Modules\Variables\Storage\Exceptions\RecordNotFound;
+	use Elementor\Modules\Variables\Storage\Exceptions\DuplicatedLabel;
+	use Elementor\Modules\Variables\Storage\Exceptions\VariablesLimitReached;
+
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Constants' ) ) {
+		class Constants {
+			public const TOTAL_VARIABLES_COUNT = 1000;
+			public const VARIABLES_META_KEY    = '_elementor_global_variables';
+		}
+	}
+
+	if ( ! class_exists( 'Elementor\\Modules\\Variables\\Storage\\Repository' ) ) {
+		class Repository {
+			/** @var array<string,array> id => raw record. */
+			public static $store = array();
+
+			public function __construct( $kit ) {}
+
+			public function variables(): array {
+				return self::$store;
+			}
+
+			public function create( array $variable ) {
+				$data = self::$store;
+				$this->assert_label_unique( $data, array( 'label' => $variable['label'] ?? '' ) );
+				$id  = 'e-gv-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );
+				$rec = array(
+					'type'  => $variable['type'] ?? '',
+					'label' => $variable['label'] ?? '',
+					'value' => $variable['value'] ?? '',
+					'order' => $variable['order'] ?? $this->next_order( $data ),
+				);
+				$data[ $id ] = $rec;
+				$this->assert_limit( $data );
+				self::$store = $data;
+				return array( 'variable' => array_merge( array( 'id' => $id ), $rec ), 'watermark' => 1 );
+			}
+
+			public function update( string $id, array $variable ) {
+				$data = self::$store;
+				if ( ! isset( $data[ $id ] ) ) {
+					throw new RecordNotFound( 'Variable not found' );
+				}
+				$updated = array_merge( $data[ $id ], $this->only( $variable, array( 'label', 'value', 'order' ) ) );
+				$this->assert_label_unique( $data, array_merge( $updated, array( 'id' => $id ) ) );
+				$data[ $id ] = $updated;
+				self::$store = $data;
+				return array( 'variable' => array_merge( array( 'id' => $id ), $updated ), 'watermark' => 1 );
+			}
+
+			public function delete( string $id ) {
+				if ( ! isset( self::$store[ $id ] ) ) {
+					throw new RecordNotFound( 'Variable not found' );
+				}
+				self::$store[ $id ]['deleted']    = true;
+				self::$store[ $id ]['deleted_at'] = '2026-01-01 00:00:00';
+				return array( 'variable' => array_merge( array( 'id' => $id ), self::$store[ $id ] ), 'watermark' => 1 );
+			}
+
+			public function restore( string $id, $overrides = array() ) {
+				$data = self::$store;
+				if ( ! isset( $data[ $id ] ) ) {
+					throw new RecordNotFound( 'Variable not found' );
+				}
+				// Rebuild from the persisted fields only — drops deleted/deleted_at.
+				$restored = $this->only( $data[ $id ], array( 'label', 'value', 'type', 'order' ) );
+				$this->assert_label_unique( $data, array_merge( $restored, array( 'id' => $id ) ) );
+				$data[ $id ] = $restored;
+				$this->assert_limit( $data );
+				self::$store = $data;
+				return array( 'variable' => array_merge( array( 'id' => $id ), $restored ), 'watermark' => 1 );
+			}
+
+			/** Test helper: reset the in-memory store between tests. */
+			public static function __reset( array $store = array() ): void {
+				self::$store = $store;
+			}
+
+			private function only( array $src, array $keys ): array {
+				$out = array();
+				foreach ( $keys as $k ) {
+					if ( array_key_exists( $k, $src ) ) {
+						$out[ $k ] = $src[ $k ];
+					}
+				}
+				return $out;
+			}
+
+			private function next_order( array $data ): int {
+				$h = 0;
+				foreach ( $data as $v ) {
+					if ( empty( $v['deleted'] ) && isset( $v['order'] ) && $v['order'] > $h ) {
+						$h = (int) $v['order'];
+					}
+				}
+				return $h + 1;
+			}
+
+			private function assert_label_unique( array $data, array $variable ): void {
+				foreach ( $data as $id => $existing ) {
+					if ( ! empty( $existing['deleted'] ) ) {
+						continue;
+					}
+					if ( isset( $variable['id'] ) && $variable['id'] === $id ) {
+						continue;
+					}
+					if ( ! isset( $variable['label'], $existing['label'] ) ) {
+						continue;
+					}
+					if ( strtolower( $existing['label'] ) === strtolower( $variable['label'] ) ) {
+						throw new DuplicatedLabel( 'Variable label already exists' );
+					}
+				}
+			}
+
+			private function assert_limit( array $data ): void {
+				$in_use = 0;
+				foreach ( $data as $v ) {
+					if ( empty( $v['deleted'] ) ) {
+						++$in_use;
+					}
+				}
+				if ( Constants::TOTAL_VARIABLES_COUNT < $in_use ) {
+					throw new VariablesLimitReached( 'Total variables count limit reached' );
+				}
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Plugin class autoloader (back in global namespace)
 // ---------------------------------------------------------------------------
 
@@ -725,6 +892,7 @@ namespace {
 			'Elementor_MCP_Media_Library_Abilities' => 'includes/abilities/class-media-library-abilities.php',
 			'Elementor_MCP_Global_Classes_Abilities' => 'includes/abilities/class-global-classes-abilities.php',
 			'Elementor_MCP_Global_Classes_Write_Abilities' => 'includes/abilities/class-global-classes-write-abilities.php',
+			'Elementor_MCP_Variables_Write_Abilities' => 'includes/abilities/class-variables-write-abilities.php',
 			// Performance Analyzer (audit → scored report)
 			'Elementor_MCP_Performance_Finding'    => 'includes/performance/class-performance-finding.php',
 			'Elementor_MCP_Performance_Server_Audit' => 'includes/performance/class-performance-server-audit.php',

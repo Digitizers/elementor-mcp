@@ -65,6 +65,19 @@ class SchemaSuggestionsTest extends TestCase {
 		$this->assertContains( 'heading', $data['suggestions'] );
 	}
 
+	public function test_get_widget_schema_unknown_type_returns_suggestions(): void {
+		// The primary discovery tool must also surface suggestions inline, so an
+		// agent needn't make a second lookup (Codex R1 P2).
+		$data    = $this->createStub( \Elementor_MCP_Data::class );
+		$ability = new \Elementor_MCP_Query_Abilities( $data, $this->generator() );
+
+		$result = $ability->execute_get_widget_schema( array( 'widget_type' => 'headline' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'widget_not_found', $result->get_error_code() );
+		$this->assertContains( 'heading', $result->get_error_data()['suggestions'] );
+	}
+
 	public function test_add_widget_invalid_type_returns_suggestions(): void {
 		$data      = $this->createStub( \Elementor_MCP_Data::class );
 		$factory   = $this->createStub( \Elementor_MCP_Element_Factory::class );

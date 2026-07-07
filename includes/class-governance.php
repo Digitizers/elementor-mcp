@@ -1,30 +1,30 @@
 <?php
 /**
- * SiteAgent governance bridge for destructive Elementor writes.
+ * SiteAgent governance bridge for Elementor page writes.
  *
  * When the SiteAgent worker (digitizer-site-worker) is installed alongside this
- * plugin, an explicit allowlist of page-structure writers (GOVERNED_TOOLS) is
- * wrapped so the target page's Elementor state (`_elementor_data` /
- * `_elementor_page_settings`) is snapshotted BEFORE the write and rolled back if
- * the write fails. This gives agent-driven Elementor edits the same
- * capture-before-write safety SiteAgent already gives its own power tools.
+ * plugin, a write-capable ability that edits an existing page has the page's
+ * Elementor state (`_elementor_data` / `_elementor_page_settings`) snapshotted
+ * BEFORE the write and rolled back if the write fails — the same
+ * capture-before-write safety SiteAgent gives its own power tools.
  *
- * Why an explicit allowlist rather than an annotation heuristic: `post_id` +
- * `readonly=false` alone also matches tools that mutate OTHER state (template
- * conditions -> `_elementor_conditions`, SEO meta writers) or that are
- * preview-only unless an `apply` flag is set (a11y / SEO generators). Governing
- * those with a page-data snapshot would roll back the wrong keys or snapshot a
- * no-op preview. So governance is keyed to the known set of tools that write the
- * page element tree / page settings, and snapshots exactly those keys.
+ * How it decides WHAT to snapshot — robustly, without a hand-maintained list:
+ * the ability wrapper "arms" a governed run for the target post, then the actual
+ * page-data write site (`Elementor_MCP_Data::save_page_data()` /
+ * `save_page_settings()`) calls back into before_page_write(), which captures the
+ * snapshot lazily on the first real write. Consequences, all correct by
+ * construction:
+ *   - every save_page_data() caller is covered (no allowlist to keep in sync);
+ *   - tools that write OTHER state (template conditions -> _elementor_conditions,
+ *     SEO meta) never reach save_page_data(), so they are never snapshotted;
+ *   - a preview call (an a11y/SEO generator with apply=false) writes nothing,
+ *     so it is never snapshotted — no false rollback point, no spurious deny.
+ * The tool boundary is preserved (the wrapper knows the tool name + input), which
+ * is where server-enforced approval grants will hook in a later plank.
  *
  * Soft dependency: when SiteAgent's snapshot engine (\Aura_Worker_Snapshots) is
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
  * plugin. The plugin never hard-requires SiteAgent.
- *
- * Scope (1.17.0): page-structure writers only. Template-conditions / SEO / a11y
- * apply-flag writers, kit- and repository-scoped writes (global classes,
- * variables, system kit), server-enforced approval grants, and post-write render
- * checks are later planks.
  *
  * @package Elementor_MCP
  * @since 1.17.0
@@ -45,35 +45,21 @@ class Elementor_MCP_Governance {
 	public const PAGE_META_KEYS = array( '_elementor_data', '_elementor_page_settings' );
 
 	/**
-	 * Ability slugs whose write lands in the page element tree / page settings
-	 * (`_elementor_data` / `_elementor_page_settings`) and are therefore safe to
-	 * govern with a PAGE_META_KEYS snapshot. Read-only siblings (export-page,
-	 * detect-elementor-version) and non-page-data writers (template conditions,
-	 * SEO, a11y apply-flag tools, kit/repository tools) are deliberately absent.
-	 * create-page carries no post_id, so it passes through at run time; it is
-	 * listed for completeness.
+	 * The governed run currently in flight, or null. Shape:
+	 *   array{ post_id:int, name:string, snapshot_id:?string, snapshot_failed:bool }
+	 * Request-scoped: only one MCP tool executes at a time, and page writes happen
+	 * synchronously inside run_governed(), so a single static frame is sufficient.
 	 *
-	 * @var array<string,true>
+	 * @var array<string,mixed>|null
 	 */
-	public const GOVERNED_TOOLS = array(
-		'elementor-mcp/create-page'          => true,
-		'elementor-mcp/update-page-settings' => true,
-		'elementor-mcp/delete-page-content'  => true,
-		'elementor-mcp/import-template'      => true,
-		'elementor-mcp/add-container'        => true,
-		'elementor-mcp/update-container'     => true,
-		'elementor-mcp/update-element'       => true,
-		'elementor-mcp/move-element'         => true,
-		'elementor-mcp/remove-element'       => true,
-		'elementor-mcp/reorder-elements'     => true,
-		'elementor-mcp/duplicate-element'    => true,
-		'elementor-mcp/batch-update'         => true,
-		'elementor-mcp/add-atomic-widget'    => true,
-		'elementor-mcp/update-atomic-widget' => true,
-		'elementor-mcp/add-div-block'        => true,
-		'elementor-mcp/add-flexbox'          => true,
-		'elementor-mcp/build-page'           => true,
-	);
+	private static $run = null;
+
+	/**
+	 * Reusable snapshot-engine instance (lazily created).
+	 *
+	 * @var \Aura_Worker_Snapshots|null
+	 */
+	private static $snapshots = null;
 
 	/**
 	 * Is SiteAgent's snapshot engine available to govern writes?
@@ -85,12 +71,13 @@ class Elementor_MCP_Governance {
 	}
 
 	/**
-	 * Decorate a destructive, post-targeting ability with snapshot-before-write
-	 * and rollback-on-failure.
+	 * Decorate a write-capable ability (annotated readonly=false) with governed
+	 * execution. Read-only tools, tools without classifiable annotations, and any
+	 * ability without a callable execute callback are returned unchanged, so this
+	 * is always safe to call for every ability at registration time.
 	 *
-	 * Returns $args unchanged when governance is inactive, the ability is not
-	 * destructive, or it has no callable execute callback — so it is always safe
-	 * to call for every ability at registration time.
+	 * Wrapping a write tool that turns out NOT to touch page data is harmless: its
+	 * governed run simply never captures a snapshot (see before_page_write()).
 	 *
 	 * @param string $name Ability name.
 	 * @param array  $args Ability args (as passed to wp_register_ability()).
@@ -100,9 +87,14 @@ class Elementor_MCP_Governance {
 		if ( ! self::is_active() ) {
 			return $args;
 		}
-		// Only the known page-structure writers are governed (see GOVERNED_TOOLS).
-		if ( ! isset( self::GOVERNED_TOOLS[ $name ] ) ) {
-			return $args;
+		$annotations = ( isset( $args['meta']['annotations'] ) && is_array( $args['meta']['annotations'] ) )
+			? $args['meta']['annotations']
+			: null;
+		$writes = null !== $annotations
+			&& array_key_exists( 'readonly', $annotations )
+			&& false === $annotations['readonly'];
+		if ( ! $writes ) {
+			return $args; // read-only, or annotations we cannot classify → untouched
 		}
 		if ( empty( $args['execute_callback'] ) || ! is_callable( $args['execute_callback'] ) ) {
 			return $args;
@@ -116,134 +108,190 @@ class Elementor_MCP_Governance {
 	}
 
 	/**
-	 * Snapshot the target page, run the real write, and roll back on failure.
+	 * Run a write-capable ability under governance: arm the run, execute, and (if
+	 * the tool actually captured a page snapshot) roll back on failure.
 	 *
 	 * @param string   $name     Ability name (for error/audit context).
 	 * @param callable $original The wrapped execute callback.
 	 * @param mixed    $input    The ability input.
-	 * @return mixed The original result, or a \WP_Error when the write could not
-	 *               be made safe (no snapshot) or failed (rolled back).
+	 * @return mixed The original result, or a \WP_Error when a failed write was
+	 *               rolled back (or when the rollback itself failed).
 	 */
 	public static function run_governed( string $name, $original, $input ) {
 		// absint() (not (int)) to match the write handlers, which normalize with
-		// absint() before saving — otherwise a negative post_id would fail the
-		// `<= 0` skip here yet still mutate abs(post_id) downstream, bypassing the
-		// snapshot entirely for destructive tools whose schema allows negatives.
+		// absint() before saving — otherwise a negative post_id would arm a
+		// different post than the one actually mutated downstream.
 		$post_id = ( is_array( $input ) && isset( $input['post_id'] ) ) ? absint( $input['post_id'] ) : 0;
 
-		// Only page-targeting writes carry a post_id. Kit/repository writes have
-		// nothing to snapshot here — pass straight through.
+		// No specific existing page to protect (e.g. create-page, or a kit/repo
+		// tool) → run ungoverned. A snapshot needs a target post that exists.
 		if ( $post_id <= 0 ) {
 			return call_user_func( $original, $input );
 		}
 
-		$snapshots = new \Aura_Worker_Snapshots();
-		$snap      = $snapshots->snapshot_meta( $post_id, self::PAGE_META_KEYS );
+		self::$run = array(
+			'post_id'         => $post_id,
+			'name'            => $name,
+			'snapshot_id'     => null,
+			'snapshot_failed' => false,
+		);
+
+		try {
+			$result = call_user_func( $original, $input );
+		} catch ( \Throwable $e ) {
+			$out = self::finish_failure( $name, $post_id, $e->getMessage() );
+			self::$run = null;
+			return $out;
+		}
+
+		if ( is_wp_error( $result ) ) {
+			$out       = self::finish_failure( $name, $post_id, $result->get_error_message(), $result );
+			self::$run = null;
+			return $out;
+		}
+
+		// Success. If the tool captured a snapshot (i.e. it actually wrote page
+		// data), expose the rollback point so the gateway can offer an undo.
+		if ( null !== self::$run['snapshot_id'] ) {
+			do_action( 'elementor_mcp_governance_write', $name, $post_id, self::$run['snapshot_id'], $result );
+		}
+		self::$run = null;
+		return $result;
+	}
+
+	/**
+	 * Capture the page snapshot on the first real page-data write of a governed
+	 * run. Called by Elementor_MCP_Data::save_page_data() / save_page_settings()
+	 * BEFORE they persist anything.
+	 *
+	 * A cheap no-op unless a governed run for THIS post is in flight and no
+	 * snapshot has been taken yet. Returns a \WP_Error when the snapshot cannot be
+	 * captured, so the caller can fail closed (refuse the write rather than mutate
+	 * without a rollback point); returns null otherwise.
+	 *
+	 * @param int $post_id The post about to be written.
+	 * @return \WP_Error|null
+	 */
+	public static function before_page_write( $post_id ) {
+		if ( null === self::$run || ! self::is_active() ) {
+			return null; // no governed run in flight
+		}
+		if ( self::$run['post_id'] !== absint( $post_id ) ) {
+			return null; // a write to some other post (unexpected) — do not touch
+		}
+		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
+			return null; // already snapshotted (or already failed) this run
+		}
+
+		$snap = self::snapshots()->snapshot_meta( absint( $post_id ), self::PAGE_META_KEYS );
 		if ( empty( $snap['success'] ) ) {
-			// No rollback point — refuse the write rather than mutate blind.
+			self::$run['snapshot_failed'] = true;
 			return new \WP_Error(
 				'governance_snapshot_failed',
 				sprintf(
 					/* translators: 1: tool name, 2: reason */
 					__( 'Refusing %1$s: could not snapshot the page before writing (%2$s).', 'elementor-mcp' ),
-					$name,
+					self::$run['name'],
 					isset( $snap['error'] ) ? $snap['error'] : 'unknown error'
 				)
 			);
 		}
-		$snapshot_id = $snap['snapshot']['id'];
+		self::$run['snapshot_id'] = $snap['snapshot']['id'];
+		return null;
+	}
 
-		// Run the real write. A thrown Throwable is treated like a failed write
-		// (a partial write may already be on disk), so roll back and report.
-		try {
-			$result = call_user_func( $original, $input );
-		} catch ( \Throwable $e ) {
-			$restore = $snapshots->restore( $snapshot_id );
-			if ( empty( $restore['success'] ) ) {
-				return self::rollback_failed_error( $name, $post_id, $snapshot_id, $e->getMessage(), $restore );
-			}
+	/**
+	 * Resolve a failed governed write: roll back if a snapshot was captured, and
+	 * build the error to return.
+	 *
+	 * @param string        $name        Ability name.
+	 * @param int           $post_id     Target post id.
+	 * @param string        $write_error Original write error message.
+	 * @param \WP_Error|null $original   The original WP_Error result, if any (returned
+	 *                                   verbatim after a clean rollback).
+	 * @return mixed
+	 */
+	private static function finish_failure( string $name, int $post_id, string $write_error, $original = null ) {
+		$snapshot_id = self::$run['snapshot_id'] ?? null;
+
+		// No snapshot was captured → the tool wrote no page data (or the snapshot
+		// itself failed and the write was refused). Nothing to roll back.
+		if ( null === $snapshot_id ) {
+			return null !== $original
+				? $original
+				: new \WP_Error(
+					'governance_write_threw',
+					sprintf(
+						/* translators: 1: tool name, 2: error message */
+						__( '%1$s failed: %2$s', 'elementor-mcp' ),
+						$name,
+						$write_error
+					)
+				);
+		}
+
+		$restore = self::snapshots()->restore( $snapshot_id );
+		if ( empty( $restore['success'] ) ) {
+			// The rollback ITSELF failed: the page may be left partially written.
+			// That is more severe than the original write error — surface it.
+			do_action( 'elementor_mcp_governance_rollback_failed', $name, $post_id, $snapshot_id, $write_error, $restore );
 			return new \WP_Error(
+				'governance_rollback_failed',
+				sprintf(
+					/* translators: 1: tool name, 2: write error, 3: restore error, 4: post id, 5: snapshot id */
+					__( '%1$s failed (%2$s) AND rollback failed (%3$s); page %4$d may be partially written. Snapshot %5$s must be restored manually.', 'elementor-mcp' ),
+					$name,
+					$write_error,
+					isset( $restore['error'] ) ? $restore['error'] : 'unknown error',
+					$post_id,
+					$snapshot_id
+				)
+			);
+		}
+
+		/**
+		 * Fires after a governed write failed and the page was rolled back.
+		 *
+		 * @param string    $name        Ability name.
+		 * @param int       $post_id     Target post id.
+		 * @param string    $snapshot_id Snapshot used for the rollback.
+		 * @param string    $write_error Original write error message.
+		 * @param array     $restore     Result of the restore attempt.
+		 */
+		do_action( 'elementor_mcp_governance_rolled_back', $name, $post_id, $snapshot_id, $write_error, $restore );
+
+		return null !== $original
+			? $original
+			: new \WP_Error(
 				'governance_write_threw',
 				sprintf(
 					/* translators: 1: tool name, 2: error message */
 					__( '%1$s failed and was rolled back: %2$s', 'elementor-mcp' ),
 					$name,
-					$e->getMessage()
+					$write_error
 				)
 			);
-		}
-
-		if ( is_wp_error( $result ) ) {
-			// Failed write — return the page to its pre-write state.
-			$restore = $snapshots->restore( $snapshot_id );
-			if ( empty( $restore['success'] ) ) {
-				// The rollback ITSELF failed: the page may be left partially
-				// written. That is more severe than the original write error, so
-				// surface it rather than masking it behind the write failure.
-				return self::rollback_failed_error( $name, $post_id, $snapshot_id, $result->get_error_message(), $restore );
-			}
-
-			/**
-			 * Fires after a governed write failed and the page was rolled back.
-			 *
-			 * @param string   $name        Ability name.
-			 * @param int      $post_id     Target post id.
-			 * @param string   $snapshot_id Snapshot used for the rollback.
-			 * @param \WP_Error $result     The write failure.
-			 * @param array    $restore     Result of the restore attempt.
-			 */
-			do_action( 'elementor_mcp_governance_rolled_back', $name, $post_id, $snapshot_id, $result, $restore );
-			return $result;
-		}
-
-		/**
-		 * Fires after a successful governed write, exposing the rollback point so
-		 * the gateway can offer an undo.
-		 *
-		 * @param string $name        Ability name.
-		 * @param int    $post_id     Target post id.
-		 * @param string $snapshot_id Snapshot captured before the write.
-		 * @param mixed  $result      The write result.
-		 */
-		do_action( 'elementor_mcp_governance_write', $name, $post_id, $snapshot_id, $result );
-		return $result;
 	}
 
 	/**
-	 * Build the error returned when a write failed AND its rollback also failed —
-	 * the page may be left in a partially written state, so the caller/gateway
-	 * must be told the restore did not succeed (not just the original failure).
+	 * Lazily create / return the shared snapshot-engine instance.
 	 *
-	 * @param string $name         Ability name.
-	 * @param int    $post_id      Target post id.
-	 * @param string $snapshot_id  Snapshot that could not be restored.
-	 * @param string $write_error  The original write error message.
-	 * @param array  $restore      Result of the failed restore attempt.
-	 * @return \WP_Error
+	 * @return \Aura_Worker_Snapshots
 	 */
-	private static function rollback_failed_error( string $name, int $post_id, string $snapshot_id, string $write_error, array $restore ): \WP_Error {
-		/**
-		 * Fires when a governed write failed and the rollback ALSO failed.
-		 *
-		 * @param string $name        Ability name.
-		 * @param int    $post_id     Target post id.
-		 * @param string $snapshot_id Snapshot that could not be restored.
-		 * @param string $write_error Original write error message.
-		 * @param array  $restore     Failed restore result.
-		 */
-		do_action( 'elementor_mcp_governance_rollback_failed', $name, $post_id, $snapshot_id, $write_error, $restore );
+	private static function snapshots() {
+		if ( null === self::$snapshots ) {
+			self::$snapshots = new \Aura_Worker_Snapshots();
+		}
+		return self::$snapshots;
+	}
 
-		return new \WP_Error(
-			'governance_rollback_failed',
-			sprintf(
-				/* translators: 1: tool name, 2: write error, 3: restore error, 4: post id, 5: snapshot id */
-				__( '%1$s failed (%2$s) AND rollback failed (%3$s); page %4$d may be partially written. Snapshot %5$s must be restored manually.', 'elementor-mcp' ),
-				$name,
-				$write_error,
-				isset( $restore['error'] ) ? $restore['error'] : 'unknown error',
-				$post_id,
-				$snapshot_id
-			)
-		);
+	/**
+	 * Clear all governed-run state. For test isolation.
+	 *
+	 * @return void
+	 */
+	public static function reset_state(): void {
+		self::$run       = null;
+		self::$snapshots = null;
 	}
 }

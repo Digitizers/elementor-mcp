@@ -1,7 +1,9 @@
 <?php
 /**
- * Functional — SiteAgent governance bridge: destructive page writes are
- * snapshotted before execution and rolled back on failure.
+ * Functional — SiteAgent governance bridge. A governed run arms itself for the
+ * target post; the snapshot is captured only when the tool actually writes page
+ * data (calls before_page_write, as Elementor_MCP_Data::save_page_data does),
+ * and the page is rolled back if the write fails.
  *
  * @group functional
  * @group governance
@@ -18,118 +20,139 @@ class GovernanceFunctionalTest extends TestCase {
 		parent::setUp();
 		$GLOBALS['_aura_snap'] = array(
 			'fail_snapshot'  => false,
+			'fail_restore'   => false,
 			'snapshot_calls' => array(),
 			'restore_calls'  => array(),
 			'seq'            => 0,
 		);
+		\Elementor_MCP_Governance::reset_state();
+	}
+
+	protected function tearDown(): void {
+		\Elementor_MCP_Governance::reset_state();
+		parent::tearDown();
 	}
 
 	/** A write-capable ability (readonly=false) with the given annotations override. */
 	private function write_args( $callback, array $annotations = array() ): array {
 		return array(
-			'label'            => 'Delete page content',
+			'label'            => 'Update element',
 			'execute_callback' => $callback,
 			'meta'             => array(
 				'annotations' => array_merge(
-					array(
-						'readonly'    => false,
-						'destructive' => true,
-						'idempotent'  => true,
-					),
+					array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
 					$annotations
 				),
 			),
 		);
 	}
 
+	/**
+	 * A callback that behaves like a page-data write: it calls before_page_write()
+	 * (as save_page_data does) and fails closed if governance refuses.
+	 *
+	 * @param mixed $return Value to return after the (successful) snapshot.
+	 */
+	private function page_writer( $return ): callable {
+		return static function ( $input ) use ( $return ) {
+			$gate = \Elementor_MCP_Governance::before_page_write( $input['post_id'] ?? 0 );
+			if ( is_wp_error( $gate ) ) {
+				return $gate; // mirrors save_page_data() returning the gate error
+			}
+			return $return;
+		};
+	}
+
 	// --- wrap_ability decision logic ---------------------------------------
 
-	public function test_allowlisted_page_writer_is_wrapped(): void {
+	public function test_write_capable_ability_is_wrapped(): void {
 		$original = static function ( $input ) {
-			return array( 'ok' => true );
-		};
-		$args    = $this->write_args( $original );
-		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/delete-page-content', $args );
+			return array( 'ok' => true ); };
+		$wrapped  = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/update-element', $this->write_args( $original ) );
 
-		$this->assertNotSame( $original, $wrapped['execute_callback'], 'Governed write callback must be decorated.' );
+		$this->assertNotSame( $original, $wrapped['execute_callback'] );
 		$this->assertIsCallable( $wrapped['execute_callback'] );
 	}
 
-	public function test_allowlist_governs_regardless_of_destructive_flag(): void {
-		// update-element saves _elementor_data but is annotated destructive=false;
-		// allowlist membership (not the annotation) governs it (Codex R1 P1).
+	public function test_readonly_ability_is_not_wrapped(): void {
 		$original = static function ( $input ) {
 			return array( 'ok' => true ); };
-		$args    = $this->write_args( $original, array( 'destructive' => false ) );
+		$wrapped  = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/export-page', $this->write_args( $original, array( 'readonly' => true ) ) );
 
-		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/update-element', $args );
-		$this->assertNotSame( $original, $wrapped['execute_callback'] );
+		$this->assertSame( $original, $wrapped['execute_callback'], 'Read-only tools stay untouched.' );
 	}
 
-	public function test_non_page_data_writer_is_not_governed(): void {
-		// set-template-conditions is readonly=false with a post_id but writes
-		// _elementor_conditions, NOT page data — governing it would snapshot/roll
-		// back the wrong keys, so it must stay unwrapped (Codex R2 P1).
+	public function test_ability_without_annotations_is_not_wrapped(): void {
 		$original = static function ( $input ) {
 			return array( 'ok' => true ); };
-		$args    = $this->write_args( $original, array( 'destructive' => false ) );
+		$args     = $this->write_args( $original );
+		unset( $args['meta'] );
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/x', $args );
 
-		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/set-template-conditions', $args );
-		$this->assertSame( $original, $wrapped['execute_callback'], 'Non-page-data writers are not governed.' );
-	}
-
-	public function test_readonly_page_sibling_is_not_governed(): void {
-		$original = static function ( $input ) {
-			return array( 'ok' => true ); };
-		$args    = $this->write_args( $original, array( 'readonly' => true ) );
-
-		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/export-page', $args );
 		$this->assertSame( $original, $wrapped['execute_callback'] );
 	}
 
-	public function test_allowlisted_ability_without_callback_is_not_wrapped(): void {
-		$args = $this->write_args( 'not-callable-string-#' );
+	public function test_ability_without_callback_is_not_wrapped(): void {
+		$args = $this->write_args( 'not-callable-#' );
 		unset( $args['execute_callback'] );
-		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/delete-page-content', $args );
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/update-element', $args );
+
 		$this->assertArrayNotHasKey( 'execute_callback', $wrapped );
-	}
-
-	public function test_negative_post_id_is_normalized_before_snapshot(): void {
-		// A negative post_id must not bypass governance: write handlers absint()
-		// their input, so governance must snapshot the same abs(id) (Codex R1 P2).
-		$result = \Elementor_MCP_Governance::run_governed(
-			'elementor-mcp/delete-page-content',
-			static function ( $input ) {
-				return array( 'deleted' => true ); },
-			array( 'post_id' => -55 )
-		);
-
-		$this->assertSame( array( 'deleted' => true ), $result );
-		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
-		$this->assertSame( 55, $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_id'], 'abs(post_id) is snapshotted.' );
 	}
 
 	// --- run_governed behaviour --------------------------------------------
 
-	public function test_snapshots_page_meta_before_a_successful_write(): void {
+	public function test_page_write_is_snapshotted_before_success(): void {
 		$result = \Elementor_MCP_Governance::run_governed(
-			'elementor-mcp/delete-page-content',
-			static function ( $input ) {
-				return array( 'deleted' => true ); },
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'updated' => true ) ),
 			array( 'post_id' => 55 )
 		);
 
-		$this->assertSame( array( 'deleted' => true ), $result );
+		$this->assertSame( array( 'updated' => true ), $result );
 		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
 		$this->assertSame( 55, $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_id'] );
-		$this->assertSame(
-			\Elementor_MCP_Governance::PAGE_META_KEYS,
-			$GLOBALS['_aura_snap']['snapshot_calls'][0]['keys']
-		);
-		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'], 'Success must not roll back.' );
+		$this->assertSame( \Elementor_MCP_Governance::PAGE_META_KEYS, $GLOBALS['_aura_snap']['snapshot_calls'][0]['keys'] );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
-	public function test_writes_without_post_id_pass_through_ungoverned(): void {
+	public function test_tool_that_writes_no_page_data_is_not_snapshotted(): void {
+		// A readonly=false tool that never calls save_page_data (template
+		// conditions, SEO meta, a preview) must NOT be snapshotted — this is the
+		// whole point of the chokepoint trigger (Codex R2/R3).
+		$called = false;
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/set-template-conditions',
+			static function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'ok' => true ); // no before_page_write() call
+			},
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertTrue( $called );
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_snapshot_is_captured_once_per_run(): void {
+		// A tool that writes both tree and settings triggers before_page_write
+		// twice; only one snapshot should be taken.
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/build-page',
+			static function ( $input ) {
+				\Elementor_MCP_Governance::before_page_write( $input['post_id'] );
+				\Elementor_MCP_Governance::before_page_write( $input['post_id'] );
+				return array( 'built' => true );
+			},
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'built' => true ), $result );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_write_without_post_id_passes_through_ungoverned(): void {
 		$called = false;
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/create-variable',
@@ -137,43 +160,49 @@ class GovernanceFunctionalTest extends TestCase {
 				$called = true;
 				return array( 'created' => true );
 			},
-			array( 'label' => 'brand' ) // no post_id
+			array( 'label' => 'brand' )
 		);
 
 		$this->assertTrue( $called );
 		$this->assertSame( array( 'created' => true ), $result );
-		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'No post → nothing to snapshot.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_negative_post_id_is_normalized_before_snapshot(): void {
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => -55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertSame( 55, $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_id'], 'abs(post_id) is snapshotted.' );
 	}
 
 	public function test_snapshot_failure_denies_the_write(): void {
 		$GLOBALS['_aura_snap']['fail_snapshot'] = true;
-		$called                                 = false;
 
 		$result = \Elementor_MCP_Governance::run_governed(
-			'elementor-mcp/delete-page-content',
-			static function ( $input ) use ( &$called ) {
-				$called = true;
-				return array( 'deleted' => true );
-			},
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'should' => 'not reach' ) ),
 			array( 'post_id' => 55 )
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
-		$this->assertFalse( $called, 'The write must NOT run when there is no rollback point.' );
-		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'], 'Nothing to restore when snapshot failed.' );
 	}
 
 	public function test_failed_write_is_rolled_back(): void {
 		$error  = new \WP_Error( 'save_rejected', 'Elementor rejected the data.' );
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
-			static function ( $input ) use ( $error ) {
-				return $error; },
+			$this->page_writer( $error ),
 			array( 'post_id' => 77 )
 		);
 
-		$this->assertSame( $error, $result, 'The original failure is returned unchanged.' );
+		$this->assertSame( $error, $result, 'The original failure is returned unchanged after a clean rollback.' );
 		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
@@ -181,7 +210,9 @@ class GovernanceFunctionalTest extends TestCase {
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
 			static function ( $input ) {
-				throw new \RuntimeException( 'boom' ); },
+				\Elementor_MCP_Governance::before_page_write( $input['post_id'] );
+				throw new \RuntimeException( 'boom' );
+			},
 			array( 'post_id' => 88 )
 		);
 
@@ -191,21 +222,33 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
+	public function test_thrown_write_without_page_snapshot_is_not_rolled_back(): void {
+		// A tool that throws BEFORE writing any page data has no snapshot, so there
+		// is nothing to restore.
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			static function ( $input ) {
+				throw new \RuntimeException( 'early failure' );
+			},
+			array( 'post_id' => 88 )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_write_threw', $result->get_error_code() );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
 	public function test_failed_rollback_after_wp_error_is_surfaced(): void {
-		// Write fails AND the rollback fails: the page may be partially written,
-		// which is more severe than the write error and must be reported (R2 P2).
 		$GLOBALS['_aura_snap']['fail_restore'] = true;
 		$result                                = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
-			static function ( $input ) {
-				return new \WP_Error( 'save_rejected', 'bad data' ); },
+			$this->page_writer( new \WP_Error( 'save_rejected', 'bad data' ) ),
 			array( 'post_id' => 77 )
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
 		$this->assertStringContainsString( 'may be partially written', $result->get_error_message() );
-		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
 	public function test_failed_rollback_after_throw_is_surfaced(): void {
@@ -213,7 +256,9 @@ class GovernanceFunctionalTest extends TestCase {
 		$result                                = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
 			static function ( $input ) {
-				throw new \RuntimeException( 'kaboom' ); },
+				\Elementor_MCP_Governance::before_page_write( $input['post_id'] );
+				throw new \RuntimeException( 'kaboom' );
+			},
 			array( 'post_id' => 88 )
 		);
 

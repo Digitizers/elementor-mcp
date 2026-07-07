@@ -44,54 +44,53 @@ class GovernanceFunctionalTest extends TestCase {
 
 	// --- wrap_ability decision logic ---------------------------------------
 
-	public function test_write_capable_ability_is_wrapped(): void {
+	public function test_allowlisted_page_writer_is_wrapped(): void {
 		$original = static function ( $input ) {
 			return array( 'ok' => true );
 		};
 		$args    = $this->write_args( $original );
 		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/delete-page-content', $args );
 
-		$this->assertNotSame( $original, $wrapped['execute_callback'], 'Write callback must be decorated.' );
+		$this->assertNotSame( $original, $wrapped['execute_callback'], 'Governed write callback must be decorated.' );
 		$this->assertIsCallable( $wrapped['execute_callback'] );
 	}
 
-	public function test_page_writer_flagged_non_destructive_is_still_wrapped(): void {
-		// The gate keys off readonly=false, NOT destructive=true — many page
-		// mutators (update-element, batch-update) save _elementor_data while
-		// carrying destructive=false and must still be governed (Codex R1 P1).
+	public function test_allowlist_governs_regardless_of_destructive_flag(): void {
+		// update-element saves _elementor_data but is annotated destructive=false;
+		// allowlist membership (not the annotation) governs it (Codex R1 P1).
 		$original = static function ( $input ) {
 			return array( 'ok' => true ); };
 		$args    = $this->write_args( $original, array( 'destructive' => false ) );
 
 		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/update-element', $args );
-		$this->assertNotSame( $original, $wrapped['execute_callback'], 'readonly=false page writers must be governed.' );
+		$this->assertNotSame( $original, $wrapped['execute_callback'] );
 	}
 
-	public function test_readonly_ability_is_not_wrapped(): void {
+	public function test_non_page_data_writer_is_not_governed(): void {
+		// set-template-conditions is readonly=false with a post_id but writes
+		// _elementor_conditions, NOT page data — governing it would snapshot/roll
+		// back the wrong keys, so it must stay unwrapped (Codex R2 P1).
 		$original = static function ( $input ) {
 			return array( 'ok' => true ); };
-		$args    = $this->write_args( $original, array( 'readonly' => true, 'destructive' => false ) );
+		$args    = $this->write_args( $original, array( 'destructive' => false ) );
 
-		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/export-page', $args );
-		$this->assertSame( $original, $wrapped['execute_callback'], 'Read-only tools stay untouched.' );
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/set-template-conditions', $args );
+		$this->assertSame( $original, $wrapped['execute_callback'], 'Non-page-data writers are not governed.' );
 	}
 
-	public function test_ability_without_annotations_is_not_wrapped(): void {
-		$args = $this->write_args(
-			static function ( $input ) {
-				return array( 'ok' => true ); }
-		);
-		unset( $args['meta'] ); // unclassifiable — must not be wrapped
-		$original = $args['execute_callback'];
+	public function test_readonly_page_sibling_is_not_governed(): void {
+		$original = static function ( $input ) {
+			return array( 'ok' => true ); };
+		$args    = $this->write_args( $original, array( 'readonly' => true ) );
 
-		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/x', $args );
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/export-page', $args );
 		$this->assertSame( $original, $wrapped['execute_callback'] );
 	}
 
-	public function test_ability_without_callback_is_not_wrapped(): void {
+	public function test_allowlisted_ability_without_callback_is_not_wrapped(): void {
 		$args = $this->write_args( 'not-callable-string-#' );
 		unset( $args['execute_callback'] );
-		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/x', $args );
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/delete-page-content', $args );
 		$this->assertArrayNotHasKey( 'execute_callback', $wrapped );
 	}
 
@@ -190,5 +189,35 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertSame( 'governance_write_threw', $result->get_error_code() );
 		$this->assertStringContainsString( 'boom', $result->get_error_message() );
 		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_failed_rollback_after_wp_error_is_surfaced(): void {
+		// Write fails AND the rollback fails: the page may be partially written,
+		// which is more severe than the write error and must be reported (R2 P2).
+		$GLOBALS['_aura_snap']['fail_restore'] = true;
+		$result                                = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			static function ( $input ) {
+				return new \WP_Error( 'save_rejected', 'bad data' ); },
+			array( 'post_id' => 77 )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
+		$this->assertStringContainsString( 'may be partially written', $result->get_error_message() );
+		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_failed_rollback_after_throw_is_surfaced(): void {
+		$GLOBALS['_aura_snap']['fail_restore'] = true;
+		$result                                = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			static function ( $input ) {
+				throw new \RuntimeException( 'kaboom' ); },
+			array( 'post_id' => 88 )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
 	}
 }

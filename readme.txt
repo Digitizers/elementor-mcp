@@ -157,10 +157,11 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 == Changelog ==
 
 = 1.17.0 =
-New: SiteAgent governance bridge — capture-before-write safety for destructive page edits, active only when the SiteAgent worker (digitizer-site-worker) is installed alongside this plugin.
-* Every destructive ability that targets a page (any tool with a post_id) is wrapped so the page's Elementor state (_elementor_data + _elementor_page_settings) is snapshotted through SiteAgent's snapshot engine before the write, and rolled back if the write fails.
-* Soft dependency: with no SiteAgent present, nothing is wrapped and behaviour is unchanged. Fail-closed: a write with no rollback point is refused; a write that errors or throws is reverted.
-* Fires elementor_mcp_governance_write / elementor_mcp_governance_rolled_back seams for the gateway. Scope: page writes only (kit/repository writes and approval grants are follow-up planks).
+New: SiteAgent governance bridge — capture-before-write safety for page edits, active only when the SiteAgent worker (digitizer-site-worker) is installed alongside this plugin.
+* A fixed allowlist of page-structure writers (delete-page-content, update-page-settings, import-template, the layout tools, atomic add/update, add-div-block/add-flexbox, build-page) is wrapped so the page's Elementor state (_elementor_data + _elementor_page_settings) is snapshotted through SiteAgent's snapshot engine before the write, and rolled back if the write fails.
+* Explicit allowlist, not a post_id heuristic: post_id + readonly=false also matches non-page-data writers (template conditions, SEO meta) and apply-flag previews, which a page-data snapshot cannot correctly roll back.
+* Soft dependency: with no SiteAgent present, nothing is wrapped and behaviour is unchanged. Fail-closed: a write with no rollback point is refused; a write that errors or throws is reverted, and a failed rollback surfaces as governance_rollback_failed.
+* Fires elementor_mcp_governance_write / _rolled_back / _rollback_failed seams for the gateway. Scope: page-structure writers only (kit/repository writes, approval grants, render checks are follow-up planks).
 
 = 1.9.1 =
 Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):

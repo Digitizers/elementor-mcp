@@ -978,6 +978,9 @@ namespace {
 			}
 			public function restore( $id ) {
 				$GLOBALS['_aura_snap']['restore_calls'][] = $id;
+				if ( ! empty( $GLOBALS['_aura_snap']['fail_restore'] ) ) {
+					return array( 'success' => false, 'error' => 'stub forced restore failure' );
+				}
 				return array( 'success' => true );
 			}
 		}

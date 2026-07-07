@@ -70,7 +70,11 @@ class Elementor_MCP_Interactions_Write_Abilities {
 	/**
 	 * Animation effects that require Elementor Pro.
 	 */
-	const EFFECTS_PRO = array( 'custom' );
+	// NB: `custom` is intentionally omitted. A custom effect needs a
+	// `custom_effect`/keyframes payload that build_item() does not write, so a
+	// custom interaction created here would save without its animation data and
+	// never render. Reject it until keyframe support is added.
+	const EFFECTS_PRO = array();
 
 	/**
 	 * Animation types (in|out) — available on every tier.
@@ -181,9 +185,10 @@ class Elementor_MCP_Interactions_Write_Abilities {
 
 	/**
 	 * Permission check for Interactions WRITES (add/edit/delete). Requires
-	 * `manage_options`, matching the other atomic write groups.
+	 * `manage_options` + the per-post `edit_post` capability.
 	 *
-	 * @return bool
+	 * @param array $input Input parameters.
+	 * @return true|\WP_Error
 	 */
 	public function check_write_permission( $input = array() ) {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -277,7 +282,7 @@ class Elementor_MCP_Interactions_Write_Abilities {
 			'elementor-mcp/add-interaction',
 			array(
 				'label'               => __( 'Add Interaction', 'elementor-mcp' ),
-				'description'         => __( 'Adds an Elementor 4.0+ Interaction (per-element animation) to an atomic element. Pass post_id + element_id and the ergonomic animation fields: trigger (load|scrollIn; pro: scrollOut|scrollOn|hover|click), effect (fade|slide|scale; pro: custom), type (in|out), direction (\'\'|left|right|top|bottom|top-left|top-right|bottom-left|bottom-right), duration_ms, delay_ms, easing (easeIn; pro: easeOut|easeInOut|backIn|backInOut|backOut|linear). Saves the page and returns the new interaction\'s (canonical) id. Requires manage_options.', 'elementor-mcp' ),
+				'description'         => __( 'Adds an Elementor 4.0+ Interaction (per-element animation) to an atomic element. Pass post_id + element_id and the ergonomic animation fields: trigger (load|scrollIn; pro: scrollOut|hover|click), effect (fade|slide|scale), type (in|out), direction (\'\'|left|right|top|bottom|top-left|top-right|bottom-left|bottom-right), duration_ms, delay_ms, easing (easeIn; pro: easeOut|easeInOut|backIn|backInOut|backOut|linear). Saves the page and returns the new interaction\'s (canonical) id. Requires manage_options.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_add' ),
 				'permission_callback' => array( $this, 'check_write_permission' ),
@@ -286,8 +291,8 @@ class Elementor_MCP_Interactions_Write_Abilities {
 					'properties' => array(
 						'post_id'     => array( 'type' => 'integer', 'description' => __( 'The post/page ID containing the element.', 'elementor-mcp' ) ),
 						'element_id'  => array( 'type' => 'string', 'description' => __( 'The target atomic element ID.', 'elementor-mcp' ) ),
-						'trigger'     => array( 'type' => 'string', 'description' => __( 'When the animation fires. Free: load, scrollIn. Pro: scrollOut, scrollOn, hover, click. Default load.', 'elementor-mcp' ) ),
-						'effect'      => array( 'type' => 'string', 'description' => __( 'Animation effect. Free: fade, slide, scale. Pro: custom. Default fade.', 'elementor-mcp' ) ),
+						'trigger'     => array( 'type' => 'string', 'description' => __( 'When the animation fires. Free: load, scrollIn. Pro: scrollOut, hover, click. Default load.', 'elementor-mcp' ) ),
+						'effect'      => array( 'type' => 'string', 'description' => __( 'Animation effect: fade, slide, scale. Default fade.', 'elementor-mcp' ) ),
 						'type'        => array( 'type' => 'string', 'enum' => self::TYPES, 'description' => __( 'in | out. Default in.', 'elementor-mcp' ) ),
 						'direction'   => array( 'type' => 'string', 'description' => __( 'Direction: \'\' | left | right | top | bottom | top-left | top-right | bottom-left | bottom-right. Default \'\'.', 'elementor-mcp' ) ),
 						'duration_ms' => array( 'type' => 'integer', 'description' => __( 'Animation duration in milliseconds. Default 600.', 'elementor-mcp' ) ),
@@ -815,11 +820,19 @@ class Elementor_MCP_Interactions_Write_Abilities {
 	 * @return array
 	 */
 	private function patch_item( array $item, array $fields ): array {
+		// Capture the id BEFORE normalizing — a "bare" item can carry the id at the
+		// top level (no `value` wrapper), and moving to the wrapped shape below must
+		// not drop it, or the item becomes unaddressable.
+		$existing_id = $this->item_id( $item );
+
 		if ( ! isset( $item['value'] ) || ! is_array( $item['value'] ) ) {
 			$item['value'] = array();
 		}
 		if ( ! isset( $item['$$type'] ) ) {
 			$item['$$type'] = 'interaction-item';
+		}
+		if ( ! isset( $item['value']['interaction_id'] ) && '' !== $existing_id ) {
+			$item['value']['interaction_id'] = $this->str( $existing_id );
 		}
 
 		if ( array_key_exists( 'trigger', $fields ) ) {

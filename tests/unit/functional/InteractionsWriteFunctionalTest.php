@@ -113,6 +113,28 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertNotWPError( $edit );
 	}
 
+	public function test_add_rejects_custom_effect(): void {
+		$GLOBALS['_has_pro'] = true;
+		$ability = $this->ability_with_page( $this->atomic_page() );
+		$res     = $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'effect' => 'custom' ) );
+		$this->assertWPError( $res );
+		unset( $GLOBALS['_has_pro'] );
+	}
+
+	public function test_edit_preserves_id_on_bare_item(): void {
+		// A tolerated "bare" item: interaction_id at the top level, no `value` wrapper.
+		$bare = wp_json_encode( array(
+			'version' => 1,
+			'items'   => array( array( 'interaction_id' => array( '$$type' => 'string', 'value' => '7-atom1-bare01' ) ) ),
+		) );
+		$ability = $this->ability_with_page( $this->atomic_page( $bare ) );
+		$res     = $ability->execute_edit( array( 'post_id' => 7, 'element_id' => 'atom1', 'interaction_id' => '7-atom1-bare01', 'effect' => 'slide' ) );
+		$this->assertNotWPError( $res );
+
+		$decoded = json_decode( $GLOBALS['_saved_page'][0]['interactions'], true );
+		$this->assertSame( '7-atom1-bare01', $decoded['items'][0]['value']['interaction_id']['value'], 'id preserved through patch' );
+	}
+
 	private function atomic_page( $interactions = null ): array {
 		$el = array(
 			'id'         => 'atom1',
@@ -241,15 +263,9 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 	public function test_add_rejects_pro_trigger_on_non_pro(): void {
 		$GLOBALS['_has_pro'] = false;
 		$ability             = $this->ability_with_page( $this->atomic_page() );
-		$res                 = $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'trigger' => 'hover' ) );
-		$this->assertWPError( $res, 'requires_pro' );
-	}
-
-	public function test_add_rejects_pro_effect_on_non_pro(): void {
-		$GLOBALS['_has_pro'] = false;
-		$ability             = $this->ability_with_page( $this->atomic_page() );
-		$res                 = $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'effect' => 'custom' ) );
-		$this->assertWPError( $res, 'requires_pro' );
+		// scrollOut/hover are supported Pro triggers — rejected on Free.
+		$this->assertWPError( $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'trigger' => 'hover' ) ), 'requires_pro' );
+		$this->assertWPError( $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'trigger' => 'scrollOut' ) ), 'requires_pro' );
 	}
 
 	public function test_add_rejects_pro_easing_on_non_pro(): void {

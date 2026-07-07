@@ -55,7 +55,12 @@ class Elementor_MCP_Interactions_Write_Abilities {
 	/**
 	 * Triggers that require Elementor Pro.
 	 */
-	const TRIGGERS_PRO = array( 'scrollOut', 'scrollOn', 'hover', 'click' );
+	// NB: `scrollOn` (while-scrolling / scroll-progress) is intentionally omitted.
+	// It requires a scroll start/end range in the Pro config (start/end/relativeTo)
+	// that build_item() does not write, so a scrollOn interaction created here would
+	// save "successfully" but never behave correctly. Reject it until range support
+	// is added. The other pro triggers are event-based (no range).
+	const TRIGGERS_PRO = array( 'scrollOut', 'hover', 'click' );
 
 	/**
 	 * Animation effects available on the Free tier.
@@ -180,17 +185,41 @@ class Elementor_MCP_Interactions_Write_Abilities {
 	 *
 	 * @return bool
 	 */
-	public function check_write_permission(): bool {
-		return current_user_can( 'manage_options' );
+	public function check_write_permission( $input = array() ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return new \WP_Error( 'forbidden', __( 'You do not have permission to manage interactions.', 'elementor-mcp' ) );
+		}
+		return $this->check_post_cap( $input );
 	}
 
 	/**
-	 * Permission check for Interactions READS (list). Requires `edit_posts`.
+	 * Permission check for Interactions READS (list). Requires `edit_posts` AND
+	 * the per-post `edit_post` capability for the requested page.
 	 *
-	 * @return bool
+	 * @param array $input Input parameters.
+	 * @return true|\WP_Error
 	 */
-	public function check_read_permission(): bool {
-		return current_user_can( 'edit_posts' );
+	public function check_read_permission( $input = array() ) {
+		if ( ! current_user_can( 'edit_posts' ) ) {
+			return new \WP_Error( 'forbidden', __( 'You do not have permission to read interactions.', 'elementor-mcp' ) );
+		}
+		return $this->check_post_cap( $input );
+	}
+
+	/**
+	 * Enforces the per-post `edit_post` capability for the requested post_id, so a
+	 * user who can edit *some* posts can't read/write interactions on a page they
+	 * cannot edit (e.g. a contributor querying another author's private page).
+	 *
+	 * @param array $input Input parameters.
+	 * @return true|\WP_Error
+	 */
+	private function check_post_cap( $input ) {
+		$post_id = is_array( $input ) ? (int) ( $input['post_id'] ?? 0 ) : 0;
+		if ( $post_id && ! current_user_can( 'edit_post', $post_id ) ) {
+			return new \WP_Error( 'forbidden', __( 'You do not have permission to access this post.', 'elementor-mcp' ) );
+		}
+		return true;
 	}
 
 	/**

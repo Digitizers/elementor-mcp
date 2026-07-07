@@ -32,25 +32,32 @@ class InteractionsWriteCapabilityTest extends Ability_Test_Case {
     /** @test @group t2 */
     public function test_write_permission_denied_with_no_caps(): void {
         $this->deny_all_caps();
-        $this->assertFalse($this->ability->check_write_permission());
+        $this->assertWPError($this->ability->check_write_permission(array()));
     }
 
     /** @test @group t2 */
     public function test_write_permission_denied_with_only_edit_posts(): void {
         $this->allow_caps('edit_posts');
-        $this->assertFalse($this->ability->check_write_permission());
+        $this->assertWPError($this->ability->check_write_permission(array()));
     }
 
     /** @test @group t2 */
     public function test_write_permission_accepted_with_manage_options(): void {
         $this->allow_caps('manage_options');
-        $this->assertTrue($this->ability->check_write_permission());
+        $this->assertTrue($this->ability->check_write_permission(array()));
     }
 
     /** @test @group t2 */
     public function test_read_permission_accepted_with_edit_posts(): void {
         $this->allow_caps('edit_posts');
-        $this->assertTrue($this->ability->check_read_permission());
+        $this->assertTrue($this->ability->check_read_permission(array()));
+    }
+
+    /** @test @group t2 */
+    public function test_read_permission_denied_for_uneditable_post(): void {
+        // edit_posts globally, but no edit_post cap for the requested page.
+        $GLOBALS['_caps'] = array('edit_posts');
+        $this->assertWPError($this->ability->check_read_permission(array('post_id' => 999)));
     }
 
     /** @test @group t0 */

@@ -458,9 +458,26 @@ class Elementor_MCP_Interactions_Write_Abilities {
 		}
 		list( $page, , $element ) = $ctx;
 
-		$items    = $this->decode_items( $element['interactions'] ?? '' );
-		$temp_id  = 'temp-' . bin2hex( random_bytes( 8 ) );
-		$items[]  = $this->build_item( $temp_id, $fields );
+		$items = $this->decode_items( $element['interactions'] ?? '' );
+
+		// If existing items still carry `temp-` ids (from an earlier raw-meta-write
+		// fallback), a native save would canonicalize BOTH those and the new item —
+		// making the post-add id diff ambiguous. Canonicalize the existing ones
+		// first (save unchanged, re-read) so only the newly-added temp id is new.
+		if ( $this->has_temp_id( $items ) ) {
+			$pre = $this->write_items( $page, $post_id, $element_id, $items );
+			if ( is_wp_error( $pre ) ) {
+				return $pre;
+			}
+			$page = $this->data->get_page_data( $post_id );
+			if ( is_array( $page ) ) {
+				$element = $this->data->find_element_by_id( $page, $element_id );
+				$items   = is_array( $element ) ? $this->decode_items( $element['interactions'] ?? '' ) : $items;
+			}
+		}
+
+		$temp_id = 'temp-' . bin2hex( random_bytes( 8 ) );
+		$items[] = $this->build_item( $temp_id, $fields );
 
 		$save = $this->write_items( $page, $post_id, $element_id, $items );
 		if ( is_wp_error( $save ) ) {
@@ -867,6 +884,21 @@ class Elementor_MCP_Interactions_Write_Abilities {
 	 * @param string $interaction_id The id to match.
 	 * @return int|null The index, or null if not present.
 	 */
+	/**
+	 * Whether any item in the list still carries a `temp-` interaction id.
+	 *
+	 * @param array $items The item list.
+	 * @return bool
+	 */
+	private function has_temp_id( array $items ): bool {
+		foreach ( $items as $item ) {
+			if ( is_array( $item ) && 0 === strpos( $this->item_id( $item ), 'temp-' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private function find_item_index( array $items, string $interaction_id ): ?int {
 		foreach ( $items as $i => $item ) {
 			if ( is_array( $item ) && $this->item_id( $item ) === $interaction_id ) {

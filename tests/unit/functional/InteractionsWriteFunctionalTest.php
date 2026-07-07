@@ -38,6 +38,7 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 		$data = new class( $page, $canonicalize ) extends \Elementor_MCP_Data {
 			public array $page;
 			private bool $canon;
+			private int $seq = 0;
 			public function __construct( array $page, bool $canon ) {
 				$this->page  = $page;
 				$this->canon = $canon;
@@ -61,7 +62,7 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 							foreach ( $decoded['items'] as &$item ) {
 								$iid = $item['value']['interaction_id']['value'] ?? '';
 								if ( is_string( $iid ) && 0 === strpos( $iid, 'temp-' ) ) {
-									$item['value']['interaction_id']['value'] = $post_id . '-' . ( $el['id'] ?? 'x' ) . '-abc1234';
+									$item['value']['interaction_id']['value'] = $post_id . '-' . ( $el['id'] ?? 'x' ) . '-' . dechex( ++$this->seq ) . 'aa';
 								}
 							}
 							unset( $item );
@@ -77,6 +78,39 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 			}
 		};
 		return new \Elementor_MCP_Interactions_Write_Abilities( $data );
+	}
+
+	public function test_add_returns_new_canonical_id_when_element_has_prior_temp_ids(): void {
+		// Element already carries a temp-id interaction (from an earlier raw-meta
+		// fallback). A canonicalizing save would rewrite BOTH the old and new temp
+		// ids — the returned id must be the NEW interaction's canonical id, usable
+		// for a follow-up edit/delete (not a stale/duplicate id).
+		$prior = wp_json_encode( array(
+			'version' => 1,
+			'items'   => array( array(
+				'$$type' => 'interaction-item',
+				'value'  => array(
+					'interaction_id' => array( '$$type' => 'string', 'value' => 'temp-oldone' ),
+					'trigger'        => array( '$$type' => 'string', 'value' => 'load' ),
+				),
+			) ),
+		) );
+		$ability = $this->ability_with_page( $this->atomic_page( $prior ), true );
+
+		$res = $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'effect' => 'fade' ) );
+		$this->assertNotWPError( $res );
+		$new_id = $res['interaction_id'];
+		$this->assertStringStartsWith( '7-atom1-', $new_id, 'a canonical id, not a temp id' );
+
+		// The returned id must actually exist on the element (usable for edit/delete).
+		$saved   = $GLOBALS['_saved_page'][0]['interactions'];
+		$decoded = json_decode( $saved, true );
+		$ids     = array_map( static fn( $it ) => $it['value']['interaction_id']['value'], $decoded['items'] );
+		$this->assertContains( $new_id, $ids );
+		$this->assertCount( 2, $decoded['items'] );
+		// And a follow-up edit by that id succeeds.
+		$edit = $ability->execute_edit( array( 'post_id' => 7, 'element_id' => 'atom1', 'interaction_id' => $new_id, 'effect' => 'scale' ) );
+		$this->assertNotWPError( $edit );
 	}
 
 	private function atomic_page( $interactions = null ): array {
@@ -171,8 +205,8 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 		$ability = $this->ability_with_page( $this->atomic_page(), true );
 		$res     = $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1' ) );
 		$this->assertNotWPError( $res );
-		$this->assertSame( '7-atom1-abc1234', $res['interaction_id'], 'temp id resolved to canonical on re-read' );
-		$this->assertStringStartsWith( '7-', $res['interaction_id'] );
+		$this->assertStringStartsWith( '7-atom1-', $res['interaction_id'], 'temp id resolved to canonical on re-read' );
+		$this->assertStringNotContainsString( 'temp-', $res['interaction_id'] );
 	}
 
 	public function test_add_rejects_non_atomic_element_with_schema_in_error(): void {

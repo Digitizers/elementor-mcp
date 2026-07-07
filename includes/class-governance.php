@@ -334,8 +334,14 @@ class Elementor_MCP_Governance {
 			);
 		}
 
-		$params = is_array( $input ) ? $input : array();
-		$result = \Aura_Worker_Grant::verify( $header, $name, $params );
+		// The gateway mints grants against the EXPOSED MCP tool name, which the
+		// bundled adapter derives from the ability name by replacing "/" with "-"
+		// (RegisterAbilityAsMcpTool::get_data(): str_replace('/', '-', ...)). Bind
+		// verification to that same name, or every correctly minted grant is
+		// rejected. e.g. "elementor-mcp/update-element" -> "elementor-mcp-update-element".
+		$mcp_tool = str_replace( '/', '-', trim( $name ) );
+		$params   = is_array( $input ) ? $input : array();
+		$result   = \Aura_Worker_Grant::verify( $header, $mcp_tool, $params );
 		if ( true !== $result ) {
 			return new \WP_Error(
 				'governance_grant_invalid',

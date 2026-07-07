@@ -42,7 +42,7 @@ class GovernanceFunctionalTest extends TestCase {
 	}
 
 	/** Turn on SiteAgent's grant regime AND this plugin's opt-in. */
-	private function require_grants( string $header = null ): void {
+	private function require_grants( ?string $header = null ): void {
 		$GLOBALS['_aura_grant']['enforced'] = true;
 		$GLOBALS['_emcp_require_grants']    = true;
 		if ( null !== $header ) {
@@ -346,7 +346,9 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['_aura_grant']['verify_calls'] );
 		$call = $GLOBALS['_aura_grant']['verify_calls'][0];
 		$this->assertSame( 'payload.signature', $call['header'] );
-		$this->assertSame( 'elementor-mcp/update-element', $call['tool'] );
+		// Bound to the EXPOSED MCP tool name (slashes → dashes), which is what the
+		// gateway signs — not the internal ability name.
+		$this->assertSame( 'elementor-mcp-update-element', $call['tool'] );
 		$this->assertSame( array( 'post_id' => 55, 'foo' => 'bar' ), $call['params'] );
 		// The snapshot still happens after the grant clears.
 		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );

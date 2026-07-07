@@ -893,6 +893,7 @@ namespace {
 			'Elementor_MCP_Global_Classes_Abilities' => 'includes/abilities/class-global-classes-abilities.php',
 			'Elementor_MCP_Global_Classes_Write_Abilities' => 'includes/abilities/class-global-classes-write-abilities.php',
 			'Elementor_MCP_Variables_Write_Abilities' => 'includes/abilities/class-variables-write-abilities.php',
+			'Elementor_MCP_Interactions_Write_Abilities' => 'includes/abilities/class-interactions-write-abilities.php',
 			// Performance Analyzer (audit → scored report)
 			'Elementor_MCP_Performance_Finding'    => 'includes/performance/class-performance-finding.php',
 			'Elementor_MCP_Performance_Server_Audit' => 'includes/performance/class-performance-server-audit.php',

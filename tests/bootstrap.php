@@ -324,7 +324,8 @@ namespace {
 			//   $GLOBALS['_http_response_queue'] — a sequence (baseline, then post-
 			//                                      write) consumed one per call.
 			// Default: HTTP disabled (WP_Error).
-			$GLOBALS['_http_last_url'] = $url; // let tests assert cache-busting
+			$GLOBALS['_http_last_url']  = $url; // let tests assert cache-busting
+			$GLOBALS['_http_last_args'] = $args; // let tests assert size-capping
 			if ( ! empty( $GLOBALS['_http_response_queue'] ) ) {
 				return array_shift( $GLOBALS['_http_response_queue'] );
 			}

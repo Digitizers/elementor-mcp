@@ -676,6 +676,24 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertStringContainsString( 'emcp_render_check=', $GLOBALS['_http_last_url'] ?? '' );
 	}
 
+	public function test_render_probe_bounds_the_response_size(): void {
+		// The probe must cap the buffered body so a huge healthy page can't make the
+		// write request download megabytes / exhaust memory (Codex R6 P2).
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 200, 'ok' );
+
+		\Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$args = $GLOBALS['_http_last_args'] ?? array();
+		$this->assertArrayHasKey( 'limit_response_size', $args );
+		$this->assertLessThanOrEqual( 512 * 1024, $args['limit_response_size'] );
+	}
+
 	public function test_transient_loopback_failure_never_reverts(): void {
 		// wp_remote_get returns a WP_Error (timeout/DNS) → inconclusive, keep write.
 		$this->publish( 55 );

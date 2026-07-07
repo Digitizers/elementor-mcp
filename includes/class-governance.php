@@ -451,9 +451,15 @@ class Elementor_MCP_Governance {
 				'timeout'     => 15,
 				'sslverify'   => false,
 				'redirection' => 3,
-				'headers'     => array(
+				// The check only needs to tell empty from non-empty and scan for the
+				// fatal marker (which a WordPress fatal page emits near the top), so
+				// bound the buffered body — a huge healthy page must not make the
+				// write request download megabytes twice or exhaust PHP memory.
+				'limit_response_size' => 256 * 1024,
+				'headers'             => array(
 					'Cache-Control' => 'no-cache',
 					'Pragma'        => 'no-cache',
+					'Range'         => 'bytes=0-262143',
 				),
 			)
 		);

@@ -2,6 +2,13 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.18.0 — 2026-07-07
+
+- New: **Server-enforced approval grants** for governed Elementor writes — the second plank of P0.2. When SiteAgent's Ed25519 grant regime is active (a gateway key is provisioned) **and** grant enforcement is opted in for this plugin, a governed write must present a valid `X-Aura-Approval-Grant` bound to its exact tool + params. The grant is verified **before the tool runs** via SiteAgent's `Aura_Worker_Grant::verify()`, which checks the signature, tool/params/site binding, validity window, and single-use nonce. A missing grant returns `governance_grant_required`; a rejected one returns `governance_grant_invalid` — in both cases the tool never executes (so a create-style tool cannot even `wp_insert_post` an unauthorized draft).
+  - **Previews are exempt.** A grant is skipped only for a dry-run preview — a preview-capable tool (its input schema declares an `apply` flag, i.e. the a11y/SEO generators) invoked with `apply` falsy writes nothing. Everything else (edits, and create-style writes with no `apply` flag) is gated. The grant binds to the **exposed MCP tool name** (`/` → `-`, e.g. `elementor-mcp-update-element`), matching what the gateway signs.
+  - **Opt-in — cannot brick governed sites.** Enforcement is OFF by default even when a gateway key exists. SiteAgent enforces grants for its *own* tools the moment a key is provisioned, but the gateway must also be minting grants for this plugin's tool names before we can require them — otherwise every Elementor edit would be denied. Operators enable it (option `elementor_mcp_require_grants`, or the `elementor_mcp_require_grants` filter / `emcp_governance_require_grants()`) once the gateway is issuing Elementor-tool grants. With no gateway key, or with the opt-in off, writes proceed exactly as before.
+  - Combines with the capture-before-write snapshot: an approved write is still snapshotted and rolled back on failure.
+
 ## 1.17.0 — 2026-07-07
 
 - New: **SiteAgent governance bridge** — capture-before-write safety for page edits, active only when the [SiteAgent worker](https://github.com/Digitizers/SiteAgent) (`digitizer-site-worker`) is installed alongside this plugin. When present, any write-capable ability that edits an existing page has the page's Elementor state (`_elementor_data` + `_elementor_page_settings`) snapshotted through SiteAgent's snapshot engine **before** the write, and rolled back if the write fails — the same reversal safety SiteAgent already gives its own power tools.

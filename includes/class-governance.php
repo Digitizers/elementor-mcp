@@ -3,10 +3,12 @@
  * SiteAgent governance bridge for Elementor page writes.
  *
  * When the SiteAgent worker (digitizer-site-worker) is installed alongside this
- * plugin, a write-capable ability that edits an existing page has the page's
- * Elementor state (`_elementor_data` / `_elementor_page_settings`) snapshotted
- * BEFORE the write and rolled back if the write fails — the same
- * capture-before-write safety SiteAgent gives its own power tools.
+ * plugin, a write-capable ability that writes page data has the page's Elementor
+ * state (`_elementor_data` / `_elementor_page_settings`) snapshotted BEFORE the
+ * write and rolled back if the write fails — the same capture-before-write safety
+ * SiteAgent gives its own power tools. This covers create-style writes (whose
+ * target post id is not in the input) as well as edits, since the snapshot/grant
+ * fire from the write site, which learns the post id there.
  *
  * How it decides WHAT to snapshot — robustly, without a hand-maintained list:
  * the ability wrapper "arms" a governed run for the target post, then the actual
@@ -21,6 +23,16 @@
  *     so it is never snapshotted — no false rollback point, no spurious deny.
  * The tool boundary is preserved (the wrapper knows the tool name + input), which
  * is where server-enforced approval grants will hook in a later plank.
+ *
+ * Server-enforced approval (1.18.0): when SiteAgent's Ed25519 grant regime is
+ * active AND grant enforcement is opted in for this plugin
+ * (emcp_governance_require_grants()), a governed write must present a valid grant
+ * bound to its exact tool + params. The grant is checked BEFORE the callback runs
+ * (so a create-style tool cannot wp_insert_post an unauthorized draft before
+ * approval), and skipped only for a dry-run preview — a preview-capable tool (its
+ * schema declares an `apply` flag) invoked with apply falsy writes nothing. Opt-in
+ * so it cannot deny Elementor edits before the gateway is minting grants for this
+ * plugin's tool names.
  *
  * Soft dependency: when SiteAgent's snapshot engine (\Aura_Worker_Snapshots) is
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
@@ -100,9 +112,14 @@ class Elementor_MCP_Governance {
 			return $args;
 		}
 
+		// A tool is preview-capable iff its input schema declares an `apply` flag
+		// (the a11y/SEO generators: apply falsy = dry-run preview, apply truthy =
+		// write). We thread this to run_governed so a preview can skip the grant
+		// without a hardcoded tool list.
+		$preview_capable          = isset( $args['input_schema']['properties']['apply'] );
 		$original                 = $args['execute_callback'];
-		$args['execute_callback'] = static function ( $input ) use ( $original, $name ) {
-			return self::run_governed( $name, $original, $input );
+		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable ) {
+			return self::run_governed( $name, $original, $input, $preview_capable );
 		};
 		return $args;
 	}
@@ -111,27 +128,32 @@ class Elementor_MCP_Governance {
 	 * Run a write-capable ability under governance: arm the run, execute, and (if
 	 * the tool actually captured a page snapshot) roll back on failure.
 	 *
-	 * @param string   $name     Ability name (for error/audit context).
-	 * @param callable $original The wrapped execute callback.
-	 * @param mixed    $input    The ability input.
-	 * @return mixed The original result, or a \WP_Error when a failed write was
-	 *               rolled back (or when the rollback itself failed).
+	 * @param string   $name            Ability name (for error/audit context).
+	 * @param callable $original        The wrapped execute callback.
+	 * @param mixed    $input           The ability input.
+	 * @param bool     $preview_capable Whether the tool declares an `apply` flag.
+	 * @return mixed The original result, or a \WP_Error when the grant was rejected
+	 *               or a failed write was rolled back.
 	 */
-	public static function run_governed( string $name, $original, $input ) {
-		// absint() (not (int)) to match the write handlers, which normalize with
-		// absint() before saving — otherwise a negative post_id would arm a
-		// different post than the one actually mutated downstream.
-		$post_id = ( is_array( $input ) && isset( $input['post_id'] ) ) ? absint( $input['post_id'] ) : 0;
-
-		// No specific existing page to protect (e.g. create-page, or a kit/repo
-		// tool) → run ungoverned. A snapshot needs a target post that exists.
-		if ( $post_id <= 0 ) {
-			return call_user_func( $original, $input );
+	public static function run_governed( string $name, $original, $input, bool $preview_capable = false ) {
+		// Server-enforced approval, checked BEFORE the callback runs — so a
+		// create-style tool cannot wp_insert_post() an unauthorized draft before we
+		// verify the grant. Skipped only for a dry-run preview (a preview-capable
+		// tool invoked with apply falsy writes nothing), which never needs approval.
+		if ( self::grants_required() && ! self::is_preview_call( $preview_capable, $input ) ) {
+			$grant = self::verify_grant( $name, $input );
+			if ( is_wp_error( $grant ) ) {
+				return $grant;
+			}
 		}
 
+		// Arm the run. The snapshot fires from the page-write site
+		// (before_page_write), which learns the actual post id there — so
+		// create-style writes with no input post_id are still snapshotted.
 		self::$run = array(
-			'post_id'         => $post_id,
 			'name'            => $name,
+			'input'           => $input,
+			'post_id'         => 0, // set lazily on the first real page write
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
 		);
@@ -139,13 +161,13 @@ class Elementor_MCP_Governance {
 		try {
 			$result = call_user_func( $original, $input );
 		} catch ( \Throwable $e ) {
-			$out = self::finish_failure( $name, $post_id, $e->getMessage() );
+			$out       = self::finish_failure( $name, self::$run['post_id'], $e->getMessage() );
 			self::$run = null;
 			return $out;
 		}
 
 		if ( is_wp_error( $result ) ) {
-			$out       = self::finish_failure( $name, $post_id, $result->get_error_message(), $result );
+			$out       = self::finish_failure( $name, self::$run['post_id'], $result->get_error_message(), $result );
 			self::$run = null;
 			return $out;
 		}
@@ -153,7 +175,7 @@ class Elementor_MCP_Governance {
 		// Success. If the tool captured a snapshot (i.e. it actually wrote page
 		// data), expose the rollback point so the gateway can offer an undo.
 		if ( null !== self::$run['snapshot_id'] ) {
-			do_action( 'elementor_mcp_governance_write', $name, $post_id, self::$run['snapshot_id'], $result );
+			do_action( 'elementor_mcp_governance_write', $name, self::$run['post_id'], self::$run['snapshot_id'], $result );
 		}
 		self::$run = null;
 		return $result;
@@ -164,10 +186,11 @@ class Elementor_MCP_Governance {
 	 * run. Called by Elementor_MCP_Data::save_page_data() / save_page_settings()
 	 * BEFORE they persist anything.
 	 *
-	 * A cheap no-op unless a governed run for THIS post is in flight and no
-	 * snapshot has been taken yet. Returns a \WP_Error when the snapshot cannot be
-	 * captured, so the caller can fail closed (refuse the write rather than mutate
-	 * without a rollback point); returns null otherwise.
+	 * A cheap no-op unless a governed run is in flight and no snapshot has been
+	 * taken yet. The first real write of the run defines the post to protect.
+	 * Returns a \WP_Error when the snapshot cannot be captured, so the caller can
+	 * fail closed (refuse the write rather than mutate without a rollback point);
+	 * returns null otherwise. (Grant enforcement happens earlier, in run_governed.)
 	 *
 	 * @param int $post_id The post about to be written.
 	 * @return \WP_Error|null
@@ -176,14 +199,14 @@ class Elementor_MCP_Governance {
 		if ( null === self::$run || ! self::is_active() ) {
 			return null; // no governed run in flight
 		}
-		if ( self::$run['post_id'] !== absint( $post_id ) ) {
-			return null; // a write to some other post (unexpected) — do not touch
-		}
 		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
 			return null; // already snapshotted (or already failed) this run
 		}
+		$post_id = absint( $post_id );
 
-		$snap = self::snapshots()->snapshot_meta( absint( $post_id ), self::PAGE_META_KEYS );
+		// The first real write of the run defines the post to protect + roll back.
+		self::$run['post_id'] = $post_id;
+		$snap                 = self::snapshots()->snapshot_meta( $post_id, self::PAGE_META_KEYS );
 		if ( empty( $snap['success'] ) ) {
 			self::$run['snapshot_failed'] = true;
 			return new \WP_Error(
@@ -271,6 +294,85 @@ class Elementor_MCP_Governance {
 					$write_error
 				)
 			);
+	}
+
+	/**
+	 * Whether governed writes must present a valid SiteAgent approval grant right
+	 * now: SiteAgent's grant regime must be active (a gateway key provisioned) AND
+	 * grant enforcement explicitly enabled for this plugin (opt-in — see
+	 * emcp_governance_require_grants()). Both conditions fail closed to "false" so
+	 * enabling SiteAgent's grants for its own tools never silently denies every
+	 * Elementor edit before the gateway mints grants for this plugin's tools.
+	 *
+	 * @return bool
+	 */
+	public static function grants_required(): bool {
+		if ( ! class_exists( '\\Aura_Worker_Grant' ) || ! \Aura_Worker_Grant::is_enforced() ) {
+			return false;
+		}
+		return function_exists( 'emcp_governance_require_grants' ) && emcp_governance_require_grants();
+	}
+
+	/**
+	 * Whether this call is a dry-run preview that needs no approval: the tool is
+	 * preview-capable (its input schema declares an `apply` flag) AND `apply` is
+	 * falsy/absent, so it writes nothing. A tool with no `apply` flag is never a
+	 * preview — it always needs a grant when enforcement is on.
+	 *
+	 * @param bool  $preview_capable Whether the tool declares an `apply` flag.
+	 * @param mixed $input           The ability input.
+	 * @return bool
+	 */
+	private static function is_preview_call( bool $preview_capable, $input ): bool {
+		return $preview_capable && ( ! is_array( $input ) || empty( $input['apply'] ) );
+	}
+
+	/**
+	 * Verify the Ed25519 approval grant for a governed write against this exact
+	 * tool + params. The grant is presented as the `X-Aura-Approval-Grant` request
+	 * header (WP maps it to $_SERVER['HTTP_X_AURA_APPROVAL_GRANT']); SiteAgent's
+	 * Aura_Worker_Grant::verify() checks the signature, tool/params/site binding,
+	 * validity window and single-use nonce.
+	 *
+	 * @param string $name  Ability name (bound into the grant).
+	 * @param mixed  $input The ability input (bound into the grant as params).
+	 * @return true|\WP_Error
+	 */
+	private static function verify_grant( string $name, $input ) {
+		// $_SERVER header values are not slash-escaped by WP (unlike GET/POST), and
+		// a grant is base64url.base64url, so a plain string cast is sufficient.
+		$header = isset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] ) ? (string) $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] : '';
+		if ( '' === $header ) {
+			return new \WP_Error(
+				'governance_grant_required',
+				sprintf(
+					/* translators: %s: tool name */
+					__( '%s requires an approval grant (X-Aura-Approval-Grant) but none was provided.', 'elementor-mcp' ),
+					$name
+				)
+			);
+		}
+
+		// The gateway mints grants against the EXPOSED MCP tool name, which the
+		// bundled adapter derives from the ability name by replacing "/" with "-"
+		// (RegisterAbilityAsMcpTool::get_data(): str_replace('/', '-', ...)). Bind
+		// verification to that same name, or every correctly minted grant is
+		// rejected. e.g. "elementor-mcp/update-element" -> "elementor-mcp-update-element".
+		$mcp_tool = str_replace( '/', '-', trim( $name ) );
+		$params   = is_array( $input ) ? $input : array();
+		$result   = \Aura_Worker_Grant::verify( $header, $mcp_tool, $params );
+		if ( true !== $result ) {
+			return new \WP_Error(
+				'governance_grant_invalid',
+				sprintf(
+					/* translators: 1: tool name, 2: rejection reason */
+					__( '%1$s approval grant rejected: %2$s', 'elementor-mcp' ),
+					$name,
+					is_string( $result ) ? $result : 'invalid grant'
+				)
+			);
+		}
+		return true;
 	}
 
 	/**

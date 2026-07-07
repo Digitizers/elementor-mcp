@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor (Digitizers fork)
  * Plugin URI:        https://github.com/Digitizers/elementor-mcp
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
- * Version:           1.17.0
+ * Version:           1.18.0
  * Requires at least: 6.9
  * Tested up to:      6.9
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.17.0' );
+define( 'ELEMENTOR_MCP_VERSION', '1.18.0' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -96,6 +96,35 @@ function emcp_fork_premium_tools_enabled(): bool {
 }
 
 /**
+ * Whether governed Elementor writes must present a valid SiteAgent approval grant.
+ *
+ * Grant enforcement for this plugin's tools is OPT-IN even when SiteAgent's grant
+ * regime is otherwise active (a gateway key is provisioned). This is deliberate:
+ * SiteAgent enforces grants for its own mutating tools as soon as a key exists,
+ * but the gateway must also be minting grants for THIS plugin's tool names before
+ * we can require them — otherwise every governed Elementor page edit would be
+ * denied. Operators turn this on once the gateway is issuing Elementor-tool grants.
+ *
+ * Default OFF. Filterable, and driven by the `elementor_mcp_require_grants` option.
+ *
+ * @since 1.18.0
+ *
+ * @return bool
+ */
+function emcp_governance_require_grants(): bool {
+	$enabled = (bool) get_option( 'elementor_mcp_require_grants', false );
+
+	/**
+	 * Filters whether governed Elementor writes require an approval grant.
+	 *
+	 * @since 1.18.0
+	 *
+	 * @param bool $enabled Default: the elementor_mcp_require_grants option (off).
+	 */
+	return (bool) apply_filters( 'elementor_mcp_require_grants', $enabled );
+}
+
+/**
  * Canonical "Upgrade to Pro" URL — the external pricing page on the EMCP
  * Tools website. Used by every upgrade CTA in the plugin admin so users
  * land on the public pricing page (with full plan comparison + FAQ) rather
@@ -119,6 +148,9 @@ function elementor_mcp_after_uninstall() {
     delete_option( 'elementor_mcp_low_tool_mode' );
     delete_option( 'elementor_mcp_defaults_applied' );
     delete_option( 'elementor_mcp_premium_unlock_applied' );
+    // Grant-enforcement opt-in — clear it so a reinstall never inherits a stale
+    // "require grants" state that would silently reject writes on a governed site.
+    delete_option( 'elementor_mcp_require_grants' );
     delete_transient( 'elementor_mcp_pro_prompts_bundle' );
     delete_transient( 'elementor_mcp_pro_templates_bundle' );
     delete_transient( 'elementor_mcp_pro_brand_kits_bundle' );

@@ -25,12 +25,29 @@ class GovernanceFunctionalTest extends TestCase {
 			'restore_calls'  => array(),
 			'seq'            => 0,
 		);
+		$GLOBALS['_aura_grant'] = array(
+			'enforced'      => false,
+			'verify_result' => true,
+			'verify_calls'  => array(),
+		);
+		$GLOBALS['_emcp_require_grants'] = false;
+		unset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] );
 		\Elementor_MCP_Governance::reset_state();
 	}
 
 	protected function tearDown(): void {
+		unset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] );
 		\Elementor_MCP_Governance::reset_state();
 		parent::tearDown();
+	}
+
+	/** Turn on SiteAgent's grant regime AND this plugin's opt-in. */
+	private function require_grants( ?string $header = null ): void {
+		$GLOBALS['_aura_grant']['enforced'] = true;
+		$GLOBALS['_emcp_require_grants']    = true;
+		if ( null !== $header ) {
+			$_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] = $header;
+		}
 	}
 
 	/** A write-capable ability (readonly=false) with the given annotations override. */
@@ -264,5 +281,185 @@ class GovernanceFunctionalTest extends TestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
+	}
+
+	// --- server-enforced approval grants -----------------------------------
+
+	public function test_no_grant_required_when_regime_inactive(): void {
+		// Grant regime off (no gateway key) → writes proceed without a grant.
+		$this->assertFalse( \Elementor_MCP_Governance::grants_required() );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_grant']['verify_calls'] );
+	}
+
+	public function test_no_grant_required_when_enforced_but_opt_in_off(): void {
+		// Gateway key present, but this plugin has NOT opted in → no grant needed
+		// (the anti-brick default).
+		$GLOBALS['_aura_grant']['enforced'] = true;
+		$GLOBALS['_emcp_require_grants']    = false;
+		$this->assertFalse( \Elementor_MCP_Governance::grants_required() );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_grant']['verify_calls'] );
+	}
+
+	public function test_missing_grant_denies_the_write_before_it_runs(): void {
+		$this->require_grants(); // enforced + opted in, but NO header
+		$called = false;
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'ok' => true );
+			},
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
+		$this->assertFalse( $called, 'The write callback must not run without a grant (before any insert).' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_preview_call_needs_no_grant(): void {
+		// An a11y/SEO generator (preview-capable: its schema declares `apply`) run
+		// with apply=false is a dry run that writes nothing, so grant enforcement
+		// must not block it (Codex R2 P2). Fourth arg = preview_capable.
+		$this->require_grants(); // enforced + opted in, but NO header
+		$called = false;
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/generate-meta-tags',
+			static function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'preview' => 'title/desc' );
+			},
+			array( 'post_id' => 55, 'apply' => false ),
+			true
+		);
+
+		$this->assertTrue( $called );
+		$this->assertSame( array( 'preview' => 'title/desc' ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_grant']['verify_calls'], 'Preview → no grant needed.' );
+	}
+
+	public function test_preview_capable_tool_applying_changes_requires_grant(): void {
+		// Same preview-capable tool, but apply=true → it writes → grant required.
+		$this->require_grants(); // no header
+		$called = false;
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/generate-meta-tags',
+			function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'applied' => true );
+			},
+			array( 'post_id' => 55, 'apply' => true ),
+			true
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
+		$this->assertFalse( $called );
+	}
+
+	public function test_valid_grant_allows_the_write_and_binds_tool_and_params(): void {
+		$this->require_grants( 'payload.signature' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55, 'foo' => 'bar' )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 1, $GLOBALS['_aura_grant']['verify_calls'] );
+		$call = $GLOBALS['_aura_grant']['verify_calls'][0];
+		$this->assertSame( 'payload.signature', $call['header'] );
+		// Bound to the EXPOSED MCP tool name (slashes → dashes), which is what the
+		// gateway signs — not the internal ability name.
+		$this->assertSame( 'elementor-mcp-update-element', $call['tool'] );
+		$this->assertSame( array( 'post_id' => 55, 'foo' => 'bar' ), $call['params'] );
+		// The snapshot still happens after the grant clears.
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_invalid_grant_denies_the_write_before_it_runs(): void {
+		$this->require_grants( 'payload.signature' );
+		$GLOBALS['_aura_grant']['verify_result'] = 'grant already used';
+		$called                                  = false;
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'ok' => true );
+			},
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_grant_invalid', $result->get_error_code() );
+		$this->assertStringContainsString( 'grant already used', $result->get_error_message() );
+		$this->assertFalse( $called, 'A rejected grant must not run the write.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_create_style_write_without_input_post_id_requires_grant(): void {
+		// create-page / build-page / theme-template creation persist page data to a
+		// NEW post whose id is not in the input — they must still be grant-gated
+		// (Codex R3 P1). No input post_id, so the run arms without one and the grant
+		// is enforced when the tool writes to the new post.
+		$this->require_grants(); // enforced + opted in, but NO header
+		$inserted = false;
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/create-page',
+			function ( $input ) use ( &$inserted ) {
+				$inserted = true; // stands in for wp_insert_post()
+				\Elementor_MCP_Governance::before_page_write( 4242 );
+				return array( 'created' => 4242 );
+			},
+			array( 'title' => 'New Page' ) // NO post_id
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
+		$this->assertFalse( $inserted, 'The callback (and its wp_insert_post) must not run before approval.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_create_style_write_with_valid_grant_proceeds_and_snapshots_new_post(): void {
+		$this->require_grants( 'payload.signature' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/create-page',
+			static function ( $input ) {
+				$gate = \Elementor_MCP_Governance::before_page_write( 4242 );
+				if ( is_wp_error( $gate ) ) {
+					return $gate;
+				}
+				return array( 'created' => 4242 );
+			},
+			array( 'title' => 'New Page' )
+		);
+
+		$this->assertSame( array( 'created' => 4242 ), $result );
+		$this->assertCount( 1, $GLOBALS['_aura_grant']['verify_calls'] );
+		$this->assertSame( 'elementor-mcp-create-page', $GLOBALS['_aura_grant']['verify_calls'][0]['tool'] );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertSame( 4242, $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_id'] );
 	}
 }

@@ -426,11 +426,18 @@ class Elementor_MCP_Governance {
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( $code >= 500 ) {
-			return true;
+			return true; // server error
+		}
+		// Only a SUCCESSFUL (2xx) response is evidence of what Elementor actually
+		// rendered. A 3xx redirect or a 4xx (auth redirect, WAF 401/403, a
+		// protected/non-public 404) is ambiguous — an empty 403 body is NOT a WSOD
+		// — so treat it as inconclusive and keep the write.
+		if ( $code < 200 || $code >= 300 ) {
+			return false;
 		}
 		$body = (string) wp_remote_retrieve_body( $response );
 		if ( '' === trim( $body ) ) {
-			return true; // white screen of death
+			return true; // white screen of death on a 200
 		}
 		if ( false !== stripos( $body, 'There has been a critical error on this' ) ) {
 			return true; // WordPress front-end fatal handler

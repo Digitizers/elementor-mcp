@@ -555,6 +555,23 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
+	public function test_empty_4xx_response_is_inconclusive_and_keeps_the_write(): void {
+		// A blocked/protected permalink returning an empty 403 (WAF/staging) is not
+		// a WSOD — only an empty 2xx is (Codex R1 P2). Keep the write.
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 403, '' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
 	public function test_transient_loopback_failure_never_reverts(): void {
 		// wp_remote_get returns a WP_Error (timeout/DNS) → inconclusive, keep write.
 		$this->publish( 55 );

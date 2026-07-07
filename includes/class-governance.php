@@ -25,8 +25,9 @@
  * Server-enforced approval (1.18.0): when SiteAgent's Ed25519 grant regime is
  * active AND grant enforcement is opted in for this plugin
  * (emcp_governance_require_grants()), a governed write must present a valid grant
- * bound to its exact tool + params before it may run — verified at the tool
- * boundary, before the snapshot. Opt-in so it cannot deny Elementor edits before
+ * bound to its exact tool + params. Like the snapshot, the grant is checked at
+ * the page-write site (before_page_write), so a preview or any call that writes
+ * no page data needs no grant. Opt-in so it cannot deny Elementor edits before
  * the gateway is minting grants for this plugin's tool names.
  *
  * Soft dependency: when SiteAgent's snapshot engine (\Aura_Worker_Snapshots) is
@@ -125,17 +126,6 @@ class Elementor_MCP_Governance {
 	 *               rolled back (or when the rollback itself failed).
 	 */
 	public static function run_governed( string $name, $original, $input ) {
-		// Server-enforced approval: when SiteAgent's grant regime is active AND
-		// grant enforcement is enabled for this plugin, a governed write must
-		// present a valid Ed25519 grant bound to this exact tool + params. Checked
-		// before arming so a denied write never snapshots or executes.
-		if ( self::grants_required() ) {
-			$grant = self::verify_grant( $name, $input );
-			if ( is_wp_error( $grant ) ) {
-				return $grant;
-			}
-		}
-
 		// absint() (not (int)) to match the write handlers, which normalize with
 		// absint() before saving — otherwise a negative post_id would arm a
 		// different post than the one actually mutated downstream.
@@ -150,8 +140,10 @@ class Elementor_MCP_Governance {
 		self::$run = array(
 			'post_id'         => $post_id,
 			'name'            => $name,
+			'input'           => $input,
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
+			'grant_checked'   => false,
 		);
 
 		try {
@@ -197,6 +189,22 @@ class Elementor_MCP_Governance {
 		if ( self::$run['post_id'] !== absint( $post_id ) ) {
 			return null; // a write to some other post (unexpected) — do not touch
 		}
+
+		// Server-enforced approval, checked once per run at the real write site —
+		// so a preview or any call that writes no page data never needs a grant
+		// (mirrors how a snapshot is only taken on a real write). Runs BEFORE the
+		// snapshot, so a denied write neither snapshots nor persists.
+		if ( ! self::$run['grant_checked'] ) {
+			self::$run['grant_checked'] = true;
+			if ( self::grants_required() ) {
+				$grant = self::verify_grant( self::$run['name'], self::$run['input'] );
+				if ( is_wp_error( $grant ) ) {
+					self::$run['snapshot_failed'] = true; // refuse: no snapshot, no rollback
+					return $grant;
+				}
+			}
+		}
+
 		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
 			return null; // already snapshotted (or already failed) this run
 		}

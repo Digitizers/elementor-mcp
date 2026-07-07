@@ -157,8 +157,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 == Changelog ==
 
 = 1.18.0 =
-New: Server-enforced approval grants for governed Elementor writes (P0.2 plank 2).
-* When SiteAgent's Ed25519 grant regime is active AND grant enforcement is opted in for this plugin, a governed write must present a valid X-Aura-Approval-Grant bound to its exact tool + params before it runs — verified at the tool boundary (before the snapshot) via Aura_Worker_Grant::verify(). Missing grant → governance_grant_required; rejected grant → governance_grant_invalid; neither snapshots or executes.
+New: Server-enforced approval grants for governed Elementor page writes (P0.2 plank 2).
+* When SiteAgent's Ed25519 grant regime is active AND grant enforcement is opted in for this plugin, a governed page write must present a valid X-Aura-Approval-Grant bound to its exact tool + params before it persists — verified at the page-write site (before the snapshot) via Aura_Worker_Grant::verify(). Missing grant → governance_grant_required; rejected grant → governance_grant_invalid; neither snapshots nor persists.
+* Checked at the write site, so previews are exempt: an a11y/SEO generator run as a preview (apply=false), or any call that writes no page data, needs no grant. Binds to the exposed MCP tool name (slashes → dashes), matching what the gateway signs.
 * Opt-in, cannot brick governed sites: OFF by default even when a gateway key exists (the gateway must be minting grants for this plugin's tool names first). Enable via the elementor_mcp_require_grants option / filter once ready. With no key or opt-in off, writes proceed unchanged.
 
 = 1.17.0 =

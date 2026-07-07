@@ -314,23 +314,41 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['_aura_grant']['verify_calls'] );
 	}
 
-	public function test_missing_grant_denies_the_write(): void {
+	public function test_missing_grant_denies_the_page_write(): void {
 		$this->require_grants(); // enforced + opted in, but NO header
-		$called = false;
 
+		// page_writer() calls before_page_write() (as save_page_data does) and
+		// returns the gate error — modelling a write refused before it persists.
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
-			function ( $input ) use ( &$called ) {
-				$called = true;
-				return array( 'ok' => true );
-			},
+			$this->page_writer( array( 'should' => 'not persist' ) ),
 			array( 'post_id' => 55 )
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
-		$this->assertFalse( $called, 'The write must not run without a grant.' );
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'Denied before snapshot.' );
+	}
+
+	public function test_preview_call_that_writes_no_page_data_needs_no_grant(): void {
+		// An a11y/SEO generator with apply=false returns a preview and never calls
+		// save_page_data, so grant enforcement must not block it (Codex R2 P2).
+		$this->require_grants(); // enforced + opted in, but NO header
+		$called = false;
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/generate-meta-tags',
+			static function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'preview' => 'title/desc' ); // no before_page_write()
+			},
+			array( 'post_id' => 55, 'apply' => false )
+		);
+
+		$this->assertTrue( $called );
+		$this->assertSame( array( 'preview' => 'title/desc' ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_grant']['verify_calls'], 'No page write → no grant needed.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
 	}
 
 	public function test_valid_grant_allows_the_write_and_binds_tool_and_params(): void {
@@ -354,24 +372,19 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
 	}
 
-	public function test_invalid_grant_denies_the_write(): void {
+	public function test_invalid_grant_denies_the_page_write(): void {
 		$this->require_grants( 'payload.signature' );
 		$GLOBALS['_aura_grant']['verify_result'] = 'grant already used';
-		$called                                  = false;
 
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
-			function ( $input ) use ( &$called ) {
-				$called = true;
-				return array( 'ok' => true );
-			},
+			$this->page_writer( array( 'should' => 'not persist' ) ),
 			array( 'post_id' => 55 )
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_grant_invalid', $result->get_error_code() );
 		$this->assertStringContainsString( 'grant already used', $result->get_error_message() );
-		$this->assertFalse( $called, 'A rejected grant must not run the write.' );
-		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'A rejected grant must not snapshot or persist.' );
 	}
 }

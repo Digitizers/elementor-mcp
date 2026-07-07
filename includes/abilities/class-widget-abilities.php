@@ -272,7 +272,14 @@ class Elementor_MCP_Widget_Abilities {
 			return new \WP_Error(
 				'invalid_widget_type',
 				/* translators: %s: widget type name */
-				sprintf( __( 'Widget type "%s" not found.', 'elementor-mcp' ), $widget_type )
+				sprintf( __( 'Widget type "%s" not found.', 'elementor-mcp' ), $widget_type ),
+				array(
+					// Schema-in-error: nearest valid widget names + where to get the
+					// full control schema, so the agent can fix this in one round trip.
+					'requested'   => $widget_type,
+					'suggestions' => $this->schema_generator->suggest_types( $widget_type ),
+					'schema_hint' => 'Call elementor-mcp/get-widget-schema with a valid widget_type for its settings schema.',
+				)
 			);
 		}
 

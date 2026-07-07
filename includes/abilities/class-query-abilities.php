@@ -250,12 +250,19 @@ class Elementor_MCP_Query_Abilities {
 
 		$widget = \Elementor\Plugin::$instance->widgets_manager->get_widget_types( $widget_type );
 		if ( ! $widget ) {
+			// Schema-in-error: this is the primary discovery tool, so surface the
+			// nearest valid names inline (same data generate() would return) — the
+			// whole point is to save the agent a second lookup.
 			return new \WP_Error(
 				'widget_not_found',
 				sprintf(
 					/* translators: %s: widget type name */
 					__( 'Widget type "%s" not found.', 'elementor-mcp' ),
 					$widget_type
+				),
+				array(
+					'requested'   => $widget_type,
+					'suggestions' => $this->schema_generator->suggest_types( $widget_type ),
 				)
 			);
 		}

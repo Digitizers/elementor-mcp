@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.19.0
+Stable tag: 1.20.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,11 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.20.0 =
+New: Schema-in-error widget-type suggestions (P1.1, first slice).
+* When a tool gets a widget type that doesn't exist, the error now carries the nearest valid widget type names inline so an agent can self-correct in one round trip. add-widget returns invalid_widget_type with data.suggestions (ranked exact → substring → edit distance) + a schema_hint; Schema_Generator::generate() returns the same suggestions in its widget_not_found error.
+* Adds Elementor_MCP_Schema_Generator::suggest_types(). Covers the wrong-widget-name mistake; attaching the full control schema to bad-settings rejections (atomic save_rejected) is a follow-up.
 
 = 1.19.0 =
 New: Post-write render check for governed page writes (P0.2 plank 3, final).

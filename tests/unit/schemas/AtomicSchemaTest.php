@@ -73,6 +73,12 @@ class AtomicSchemaTest extends TestCase {
 		$data = $out->get_error_data();
 		$this->assertSame( 'e-heading', $data['widget_type'] );
 		$this->assertSame( 'string', $data['schema']['tag']['type'] );
+
+		// The MCP adapter drops WP_Error data, so the schema must also be in the
+		// MESSAGE to reach agents.
+		$msg = $out->get_error_message();
+		$this->assertStringContainsString( 'Valid e-heading props', $msg );
+		$this->assertStringContainsString( 'tag (string: h1|h2|h3|h4|h5|h6)', $msg );
 	}
 
 	public function test_enrich_leaves_other_error_codes_unchanged(): void {

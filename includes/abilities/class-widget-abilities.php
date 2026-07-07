@@ -269,15 +269,18 @@ class Elementor_MCP_Widget_Abilities {
 		// Validate widget type exists.
 		$widget_instance = \Elementor\Plugin::$instance->widgets_manager->get_widget_types( $widget_type );
 		if ( ! $widget_instance ) {
+			$suggestions = $this->schema_generator->suggest_types( $widget_type );
 			return new \WP_Error(
 				'invalid_widget_type',
 				/* translators: %s: widget type name */
-				sprintf( __( 'Widget type "%s" not found.', 'elementor-mcp' ), $widget_type ),
+				sprintf( __( 'Widget type "%s" not found.', 'elementor-mcp' ), $widget_type )
+					. \Elementor_MCP_Schema_Generator::format_suggestions( $suggestions ),
 				array(
 					// Schema-in-error: nearest valid widget names + where to get the
-					// full control schema, so the agent can fix this in one round trip.
+					// full control schema. Suggestions are also in the MESSAGE because
+					// the MCP adapter drops WP_Error data.
 					'requested'   => $widget_type,
-					'suggestions' => $this->schema_generator->suggest_types( $widget_type ),
+					'suggestions' => $suggestions,
 					'schema_hint' => 'Call elementor-mcp/get-widget-schema with a valid widget_type for its settings schema.',
 				)
 			);

@@ -381,7 +381,35 @@ class Elementor_MCP_Atomic_Props {
 		$data = is_array( $data ) ? $data : array();
 		$data['widget_type'] = $widget_type;
 		$data['schema']      = $schema;
-		return new \WP_Error( $save->get_error_code(), $save->get_error_message(), $data );
+
+		// The MCP adapter surfaces only the error MESSAGE + code to agents (it drops
+		// WP_Error data), so fold a compact schema summary into the message itself —
+		// the data payload is kept for REST/direct callers.
+		$message = $save->get_error_message() . self::format_schema_hint( $widget_type, $schema );
+		return new \WP_Error( $save->get_error_code(), $message, $data );
+	}
+
+	/**
+	 * Render a compact one-line prop-schema hint for an error message, e.g.
+	 * " Valid e-heading props: tag (string: h1|h2|h3|h4|h5|h6), title (html), …".
+	 *
+	 * @param string $widget_type Atomic type.
+	 * @param array  $schema      Output of schema_for().
+	 * @return string Leading-space-prefixed hint, or '' when the schema is empty.
+	 */
+	private static function format_schema_hint( string $widget_type, array $schema ): string {
+		if ( empty( $schema ) ) {
+			return '';
+		}
+		$parts = array();
+		foreach ( $schema as $prop => $info ) {
+			$type = (string) ( $info['type'] ?? 'mixed' );
+			if ( ! empty( $info['enum'] ) && is_array( $info['enum'] ) ) {
+				$type .= ': ' . implode( '|', array_map( 'strval', $info['enum'] ) );
+			}
+			$parts[] = $prop . ' (' . $type . ')';
+		}
+		return sprintf( ' Valid %s props: %s.', $widget_type, implode( ', ', $parts ) );
 	}
 
 	public static function is_atomic_supported(): bool {

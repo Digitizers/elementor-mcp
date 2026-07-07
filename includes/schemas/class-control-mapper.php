@@ -101,17 +101,67 @@ class Elementor_MCP_Control_Mapper {
 				return array( 'type' => 'string' );
 
 			case 'number':
-				return array( 'type' => 'number' );
+				$number = array( 'type' => 'number' );
+				// Elementor's number control carries min/max/step directly (no unit),
+				// so the range is unambiguous — emit it as JSON-Schema constraints.
+				if ( isset( $control['min'] ) && is_numeric( $control['min'] ) ) {
+					$number['minimum'] = $control['min'] + 0;
+				}
+				if ( isset( $control['max'] ) && is_numeric( $control['max'] ) ) {
+					$number['maximum'] = $control['max'] + 0;
+				}
+				// `multipleOf` means "divisible by step", which only holds when the
+				// grid's base is known AND is itself a multiple of step. We therefore
+				// emit it only when there's an EXPLICIT min that lands on the step grid:
+				// an offset base (min=1, step=2 → 1,3,5…) isn't a set of multiples of 2,
+				// and an absent min gives no known base to assume (base 0 would be a
+				// guess), so in both cases we omit it rather than reject valid values.
+				if (
+					isset( $control['step'], $control['min'] )
+					&& is_numeric( $control['step'] ) && (float) $control['step'] > 0
+					&& is_numeric( $control['min'] )
+					&& 0.0 === fmod( (float) $control['min'], (float) $control['step'] )
+				) {
+					$number['multipleOf'] = $control['step'] + 0;
+				}
+				return $number;
 
 			case 'hidden':
 				return array( 'type' => 'string' );
 
 			case 'slider':
+				$size = array( 'type' => 'number' );
+				$range = ( isset( $control['range'] ) && is_array( $control['range'] ) ) ? $control['range'] : array();
+				// The units the control actually offers: size_units if declared,
+				// otherwise inferred from the range's unit keys.
+				$units = array();
+				if ( ! empty( $control['size_units'] ) && is_array( $control['size_units'] ) ) {
+					$units = array_values( array_unique( array_filter( $control['size_units'], 'is_string' ) ) );
+				} elseif ( ! empty( $range ) ) {
+					$units = array_values( array_unique( array_filter( array_keys( $range ), 'is_string' ) ) );
+				}
+				// Slider bounds are keyed by unit and differ per unit, so a hard size
+				// min/max is only unambiguous when the control offers exactly ONE unit
+				// and the range defines it. A slider advertising several size_units but
+				// a range for only one must NOT borrow that unit's bounds for the others.
+				if ( 1 === count( $units ) && isset( $range[ $units[0] ] ) && is_array( $range[ $units[0] ] ) ) {
+					$bounds = $range[ $units[0] ];
+					if ( isset( $bounds['min'] ) && is_numeric( $bounds['min'] ) ) {
+						$size['minimum'] = $bounds['min'] + 0;
+					}
+					if ( isset( $bounds['max'] ) && is_numeric( $bounds['max'] ) ) {
+						$size['maximum'] = $bounds['max'] + 0;
+					}
+				}
+				$unit = array( 'type' => 'string' );
+				if ( ! empty( $units ) ) {
+					$unit['enum'] = $units;
+				}
 				return array(
 					'type'       => 'object',
 					'properties' => array(
-						'size' => array( 'type' => 'number' ),
-						'unit' => array( 'type' => 'string' ),
+						'size' => $size,
+						'unit' => $unit,
 					),
 				);
 

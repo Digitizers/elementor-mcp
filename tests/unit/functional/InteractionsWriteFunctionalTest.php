@@ -149,6 +149,35 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 		unset( $GLOBALS['_ix_cache'] );
 	}
 
+	public function test_edit_temp_id_returns_canonical_id_on_native_save(): void {
+		$temp = wp_json_encode( array(
+			'version' => 1,
+			'items'   => array( array(
+				'$$type' => 'interaction-item',
+				'value'  => array(
+					'interaction_id' => array( '$$type' => 'string', 'value' => 'temp-abc' ),
+					'trigger'        => array( '$$type' => 'string', 'value' => 'load' ),
+				),
+			) ),
+		) );
+		$ability = $this->ability_with_page( $this->atomic_page( $temp ), true ); // canonicalizing save
+		$res     = $ability->execute_edit( array( 'post_id' => 7, 'element_id' => 'atom1', 'interaction_id' => 'temp-abc', 'effect' => 'slide' ) );
+		$this->assertNotWPError( $res );
+		$this->assertStringStartsWith( '7-atom1-', $res['interaction_id'], 'canonical id surfaced, not the temp id' );
+		$this->assertStringNotContainsString( 'temp-', $res['interaction_id'] );
+	}
+
+	public function test_cache_refresh_uses_post_save_canonical_data(): void {
+		// With a canonicalizing save, the cache must be rebuilt from the SAVED
+		// (canonical) page, not the pre-save temp-id data.
+		unset( $GLOBALS['_ix_cache'] );
+		$ability = $this->ability_with_page( $this->atomic_page(), true );
+		$ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'effect' => 'fade' ) );
+		$json = $GLOBALS['_ix_cache']['data']['elements'][0]['interactions'];
+		$this->assertStringNotContainsString( 'temp-', $json, 'cache holds the canonical, not the temp, id' );
+		unset( $GLOBALS['_ix_cache'] );
+	}
+
 	public function test_add_rejects_beyond_the_five_interaction_cap(): void {
 		$items = array();
 		for ( $i = 0; $i < 5; $i++ ) {

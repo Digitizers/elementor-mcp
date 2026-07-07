@@ -582,10 +582,48 @@ class Elementor_MCP_Interactions_Write_Abilities {
 			return $save;
 		}
 
+		// If the edited interaction still carried a `temp-` id (from an earlier
+		// raw-meta add), a native save just canonicalized it. Re-read the item at
+		// the same position and surface its current id so callers can address it.
+		$current_id = $interaction_id;
+		if ( 0 === strpos( $interaction_id, 'temp-' ) ) {
+			$current_id = $this->id_at_index( $post_id, $element_id, $index, $interaction_id );
+		}
+
 		return array(
-			'interaction_id' => $interaction_id,
+			'interaction_id' => $current_id,
 			'updated'        => true,
 		);
+	}
+
+	/**
+	 * Re-reads the element and returns the interaction id at $index (the position
+	 * we just wrote to), falling back to $default. Used to surface a canonical id
+	 * after a `temp-` id was rewritten on save.
+	 *
+	 * @param int    $post_id    The post id.
+	 * @param string $element_id The element id.
+	 * @param int    $index      The item index that was written.
+	 * @param string $default    Fallback id.
+	 * @return string
+	 */
+	private function id_at_index( int $post_id, string $element_id, int $index, string $default ): string {
+		$page = $this->data->get_page_data( $post_id );
+		if ( ! is_array( $page ) ) {
+			return $default;
+		}
+		$element = $this->data->find_element_by_id( $page, $element_id );
+		if ( ! is_array( $element ) ) {
+			return $default;
+		}
+		$items = $this->decode_items( $element['interactions'] ?? '' );
+		if ( isset( $items[ $index ] ) && is_array( $items[ $index ] ) ) {
+			$id = $this->item_id( $items[ $index ] );
+			if ( '' !== $id ) {
+				return $id;
+			}
+		}
+		return $default;
 	}
 
 	// =========================================================================
@@ -714,12 +752,17 @@ class Elementor_MCP_Interactions_Write_Abilities {
 			return $save;
 		}
 
-		// Refresh Elementor's interactions postmeta cache from the just-written
-		// page. On a raw `_elementor_data` meta write (the REST/CLI fallback),
-		// `elementor/document/after_save` never fires, so the cache the frontend
-		// reads (`elementor-interactions-cache`) would otherwise stay stale.
-		// Idempotent when the document-save path already rebuilt it.
-		$this->refresh_interactions_cache( $post_id, $page );
+		// Refresh Elementor's interactions postmeta cache from the SAVED page —
+		// re-read, not the pre-save `$page`. On the native document-save path the
+		// save/data filter has already sanitized the data + canonicalized temp ids
+		// and after_save rebuilt the cache; re-reading and rebuilding from that is
+		// idempotent. On the raw `_elementor_data` fallback (which skips after_save),
+		// the re-read is the just-written data, so the cache the frontend reads
+		// (`elementor-interactions-cache`) stays in sync. Refreshing from the
+		// pre-save `$page` would instead clobber the sanitized cache with stale
+		// (temp-id) data.
+		$reread = $this->data->get_page_data( $post_id );
+		$this->refresh_interactions_cache( $post_id, is_array( $reread ) ? $reread : $page );
 
 		return true;
 	}

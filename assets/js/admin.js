@@ -877,7 +877,7 @@
 				confirmBtn.textContent = elementorMcpAdmin.applying || 'Applying…';
 
 				var body = new URLSearchParams();
-				body.append( 'action', 'elementor_mcp_apply_pro_brand_kit' );
+				body.append( 'action', 'elementor_mcp_apply_brand_kit' );
 				body.append( 'nonce', grid.getAttribute( 'data-apply-nonce' ) || '' );
 				body.append( 'kit_slug', pending.slug );
 				body.append( 'category_slug', pending.cat );
@@ -929,7 +929,7 @@
 					restoreBtn.textContent = elementorMcpAdmin.restoring || 'Restoring…';
 
 					var body = new URLSearchParams();
-					body.append( 'action', 'elementor_mcp_restore_pro_brand_kit' );
+					body.append( 'action', 'elementor_mcp_restore_brand_kit' );
 					body.append( 'nonce', restore.getAttribute( 'data-restore-nonce' ) || '' );
 					body.append( 'backup_id', select.value );
 					body.append( 'full_clobber', ( clobber && clobber.checked ) ? '1' : '0' );

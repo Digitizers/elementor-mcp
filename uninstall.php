@@ -44,12 +44,14 @@ delete_metadata( 'user', 0, 'elementor_mcp_upgrade_notice_dismissed', '', true )
 // on uninstall — treated as recoverable user content so a user who removes
 // the plugin can still roll back their pre-kit brand after reinstalling.
 
-// Best-effort cleanup of leftover legacy Freemius options, for sites upgrading
-// from a build that still bundled the Freemius SDK. Harmless no-ops otherwise.
-foreach ( array( 'fs_accounts', 'fs_active_plugins', 'fs_api_cache', 'fs_debug_mode', 'fs_gdpr' ) as $emcp_fs_option ) {
-	delete_option( $emcp_fs_option );
-	delete_site_option( $emcp_fs_option );
-}
+// NOTE: we deliberately do NOT delete leftover Freemius options here. Options
+// like `fs_accounts`, `fs_active_plugins`, `fs_api_cache`, and `fs_gdpr` are
+// Freemius-WIDE — shared by every Freemius-powered plugin/theme on the site,
+// not scoped to this plugin. Deleting them on our uninstall would erase other
+// products' license/account state, and Freemius keeps our per-product data
+// nested inside those shared structures (no safe per-product delete without the
+// SDK we just removed). Any of our residual entries are harmless if no other
+// Freemius product remains, and must not be touched if one does.
 
 // Widget Builder: generated executable PHP must NOT survive uninstall —
 // delete every emcp_widget post and remove the uploads sandbox tree.

@@ -88,6 +88,8 @@ class Elementor_MCP_Admin {
 			$this->submenus = array(
 				self::PAGE_SLUG                 => __( 'Tools', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-connection' => __( 'Connection', 'elementor-mcp' ),
+				self::PAGE_SLUG . '-prompts'    => __( 'Prompts', 'elementor-mcp' ),
+				self::PAGE_SLUG . '-brand-kits' => __( 'Brand Kits', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-widgets'    => __( 'Widget Builder', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-changelog'  => __( 'Changelog', 'elementor-mcp' ),
 			);
@@ -98,7 +100,7 @@ class Elementor_MCP_Admin {
 	/**
 	 * Determine which sub-screen is active from $_GET['page'].
 	 *
-	 * @return string One of 'tools', 'connection', 'widgets', 'changelog'.
+	 * @return string One of 'tools', 'connection', 'prompts', 'brand-kits', 'widgets', 'changelog'.
 	 */
 	private function get_active_tab(): string {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -107,6 +109,10 @@ class Elementor_MCP_Admin {
 		switch ( $page ) {
 			case self::PAGE_SLUG . '-connection':
 				return 'connection';
+			case self::PAGE_SLUG . '-prompts':
+				return 'prompts';
+			case self::PAGE_SLUG . '-brand-kits':
+				return 'brand-kits';
 			case self::PAGE_SLUG . '-widgets':
 				return 'widgets';
 			case self::PAGE_SLUG . '-changelog':
@@ -631,6 +637,10 @@ class Elementor_MCP_Admin {
 				<?php
 				if ( 'connection' === $active_tab ) {
 					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-connection.php';
+				} elseif ( 'prompts' === $active_tab ) {
+					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-prompts.php';
+				} elseif ( 'brand-kits' === $active_tab ) {
+					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-brand-kits.php';
 				} elseif ( 'widgets' === $active_tab ) {
 					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-widgets.php';
 				} elseif ( 'changelog' === $active_tab ) {

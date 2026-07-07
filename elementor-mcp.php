@@ -142,6 +142,96 @@ function elementor_mcp_recent_elementor_page_url(): string {
 }
 
 /**
+ * AJAX handler for applying a bundled (free) brand kit from the admin page.
+ *
+ * Free feature — capability-gated on manage_options, no license. Looks the kit
+ * up in the bundled Free_Brand_Kits set, optionally snapshots the current kit
+ * into the emcp_kit_backup CPT (backup-before-apply), then applies it through
+ * the shared Elementor_MCP_System_Kit_Writer.
+ *
+ * @since 1.22.0
+ */
+function elementor_mcp_apply_brand_kit_ajax() {
+    check_ajax_referer( 'elementor_mcp_apply_brand_kit', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( array( 'message' => __( 'You do not have permission to apply brand kits.', 'elementor-mcp' ) ), 403 );
+    }
+
+    $kit_slug      = isset( $_POST['kit_slug'] ) ? sanitize_key( wp_unslash( $_POST['kit_slug'] ) ) : '';
+    $category_slug = isset( $_POST['category_slug'] ) ? sanitize_key( wp_unslash( $_POST['category_slug'] ) ) : '';
+    $do_backup     = ! isset( $_POST['backup'] ) || '0' !== (string) wp_unslash( $_POST['backup'] );
+
+    if ( '' === $kit_slug ) {
+        wp_send_json_error( array( 'message' => __( 'Missing kit slug.', 'elementor-mcp' ) ), 400 );
+    }
+
+    $kit = class_exists( 'Elementor_MCP_Free_Brand_Kits' )
+        ? Elementor_MCP_Free_Brand_Kits::find_kit( $kit_slug, $category_slug )
+        : null;
+    if ( null === $kit ) {
+        wp_send_json_error( array( 'message' => __( 'Brand kit not found.', 'elementor-mcp' ) ), 404 );
+    }
+
+    $backup_id = null;
+    if ( $do_backup && class_exists( 'Elementor_MCP_Kit_Backup_Store' ) ) {
+        $backup = Elementor_MCP_Kit_Backup_Store::create( isset( $kit['title'] ) ? (string) $kit['title'] : $kit_slug );
+        if ( ! is_wp_error( $backup ) ) {
+            $backup_id = (int) $backup;
+        }
+    }
+
+    $result = Elementor_MCP_System_Kit_Writer::apply_kit( $kit );
+    if ( is_wp_error( $result ) ) {
+        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
+    }
+
+    $result['backup_id'] = $backup_id;
+    $result['view_url']  = elementor_mcp_recent_elementor_page_url();
+    wp_send_json_success( $result );
+}
+
+/**
+ * AJAX handler for restoring a brand-kit backup from the admin page.
+ *
+ * Free feature — capability-gated on manage_options. Reads the chosen
+ * emcp_kit_backup snapshot and restores it via the shared backup store (which
+ * routes through Elementor_MCP_System_Kit_Writer::restore_snapshot()).
+ *
+ * @since 1.22.0
+ */
+function elementor_mcp_restore_brand_kit_ajax() {
+    check_ajax_referer( 'elementor_mcp_restore_brand_kit', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( array( 'message' => __( 'You do not have permission to restore brand kits.', 'elementor-mcp' ) ), 403 );
+    }
+
+    $backup_id    = isset( $_POST['backup_id'] ) ? absint( wp_unslash( $_POST['backup_id'] ) ) : 0;
+    $full_clobber = isset( $_POST['full_clobber'] ) && '1' === (string) wp_unslash( $_POST['full_clobber'] );
+
+    if ( $backup_id <= 0 ) {
+        wp_send_json_error( array( 'message' => __( 'Missing or invalid backup.', 'elementor-mcp' ) ), 400 );
+    }
+
+    if ( ! class_exists( 'Elementor_MCP_Kit_Backup_Store' ) ) {
+        wp_send_json_error( array( 'message' => __( 'Backup store unavailable.', 'elementor-mcp' ) ), 500 );
+    }
+
+    $result = Elementor_MCP_Kit_Backup_Store::restore( $backup_id, $full_clobber );
+    if ( is_wp_error( $result ) ) {
+        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
+    }
+
+    wp_send_json_success(
+        array(
+            'message'  => __( 'Brand restored from backup.', 'elementor-mcp' ),
+            'view_url' => elementor_mcp_recent_elementor_page_url(),
+        )
+    );
+}
+
+/**
  * Recursively removes empty strings from enum arrays in a JSON Schema.
  *
  * Some MCP clients (e.g. Gemini/Antigravity) reject empty string values
@@ -377,6 +467,10 @@ function elementor_mcp_init(): void {
 	// Admin.
 	if ( is_admin() ) {
 		require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-admin.php';
+
+		// Free brand-kit apply/restore AJAX (capability-gated, no license gate).
+		add_action( 'wp_ajax_elementor_mcp_apply_brand_kit', 'elementor_mcp_apply_brand_kit_ajax' );
+		add_action( 'wp_ajax_elementor_mcp_restore_brand_kit', 'elementor_mcp_restore_brand_kit_ajax' );
 	}
 
 	// Boot the plugin.

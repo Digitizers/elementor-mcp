@@ -34,7 +34,7 @@ Tool counts scale with your environment: 61 tools on a free Elementor install, 1
 * **Brand Kits** — One-click color + typography kits that re-skin your whole site. 10 bundled kits, free to apply, with backup + restore.
 * **Low-tools Mode** — One-click toggle that trims the active tool list to a curated 50-or-so essentials so MCP clients with strict tool caps (Antigravity, Gemini API, etc.) stay under their limits.
 * **Sample Prompts** — Ready-to-use landing page blueprints with one-click copy from the admin dashboard.
-* **Admin Dashboard** — Dedicated top-level menu with Tools, Connection, Widget Builder, and Changelog tabs. Toggle individual tools on/off, view connection configs for all supported MCP clients, and get help via the built-in Get Support link.
+* **Admin Dashboard** — Dedicated top-level menu with Tools, Connection, Prompts, Brand Kits, Widget Builder, and Changelog tabs. Toggle individual tools on/off, view connection configs for all supported MCP clients, and get help via the built-in Get Support link.
 
 **Requires:**
 
@@ -157,11 +157,12 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 == Changelog ==
 
 = 1.22.0 =
-Removed: the vendored Freemius SDK and the upstream Pro marketplace it gated.
-* Deleted includes/vendors/fremius/ (~198 files) and the Templates / Prompts / Brand-Kits / Skills admin tabs + their fetchers, which pulled upstream's licensed hosted content from emcp.msrbuilds.com and phoned home the site URL. Those features were permanently dormant in this fork (no paid plans / no license path) and are not ours to serve. Severs the last runtime tie to upstream's Freemius product 30577.
+Removed: the vendored Freemius SDK and the upstream hosted/licensed Pro marketplace it gated.
+* Deleted includes/vendors/fremius/ (~198 files), the Templates and Skills admin tabs (purely hosted/licensed content) in full, and the hosted fetchers behind the Prompts and Brand-Kits tabs, which pulled upstream's licensed content from emcp.msrbuilds.com and phoned home the site URL. Those hosted pieces were permanently dormant in this fork (no paid plans / no license path) and are not ours to serve. Severs the last runtime tie to upstream's Freemius product 30577.
+* Free features retained: the Sample Prompts tab (bundled .md blueprints with one-click copy) and the Brand Kits tab (10 bundled kits, free to apply, with backup + restore via the local System_Kit_Writer + emcp_kit_backup store) stay exactly as they were — only their hosted/licensed halves (the "Sync Library" fetch + upgrade CTA) were stripped. The free brand-kit apply/backup/restore is capability-gated on manage_options, no license.
 * No change to the MCP tool surface: the 19 GPL tools already registered via emcp_fork_premium_tools_enabled() with no Freemius dependency (since 1.13.0). The two hosted brand-kit tools (list/apply-brand-kits) fetched the licensed upstream library and never registered without a license — removed with it. Free bundled brand kits + local system-kit writers unchanged.
 * Restored a native uninstall.php (cleanup previously ran via the Freemius after_uninstall hook): deletes the same plugin-owned options/transients/user-meta, runs the generated-executable-PHP cleanup, and best-effort clears leftover legacy fs_* options. User page content + brand-kit backups still preserved.
-* Admin keeps the Connection, Tools, Widget Builder, and Changelog tabs. Distribution unchanged (GitHub releases).
+* Admin keeps the Tools, Connection, Prompts, Brand Kits, Widget Builder, and Changelog tabs. Distribution unchanged (GitHub releases).
 
 = 1.21.0 =
 New: Atomic schema-in-error (P1.1, second slice).

@@ -34,6 +34,8 @@ class GovernanceFunctionalTest extends TestCase {
 		$GLOBALS['_emcp_render_check']  = false;
 		unset( $GLOBALS['_http_response'] );
 		unset( $GLOBALS['_http_response_queue'] );
+		unset( $GLOBALS['_http_last_url'] );
+		unset( $GLOBALS['_permalink'] );
 		unset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] );
 		\Elementor_MCP_Governance::reset_state();
 	}
@@ -694,6 +696,28 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertLessThanOrEqual( 512 * 1024, $args['limit_response_size'] );
 		// Must not follow redirects — an off-origin redirect would be an SSRF.
 		$this->assertSame( 0, $args['redirection'] ?? -1 );
+		// TLS verification must NOT be forced off (would allow a spoofed cert).
+		$this->assertNotSame( false, $args['sslverify'] ?? null );
+	}
+
+	public function test_off_origin_permalink_is_never_probed(): void {
+		// A get_permalink filter can point a post at an external URL; probing it
+		// would be an SSRF, so an off-origin permalink is inconclusive and is never
+		// fetched (Codex R8 P2, security).
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$GLOBALS['_permalink'] = 'http://evil.example.net/internal';
+		$this->fake_http( 500, '' ); // would "break" if it were ever probed
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+		$this->assertArrayNotHasKey( '_http_last_url', $GLOBALS, 'Off-origin permalink must not be fetched at all.' );
 	}
 
 	public function test_redirecting_page_is_inconclusive_and_never_reverts(): void {

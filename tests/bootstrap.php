@@ -285,7 +285,13 @@ namespace {
 
 	if ( ! function_exists( 'get_permalink' ) ) {
 		function get_permalink( $post = 0 ) {
-			return 'http://example.com/test-page/';
+			return $GLOBALS['_permalink'] ?? 'http://example.com/test-page/';
+		}
+	}
+
+	if ( ! function_exists( 'home_url' ) ) {
+		function home_url( string $path = '', $scheme = null ) {
+			return 'http://example.com' . $path;
 		}
 	}
 

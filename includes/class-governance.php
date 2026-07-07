@@ -435,7 +435,11 @@ class Elementor_MCP_Governance {
 			return 'inconclusive';
 		}
 		$url = get_permalink( $post_id );
-		if ( ! $url ) {
+		// A get_permalink filter (e.g. a permalink-rewriting plugin) can point a
+		// post at an EXTERNAL url. redirection=0 only stops later hops, not the
+		// initial request, so validate the permalink is on this site's own origin
+		// before fetching — otherwise the probe becomes an SSRF to an arbitrary host.
+		if ( ! $url || ! self::is_same_origin( $url ) ) {
 			return 'inconclusive';
 		}
 
@@ -449,7 +453,10 @@ class Elementor_MCP_Governance {
 			$probe_url,
 			array(
 				'timeout'     => 15,
-				'sslverify'   => false,
+				// Leave TLS verification ON (WP default). Forcing sslverify off would
+				// let a spoofed cert / on-path attacker control the probe response and
+				// defeat the check; a real cert error just fails safe (WP_Error →
+				// inconclusive → keep the write).
 				// Do NOT follow redirects: an edited page that issues an off-origin
 				// (open) redirect would otherwise make wp_remote_get fetch an
 				// attacker-controlled URL server-side — an SSRF. The initial URL is
@@ -490,6 +497,19 @@ class Elementor_MCP_Governance {
 			return 'broken'; // WordPress front-end fatal handler
 		}
 		return 'healthy';
+	}
+
+	/**
+	 * Whether a URL is on this site's own front-end origin (host match). Used to
+	 * refuse probing an off-origin permalink (SSRF guard).
+	 *
+	 * @param string $url The URL to check.
+	 * @return bool
+	 */
+	private static function is_same_origin( string $url ): bool {
+		$site_host = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+		$url_host  = wp_parse_url( $url, PHP_URL_HOST );
+		return $site_host && $url_host && strtolower( (string) $site_host ) === strtolower( (string) $url_host );
 	}
 
 	/**

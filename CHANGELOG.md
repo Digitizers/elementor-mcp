@@ -2,6 +2,12 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.18.0 — 2026-07-07
+
+- New: **Server-enforced approval grants** for governed Elementor writes — the second plank of P0.2. When SiteAgent's Ed25519 grant regime is active (a gateway key is provisioned) **and** grant enforcement is opted in for this plugin, a governed write must present a valid `X-Aura-Approval-Grant` bound to its exact tool + params before it may run. The grant is verified at the tool boundary (before the pre-write snapshot) via SiteAgent's `Aura_Worker_Grant::verify()`, which checks the signature, tool/params/site binding, validity window, and single-use nonce. A missing grant returns `governance_grant_required`; a rejected one returns `governance_grant_invalid` — in both cases the write never snapshots or executes.
+  - **Opt-in — cannot brick governed sites.** Enforcement is OFF by default even when a gateway key exists. SiteAgent enforces grants for its *own* tools the moment a key is provisioned, but the gateway must also be minting grants for this plugin's tool names before we can require them — otherwise every Elementor edit would be denied. Operators enable it (option `elementor_mcp_require_grants`, or the `elementor_mcp_require_grants` filter / `emcp_governance_require_grants()`) once the gateway is issuing Elementor-tool grants. With no gateway key, or with the opt-in off, writes proceed exactly as before.
+  - Applies to the same governed writes as 1.17.0 (write-capable abilities); combines with the capture-before-write snapshot so an approved write is still snapshotted and rolled back on failure.
+
 ## 1.17.0 — 2026-07-07
 
 - New: **SiteAgent governance bridge** — capture-before-write safety for page edits, active only when the [SiteAgent worker](https://github.com/Digitizers/SiteAgent) (`digitizer-site-worker`) is installed alongside this plugin. When present, any write-capable ability that edits an existing page has the page's Elementor state (`_elementor_data` + `_elementor_page_settings`) snapshotted through SiteAgent's snapshot engine **before** the write, and rolled back if the write fails — the same reversal safety SiteAgent already gives its own power tools.

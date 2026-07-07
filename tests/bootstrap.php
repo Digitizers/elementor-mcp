@@ -309,6 +309,14 @@ namespace {
 		}
 	}
 
+	if ( ! function_exists( 'emcp_governance_require_grants' ) ) {
+		// Mirrors the production helper (default false, opt-in). Tests toggle via
+		// the global.
+		function emcp_governance_require_grants(): bool {
+			return (bool) ( $GLOBALS['_emcp_require_grants'] ?? false );
+		}
+	}
+
 	if ( ! function_exists( 'wp_remote_get' ) ) {
 		function wp_remote_get( string $url, array $args = [] ) {
 			return new \WP_Error( 'http_request_failed', 'HTTP requests are disabled in unit tests.' );
@@ -982,6 +990,30 @@ namespace {
 					return array( 'success' => false, 'error' => 'stub forced restore failure' );
 				}
 				return array( 'success' => true );
+			}
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// SiteAgent grant-regime stub. The governance bridge calls into
+	// \Aura_Worker_Grant for server-enforced approval. Tests drive it via
+	// $GLOBALS['_aura_grant']:
+	//   ['enforced']      => bool    is_enforced() result (gateway key present)
+	//   ['verify_result'] => true|string  verify() outcome (true = pass)
+	//   ['verify_calls']  => array   recorded [header, tool, params]
+	// -----------------------------------------------------------------------
+	if ( ! class_exists( 'Aura_Worker_Grant' ) ) {
+		class Aura_Worker_Grant {
+			public static function is_enforced() {
+				return ! empty( $GLOBALS['_aura_grant']['enforced'] );
+			}
+			public static function verify( $header, $tool, $params ) {
+				$GLOBALS['_aura_grant']['verify_calls'][] = array(
+					'header' => $header,
+					'tool'   => $tool,
+					'params' => $params,
+				);
+				return $GLOBALS['_aura_grant']['verify_result'] ?? true;
 			}
 		}
 	}

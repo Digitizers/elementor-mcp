@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor (Digitizers fork)
  * Plugin URI:        https://github.com/Digitizers/elementor-mcp
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
- * Version:           1.17.0
+ * Version:           1.18.0
  * Requires at least: 6.9
  * Tested up to:      6.9
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.17.0' );
+define( 'ELEMENTOR_MCP_VERSION', '1.18.0' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -93,6 +93,35 @@ function emcp_fork_premium_tools_enabled(): bool {
 	 * @param bool $enabled Default true.
 	 */
 	return (bool) apply_filters( 'emcp_fork_premium_tools_enabled', true );
+}
+
+/**
+ * Whether governed Elementor writes must present a valid SiteAgent approval grant.
+ *
+ * Grant enforcement for this plugin's tools is OPT-IN even when SiteAgent's grant
+ * regime is otherwise active (a gateway key is provisioned). This is deliberate:
+ * SiteAgent enforces grants for its own mutating tools as soon as a key exists,
+ * but the gateway must also be minting grants for THIS plugin's tool names before
+ * we can require them — otherwise every governed Elementor page edit would be
+ * denied. Operators turn this on once the gateway is issuing Elementor-tool grants.
+ *
+ * Default OFF. Filterable, and driven by the `elementor_mcp_require_grants` option.
+ *
+ * @since 1.18.0
+ *
+ * @return bool
+ */
+function emcp_governance_require_grants(): bool {
+	$enabled = (bool) get_option( 'elementor_mcp_require_grants', false );
+
+	/**
+	 * Filters whether governed Elementor writes require an approval grant.
+	 *
+	 * @since 1.18.0
+	 *
+	 * @param bool $enabled Default: the elementor_mcp_require_grants option (off).
+	 */
+	return (bool) apply_filters( 'elementor_mcp_require_grants', $enabled );
 }
 
 /**

@@ -22,6 +22,13 @@
  * The tool boundary is preserved (the wrapper knows the tool name + input), which
  * is where server-enforced approval grants will hook in a later plank.
  *
+ * Server-enforced approval (1.18.0): when SiteAgent's Ed25519 grant regime is
+ * active AND grant enforcement is opted in for this plugin
+ * (emcp_governance_require_grants()), a governed write must present a valid grant
+ * bound to its exact tool + params before it may run — verified at the tool
+ * boundary, before the snapshot. Opt-in so it cannot deny Elementor edits before
+ * the gateway is minting grants for this plugin's tool names.
+ *
  * Soft dependency: when SiteAgent's snapshot engine (\Aura_Worker_Snapshots) is
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
  * plugin. The plugin never hard-requires SiteAgent.
@@ -118,6 +125,17 @@ class Elementor_MCP_Governance {
 	 *               rolled back (or when the rollback itself failed).
 	 */
 	public static function run_governed( string $name, $original, $input ) {
+		// Server-enforced approval: when SiteAgent's grant regime is active AND
+		// grant enforcement is enabled for this plugin, a governed write must
+		// present a valid Ed25519 grant bound to this exact tool + params. Checked
+		// before arming so a denied write never snapshots or executes.
+		if ( self::grants_required() ) {
+			$grant = self::verify_grant( $name, $input );
+			if ( is_wp_error( $grant ) ) {
+				return $grant;
+			}
+		}
+
 		// absint() (not (int)) to match the write handlers, which normalize with
 		// absint() before saving — otherwise a negative post_id would arm a
 		// different post than the one actually mutated downstream.
@@ -271,6 +289,65 @@ class Elementor_MCP_Governance {
 					$write_error
 				)
 			);
+	}
+
+	/**
+	 * Whether governed writes must present a valid SiteAgent approval grant right
+	 * now: SiteAgent's grant regime must be active (a gateway key provisioned) AND
+	 * grant enforcement explicitly enabled for this plugin (opt-in — see
+	 * emcp_governance_require_grants()). Both conditions fail closed to "false" so
+	 * enabling SiteAgent's grants for its own tools never silently denies every
+	 * Elementor edit before the gateway mints grants for this plugin's tools.
+	 *
+	 * @return bool
+	 */
+	public static function grants_required(): bool {
+		if ( ! class_exists( '\\Aura_Worker_Grant' ) || ! \Aura_Worker_Grant::is_enforced() ) {
+			return false;
+		}
+		return function_exists( 'emcp_governance_require_grants' ) && emcp_governance_require_grants();
+	}
+
+	/**
+	 * Verify the Ed25519 approval grant for a governed write against this exact
+	 * tool + params. The grant is presented as the `X-Aura-Approval-Grant` request
+	 * header (WP maps it to $_SERVER['HTTP_X_AURA_APPROVAL_GRANT']); SiteAgent's
+	 * Aura_Worker_Grant::verify() checks the signature, tool/params/site binding,
+	 * validity window and single-use nonce.
+	 *
+	 * @param string $name  Ability name (bound into the grant).
+	 * @param mixed  $input The ability input (bound into the grant as params).
+	 * @return true|\WP_Error
+	 */
+	private static function verify_grant( string $name, $input ) {
+		// $_SERVER header values are not slash-escaped by WP (unlike GET/POST), and
+		// a grant is base64url.base64url, so a plain string cast is sufficient.
+		$header = isset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] ) ? (string) $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] : '';
+		if ( '' === $header ) {
+			return new \WP_Error(
+				'governance_grant_required',
+				sprintf(
+					/* translators: %s: tool name */
+					__( '%s requires an approval grant (X-Aura-Approval-Grant) but none was provided.', 'elementor-mcp' ),
+					$name
+				)
+			);
+		}
+
+		$params = is_array( $input ) ? $input : array();
+		$result = \Aura_Worker_Grant::verify( $header, $name, $params );
+		if ( true !== $result ) {
+			return new \WP_Error(
+				'governance_grant_invalid',
+				sprintf(
+					/* translators: 1: tool name, 2: rejection reason */
+					__( '%1$s approval grant rejected: %2$s', 'elementor-mcp' ),
+					$name,
+					is_string( $result ) ? $result : 'invalid grant'
+				)
+			);
+		}
+		return true;
 	}
 
 	/**

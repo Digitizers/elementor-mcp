@@ -27,10 +27,12 @@
  * Server-enforced approval (1.18.0): when SiteAgent's Ed25519 grant regime is
  * active AND grant enforcement is opted in for this plugin
  * (emcp_governance_require_grants()), a governed write must present a valid grant
- * bound to its exact tool + params. Like the snapshot, the grant is checked at
- * the page-write site (before_page_write), so a preview or any call that writes
- * no page data needs no grant. Opt-in so it cannot deny Elementor edits before
- * the gateway is minting grants for this plugin's tool names.
+ * bound to its exact tool + params. The grant is checked BEFORE the callback runs
+ * (so a create-style tool cannot wp_insert_post an unauthorized draft before
+ * approval), and skipped only for a dry-run preview — a preview-capable tool (its
+ * schema declares an `apply` flag) invoked with apply falsy writes nothing. Opt-in
+ * so it cannot deny Elementor edits before the gateway is minting grants for this
+ * plugin's tool names.
  *
  * Soft dependency: when SiteAgent's snapshot engine (\Aura_Worker_Snapshots) is
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
@@ -110,9 +112,14 @@ class Elementor_MCP_Governance {
 			return $args;
 		}
 
+		// A tool is preview-capable iff its input schema declares an `apply` flag
+		// (the a11y/SEO generators: apply falsy = dry-run preview, apply truthy =
+		// write). We thread this to run_governed so a preview can skip the grant
+		// without a hardcoded tool list.
+		$preview_capable          = isset( $args['input_schema']['properties']['apply'] );
 		$original                 = $args['execute_callback'];
-		$args['execute_callback'] = static function ( $input ) use ( $original, $name ) {
-			return self::run_governed( $name, $original, $input );
+		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable ) {
+			return self::run_governed( $name, $original, $input, $preview_capable );
 		};
 		return $args;
 	}
@@ -121,25 +128,34 @@ class Elementor_MCP_Governance {
 	 * Run a write-capable ability under governance: arm the run, execute, and (if
 	 * the tool actually captured a page snapshot) roll back on failure.
 	 *
-	 * @param string   $name     Ability name (for error/audit context).
-	 * @param callable $original The wrapped execute callback.
-	 * @param mixed    $input    The ability input.
-	 * @return mixed The original result, or a \WP_Error when a failed write was
-	 *               rolled back (or when the rollback itself failed).
+	 * @param string   $name            Ability name (for error/audit context).
+	 * @param callable $original        The wrapped execute callback.
+	 * @param mixed    $input           The ability input.
+	 * @param bool     $preview_capable Whether the tool declares an `apply` flag.
+	 * @return mixed The original result, or a \WP_Error when the grant was rejected
+	 *               or a failed write was rolled back.
 	 */
-	public static function run_governed( string $name, $original, $input ) {
-		// Arm EVERY governed run — including create-style writes whose target post
-		// id is not in the input (create-page, build-page, theme-template / popup
-		// creation). The grant + snapshot fire from the page-write site
-		// (before_page_write), which learns the actual post id there, so tools
-		// with no input post_id are still gated when they persist page data.
+	public static function run_governed( string $name, $original, $input, bool $preview_capable = false ) {
+		// Server-enforced approval, checked BEFORE the callback runs — so a
+		// create-style tool cannot wp_insert_post() an unauthorized draft before we
+		// verify the grant. Skipped only for a dry-run preview (a preview-capable
+		// tool invoked with apply falsy writes nothing), which never needs approval.
+		if ( self::grants_required() && ! self::is_preview_call( $preview_capable, $input ) ) {
+			$grant = self::verify_grant( $name, $input );
+			if ( is_wp_error( $grant ) ) {
+				return $grant;
+			}
+		}
+
+		// Arm the run. The snapshot fires from the page-write site
+		// (before_page_write), which learns the actual post id there — so
+		// create-style writes with no input post_id are still snapshotted.
 		self::$run = array(
 			'name'            => $name,
 			'input'           => $input,
 			'post_id'         => 0, // set lazily on the first real page write
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
-			'grant_checked'   => false,
 		);
 
 		try {
@@ -170,10 +186,11 @@ class Elementor_MCP_Governance {
 	 * run. Called by Elementor_MCP_Data::save_page_data() / save_page_settings()
 	 * BEFORE they persist anything.
 	 *
-	 * A cheap no-op unless a governed run for THIS post is in flight and no
-	 * snapshot has been taken yet. Returns a \WP_Error when the snapshot cannot be
-	 * captured, so the caller can fail closed (refuse the write rather than mutate
-	 * without a rollback point); returns null otherwise.
+	 * A cheap no-op unless a governed run is in flight and no snapshot has been
+	 * taken yet. The first real write of the run defines the post to protect.
+	 * Returns a \WP_Error when the snapshot cannot be captured, so the caller can
+	 * fail closed (refuse the write rather than mutate without a rollback point);
+	 * returns null otherwise. (Grant enforcement happens earlier, in run_governed.)
 	 *
 	 * @param int $post_id The post about to be written.
 	 * @return \WP_Error|null
@@ -182,27 +199,10 @@ class Elementor_MCP_Governance {
 		if ( null === self::$run || ! self::is_active() ) {
 			return null; // no governed run in flight
 		}
-		$post_id = absint( $post_id );
-
-		// Server-enforced approval, checked once per run at the real write site —
-		// so a preview or any call that writes no page data never needs a grant
-		// (mirrors how a snapshot is only taken on a real write), while create-
-		// style writes with no input post_id are still gated. Runs BEFORE the
-		// snapshot, so a denied write neither snapshots nor persists.
-		if ( ! self::$run['grant_checked'] ) {
-			self::$run['grant_checked'] = true;
-			if ( self::grants_required() ) {
-				$grant = self::verify_grant( self::$run['name'], self::$run['input'] );
-				if ( is_wp_error( $grant ) ) {
-					self::$run['snapshot_failed'] = true; // refuse: no snapshot, no rollback
-					return $grant;
-				}
-			}
-		}
-
 		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
 			return null; // already snapshotted (or already failed) this run
 		}
+		$post_id = absint( $post_id );
 
 		// The first real write of the run defines the post to protect + roll back.
 		self::$run['post_id'] = $post_id;
@@ -311,6 +311,20 @@ class Elementor_MCP_Governance {
 			return false;
 		}
 		return function_exists( 'emcp_governance_require_grants' ) && emcp_governance_require_grants();
+	}
+
+	/**
+	 * Whether this call is a dry-run preview that needs no approval: the tool is
+	 * preview-capable (its input schema declares an `apply` flag) AND `apply` is
+	 * falsy/absent, so it writes nothing. A tool with no `apply` flag is never a
+	 * preview — it always needs a grant when enforcement is on.
+	 *
+	 * @param bool  $preview_capable Whether the tool declares an `apply` flag.
+	 * @param mixed $input           The ability input.
+	 * @return bool
+	 */
+	private static function is_preview_call( bool $preview_capable, $input ): bool {
+		return $preview_capable && ( ! is_array( $input ) || empty( $input['apply'] ) );
 	}
 
 	/**

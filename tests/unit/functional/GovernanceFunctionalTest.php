@@ -314,25 +314,29 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['_aura_grant']['verify_calls'] );
 	}
 
-	public function test_missing_grant_denies_the_page_write(): void {
+	public function test_missing_grant_denies_the_write_before_it_runs(): void {
 		$this->require_grants(); // enforced + opted in, but NO header
+		$called = false;
 
-		// page_writer() calls before_page_write() (as save_page_data does) and
-		// returns the gate error — modelling a write refused before it persists.
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
-			$this->page_writer( array( 'should' => 'not persist' ) ),
+			function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'ok' => true );
+			},
 			array( 'post_id' => 55 )
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
-		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'Denied before snapshot.' );
+		$this->assertFalse( $called, 'The write callback must not run without a grant (before any insert).' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
 	}
 
-	public function test_preview_call_that_writes_no_page_data_needs_no_grant(): void {
-		// An a11y/SEO generator with apply=false returns a preview and never calls
-		// save_page_data, so grant enforcement must not block it (Codex R2 P2).
+	public function test_preview_call_needs_no_grant(): void {
+		// An a11y/SEO generator (preview-capable: its schema declares `apply`) run
+		// with apply=false is a dry run that writes nothing, so grant enforcement
+		// must not block it (Codex R2 P2). Fourth arg = preview_capable.
 		$this->require_grants(); // enforced + opted in, but NO header
 		$called = false;
 
@@ -340,15 +344,35 @@ class GovernanceFunctionalTest extends TestCase {
 			'elementor-mcp/generate-meta-tags',
 			static function ( $input ) use ( &$called ) {
 				$called = true;
-				return array( 'preview' => 'title/desc' ); // no before_page_write()
+				return array( 'preview' => 'title/desc' );
 			},
-			array( 'post_id' => 55, 'apply' => false )
+			array( 'post_id' => 55, 'apply' => false ),
+			true
 		);
 
 		$this->assertTrue( $called );
 		$this->assertSame( array( 'preview' => 'title/desc' ), $result );
-		$this->assertCount( 0, $GLOBALS['_aura_grant']['verify_calls'], 'No page write → no grant needed.' );
-		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertCount( 0, $GLOBALS['_aura_grant']['verify_calls'], 'Preview → no grant needed.' );
+	}
+
+	public function test_preview_capable_tool_applying_changes_requires_grant(): void {
+		// Same preview-capable tool, but apply=true → it writes → grant required.
+		$this->require_grants(); // no header
+		$called = false;
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/generate-meta-tags',
+			function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'applied' => true );
+			},
+			array( 'post_id' => 55, 'apply' => true ),
+			true
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
+		$this->assertFalse( $called );
 	}
 
 	public function test_valid_grant_allows_the_write_and_binds_tool_and_params(): void {
@@ -372,20 +396,25 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
 	}
 
-	public function test_invalid_grant_denies_the_page_write(): void {
+	public function test_invalid_grant_denies_the_write_before_it_runs(): void {
 		$this->require_grants( 'payload.signature' );
 		$GLOBALS['_aura_grant']['verify_result'] = 'grant already used';
+		$called                                  = false;
 
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
-			$this->page_writer( array( 'should' => 'not persist' ) ),
+			function ( $input ) use ( &$called ) {
+				$called = true;
+				return array( 'ok' => true );
+			},
 			array( 'post_id' => 55 )
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_grant_invalid', $result->get_error_code() );
 		$this->assertStringContainsString( 'grant already used', $result->get_error_message() );
-		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'A rejected grant must not snapshot or persist.' );
+		$this->assertFalse( $called, 'A rejected grant must not run the write.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
 	}
 
 	public function test_create_style_write_without_input_post_id_requires_grant(): void {
@@ -394,14 +423,13 @@ class GovernanceFunctionalTest extends TestCase {
 		// (Codex R3 P1). No input post_id, so the run arms without one and the grant
 		// is enforced when the tool writes to the new post.
 		$this->require_grants(); // enforced + opted in, but NO header
+		$inserted = false;
 
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/create-page',
-			static function ( $input ) {
-				$gate = \Elementor_MCP_Governance::before_page_write( 4242 ); // brand-new post id
-				if ( is_wp_error( $gate ) ) {
-					return $gate;
-				}
+			function ( $input ) use ( &$inserted ) {
+				$inserted = true; // stands in for wp_insert_post()
+				\Elementor_MCP_Governance::before_page_write( 4242 );
 				return array( 'created' => 4242 );
 			},
 			array( 'title' => 'New Page' ) // NO post_id
@@ -409,6 +437,7 @@ class GovernanceFunctionalTest extends TestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
+		$this->assertFalse( $inserted, 'The callback (and its wp_insert_post) must not run before approval.' );
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
 	}
 

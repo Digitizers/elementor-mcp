@@ -194,6 +194,16 @@ class Elementor_MCP_Data {
 	 * @return bool|\WP_Error True on success, WP_Error on failure.
 	 */
 	public function save_page_data( int $post_id, array $data ) {
+		// SiteAgent governance: snapshot the page before the first write of a
+		// governed run. No-op unless the worker is installed and a governed tool
+		// is in flight; fails closed if the snapshot cannot be captured.
+		if ( class_exists( 'Elementor_MCP_Governance' ) ) {
+			$gate = Elementor_MCP_Governance::before_page_write( $post_id );
+			if ( is_wp_error( $gate ) ) {
+				return $gate;
+			}
+		}
+
 		$document = $this->get_document( $post_id );
 
 		if ( is_wp_error( $document ) ) {
@@ -266,6 +276,16 @@ class Elementor_MCP_Data {
 	 * @return bool|\WP_Error True on success, WP_Error on failure.
 	 */
 	public function save_page_settings( int $post_id, array $settings ) {
+		// SiteAgent governance: snapshot before the first write of a governed run
+		// (captures both page-meta keys, so a tool that writes settings then tree,
+		// or vice-versa, shares one pre-write snapshot). No-op when ungoverned.
+		if ( class_exists( 'Elementor_MCP_Governance' ) ) {
+			$gate = Elementor_MCP_Governance::before_page_write( $post_id );
+			if ( is_wp_error( $gate ) ) {
+				return $gate;
+			}
+		}
+
 		$document = $this->get_document( $post_id );
 
 		if ( is_wp_error( $document ) ) {

@@ -43,7 +43,7 @@ This fork deliberately keeps the `elementor-mcp` identity and does **not** adopt
 ## Installation
 
 1. Install and activate [Elementor](https://wordpress.org/plugins/elementor/) (version 3.20+).
-2. Download the latest release zip from this fork's [Releases page](https://github.com/Digitizers/elementor-mcp/releases/latest). (The Elementor Pro Studio skill's installer pulls `releases/latest` automatically.)
+2. Download the latest release zip from this fork's [Releases page](https://github.com/Digitizers/elementor-mcp/releases/latest). (The SiteAgent Elementor Studio skill's installer pulls `releases/latest` automatically.)
 3. In WordPress, go to **Plugins → Add New → Upload Plugin** and upload the zip. The MCP Adapter is bundled — no separate plugin install is required.
 4. Activate the plugin through the **Plugins** menu.
 5. Open the new **EMCP Tools** top-level menu in the WordPress admin sidebar to configure tools and view connection info.

@@ -156,13 +156,20 @@ class Elementor_MCP_Governance {
 		// Arm the run. The snapshot fires from the page-write site
 		// (before_page_write), which learns the actual post id there — so
 		// create-style writes with no input post_id are still snapshotted.
+		// An input post_id means we're EDITING an existing page; no post_id means a
+		// create-style tool will insert a new post. The render check only applies to
+		// edits — reverting a create would restore "absent" meta yet leave the newly
+		// inserted post behind, so creates are not render-checked.
+		$is_edit = is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
+
 		self::$run = array(
 			'name'            => $name,
 			'input'           => $input,
 			'post_id'         => 0, // set lazily on the first real page write
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
-			'baseline'        => 'inconclusive', // pre-write render state
+			'is_edit'         => $is_edit,
+			'baseline'        => 'inconclusive', // pre-write render state (edits only)
 		);
 
 		try {
@@ -189,7 +196,7 @@ class Elementor_MCP_Governance {
 			// page. If the baseline was merely inconclusive (flaky loopback, WAF,
 			// already-broken), we never proved the write was the cause, so keep it.
 			$baseline = self::$run['baseline'] ?? 'inconclusive';
-			if ( self::render_check_enabled() && 'healthy' === $baseline && 'broken' === self::probe_render( $post_id ) ) {
+			if ( self::render_check_enabled() && ! empty( self::$run['is_edit'] ) && 'healthy' === $baseline && 'broken' === self::probe_render( $post_id ) ) {
 				$restore   = self::snapshots()->restore( $snapshot_id );
 				self::$run = null;
 				if ( empty( $restore['success'] ) ) {
@@ -267,8 +274,9 @@ class Elementor_MCP_Governance {
 		// Baseline the page's render BEFORE the write (the old data is still in
 		// place at this point) so the post-write check can tell a breakage the edit
 		// caused from one that was already there. Only a CONFIRMED-healthy baseline
-		// permits a later revert (see the tri-state in probe_render()).
-		if ( self::render_check_enabled() ) {
+		// permits a later revert (see the tri-state in probe_render()). Edits only —
+		// a create-style run has no meaningful pre-write page to baseline.
+		if ( self::render_check_enabled() && ! empty( self::$run['is_edit'] ) ) {
 			self::$run['baseline'] = self::probe_render( $post_id );
 		}
 		return null;

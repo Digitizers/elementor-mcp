@@ -684,6 +684,28 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
+	public function test_create_style_run_is_not_render_checked(): void {
+		// A create-style tool (no input post_id) inserts a new post; reverting it on
+		// a render check would restore absent meta yet leave the post behind, so
+		// creates are not render-checked at all (Codex R10 P2).
+		$this->publish( 4242 );
+		$this->enable_render_check();
+		$this->fake_http( 500, '' ); // would "break" if probed
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/create-page',
+			static function ( $input ) {
+				\Elementor_MCP_Governance::before_page_write( 4242 ); // new post id
+				return array( 'created' => 4242 );
+			},
+			array( 'title' => 'New Page' ) // NO post_id → create run
+		);
+
+		$this->assertSame( array( 'created' => 4242 ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+		$this->assertArrayNotHasKey( '_http_last_url', $GLOBALS, 'A create run must not probe a render.' );
+	}
+
 	public function test_render_probe_is_cache_busted(): void {
 		// The probe must carry a cache-buster so a warm page cache can't serve the
 		// pre-write page and hide a fatal (Codex R2 P2).

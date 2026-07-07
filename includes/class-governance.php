@@ -34,6 +34,12 @@
  * so it cannot deny Elementor edits before the gateway is minting grants for this
  * plugin's tool names.
  *
+ * Post-write render check (1.19.0, opt-in — emcp_governance_render_check()): after
+ * a successful governed write, the edited page's front end is fetched and, if it
+ * comes back DEFINITELY broken (HTTP 5xx, empty body / WSOD, or WordPress's fatal
+ * page), the write is reverted to its pre-write snapshot. Fail-safe: a transient
+ * or ambiguous response never reverts a good write.
+ *
  * Soft dependency: when SiteAgent's snapshot engine (\Aura_Worker_Snapshots) is
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
  * plugin. The plugin never hard-requires SiteAgent.
@@ -172,10 +178,43 @@ class Elementor_MCP_Governance {
 			return $out;
 		}
 
-		// Success. If the tool captured a snapshot (i.e. it actually wrote page
-		// data), expose the rollback point so the gateway can offer an undo.
+		// Success — the tool captured a snapshot, i.e. it actually wrote page data.
 		if ( null !== self::$run['snapshot_id'] ) {
-			do_action( 'elementor_mcp_governance_write', $name, self::$run['post_id'], self::$run['snapshot_id'], $result );
+			$post_id     = self::$run['post_id'];
+			$snapshot_id = self::$run['snapshot_id'];
+
+			// Optional post-write render check: if the edited page now renders
+			// definitively broken, revert to the pre-write snapshot.
+			if ( self::render_check_enabled() && self::page_render_broken( $post_id ) ) {
+				$restore   = self::snapshots()->restore( $snapshot_id );
+				self::$run = null;
+				if ( empty( $restore['success'] ) ) {
+					return self::rollback_failed_error( $name, $post_id, $snapshot_id, 'page did not render after the write', $restore );
+				}
+
+				/**
+				 * Fires after a governed write was reverted because the page failed
+				 * its post-write render check.
+				 *
+				 * @param string $name        Ability name.
+				 * @param int    $post_id     Reverted post id.
+				 * @param string $snapshot_id Snapshot restored.
+				 * @param array  $restore     Restore result.
+				 */
+				do_action( 'elementor_mcp_governance_render_reverted', $name, $post_id, $snapshot_id, $restore );
+				return new \WP_Error(
+					'governance_render_failed',
+					sprintf(
+						/* translators: 1: tool name, 2: post id */
+						__( '%1$s left page %2$d not rendering; the change was reverted.', 'elementor-mcp' ),
+						$name,
+						$post_id
+					)
+				);
+			}
+
+			// Expose the rollback point so the gateway can offer an undo.
+			do_action( 'elementor_mcp_governance_write', $name, $post_id, $snapshot_id, $result );
 		}
 		self::$run = null;
 		return $result;
@@ -255,21 +294,7 @@ class Elementor_MCP_Governance {
 
 		$restore = self::snapshots()->restore( $snapshot_id );
 		if ( empty( $restore['success'] ) ) {
-			// The rollback ITSELF failed: the page may be left partially written.
-			// That is more severe than the original write error — surface it.
-			do_action( 'elementor_mcp_governance_rollback_failed', $name, $post_id, $snapshot_id, $write_error, $restore );
-			return new \WP_Error(
-				'governance_rollback_failed',
-				sprintf(
-					/* translators: 1: tool name, 2: write error, 3: restore error, 4: post id, 5: snapshot id */
-					__( '%1$s failed (%2$s) AND rollback failed (%3$s); page %4$d may be partially written. Snapshot %5$s must be restored manually.', 'elementor-mcp' ),
-					$name,
-					$write_error,
-					isset( $restore['error'] ) ? $restore['error'] : 'unknown error',
-					$post_id,
-					$snapshot_id
-				)
-			);
+			return self::rollback_failed_error( $name, $post_id, $snapshot_id, $write_error, $restore );
 		}
 
 		/**
@@ -294,6 +319,34 @@ class Elementor_MCP_Governance {
 					$write_error
 				)
 			);
+	}
+
+	/**
+	 * The error returned when a rollback ITSELF failed — the page may be left in a
+	 * partially written state, so the caller/gateway must be told the restore did
+	 * not succeed. Shared by the write-failure and render-check revert paths.
+	 *
+	 * @param string $name        Ability name.
+	 * @param int    $post_id     Target post id.
+	 * @param string $snapshot_id Snapshot that could not be restored.
+	 * @param string $write_error What the write did (error message or context).
+	 * @param array  $restore     The failed restore result.
+	 * @return \WP_Error
+	 */
+	private static function rollback_failed_error( string $name, int $post_id, string $snapshot_id, string $write_error, array $restore ): \WP_Error {
+		do_action( 'elementor_mcp_governance_rollback_failed', $name, $post_id, $snapshot_id, $write_error, $restore );
+		return new \WP_Error(
+			'governance_rollback_failed',
+			sprintf(
+				/* translators: 1: tool name, 2: write error/context, 3: restore error, 4: post id, 5: snapshot id */
+				__( '%1$s failed (%2$s) AND rollback failed (%3$s); page %4$d may be partially written. Snapshot %5$s must be restored manually.', 'elementor-mcp' ),
+				$name,
+				$write_error,
+				isset( $restore['error'] ) ? $restore['error'] : 'unknown error',
+				$post_id,
+				$snapshot_id
+			)
+		);
 	}
 
 	/**
@@ -325,6 +378,64 @@ class Elementor_MCP_Governance {
 	 */
 	private static function is_preview_call( bool $preview_capable, $input ): bool {
 		return $preview_capable && ( ! is_array( $input ) || empty( $input['apply'] ) );
+	}
+
+	/**
+	 * Whether governed page writes run a post-write render check (opt-in — see
+	 * emcp_governance_require_grants()'s sibling emcp_governance_render_check()).
+	 *
+	 * @return bool
+	 */
+	public static function render_check_enabled(): bool {
+		return self::is_active()
+			&& function_exists( 'emcp_governance_render_check' )
+			&& emcp_governance_render_check();
+	}
+
+	/**
+	 * Fetch the edited page's front end and decide whether it is DEFINITELY broken.
+	 *
+	 * Fail-safe by design: only an unambiguous breakage rolls a write back. A
+	 * transient loopback failure (timeout, DNS, connection reset), or a page that
+	 * is not a published, publicly-served page, is treated as inconclusive and
+	 * returns false — a good write is never reverted on a flaky check.
+	 *
+	 * Broken = HTTP 5xx, an empty body (white screen), or WordPress's front-end
+	 * fatal-handler message. (The "critical error" string is specific enough not to
+	 * false-positive on ordinary page copy the way a bare "Fatal error:" scan would.)
+	 *
+	 * @param int $post_id The page just written.
+	 * @return bool
+	 */
+	private static function page_render_broken( int $post_id ): bool {
+		if ( 'publish' !== get_post_status( $post_id ) ) {
+			return false; // drafts/private pages aren't served anonymously — skip
+		}
+		$url = get_permalink( $post_id );
+		if ( ! $url ) {
+			return false;
+		}
+
+		$response = wp_remote_get(
+			$url,
+			array( 'timeout' => 15, 'sslverify' => false, 'redirection' => 3 )
+		);
+		if ( is_wp_error( $response ) ) {
+			return false; // inconclusive — never revert on a transient failure
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $code >= 500 ) {
+			return true;
+		}
+		$body = (string) wp_remote_retrieve_body( $response );
+		if ( '' === trim( $body ) ) {
+			return true; // white screen of death
+		}
+		if ( false !== stripos( $body, 'There has been a critical error on this' ) ) {
+			return true; // WordPress front-end fatal handler
+		}
+		return false;
 	}
 
 	/**

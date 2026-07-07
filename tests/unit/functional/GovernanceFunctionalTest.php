@@ -31,6 +31,8 @@ class GovernanceFunctionalTest extends TestCase {
 			'verify_calls'  => array(),
 		);
 		$GLOBALS['_emcp_require_grants'] = false;
+		$GLOBALS['_emcp_render_check']  = false;
+		unset( $GLOBALS['_http_response'] );
 		unset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] );
 		\Elementor_MCP_Governance::reset_state();
 	}
@@ -461,5 +463,144 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertSame( 'elementor-mcp-create-page', $GLOBALS['_aura_grant']['verify_calls'][0]['tool'] );
 		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
 		$this->assertSame( 4242, $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_id'] );
+	}
+
+	// --- post-write render check -------------------------------------------
+
+	/** Publish a post so the render check treats it as publicly served. */
+	private function publish( int $id ): void {
+		$GLOBALS['_posts'][ $id ] = (object) array( 'ID' => $id, 'post_status' => 'publish' );
+	}
+
+	private function enable_render_check(): void {
+		$GLOBALS['_emcp_render_check'] = true;
+	}
+
+	private function fake_http( int $code, string $body ): void {
+		$GLOBALS['_http_response'] = array( 'response' => array( 'code' => $code ), 'body' => $body );
+	}
+
+	public function test_render_check_off_by_default_keeps_the_write(): void {
+		$this->publish( 55 );
+		$this->fake_http( 500, '' ); // would be "broken" if checked
+		// render check NOT enabled
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'], 'Disabled → no render check, no revert.' );
+	}
+
+	public function test_broken_page_is_reverted_on_5xx(): void {
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 500, 'Internal Server Error' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_render_failed', $result->get_error_code() );
+		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_broken_page_is_reverted_on_white_screen(): void {
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 200, '   ' ); // empty/whitespace body = WSOD
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( 'governance_render_failed', $result->get_error_code() );
+		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_broken_page_is_reverted_on_wp_critical_error(): void {
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 200, '<html><body>There has been a critical error on this website.</body></html>' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( 'governance_render_failed', $result->get_error_code() );
+	}
+
+	public function test_healthy_page_keeps_the_write(): void {
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 200, '<html><body>My lovely page</body></html>' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_transient_loopback_failure_never_reverts(): void {
+		// wp_remote_get returns a WP_Error (timeout/DNS) → inconclusive, keep write.
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$GLOBALS['_http_response'] = new \WP_Error( 'http_request_failed', 'timeout' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result, 'A flaky loopback must never revert a good write.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_draft_page_is_not_render_checked(): void {
+		// Unpublished page isn't served anonymously; a non-200 there is not a
+		// breakage signal, so the check is skipped even with a 500 fake response.
+		$GLOBALS['_posts'][55] = (object) array( 'ID' => 55, 'post_status' => 'draft' );
+		$this->enable_render_check();
+		$this->fake_http( 500, '' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_render_revert_that_fails_to_restore_is_surfaced(): void {
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 500, '' );
+		$GLOBALS['_aura_snap']['fail_restore'] = true;
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
 	}
 }

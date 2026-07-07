@@ -319,7 +319,28 @@ namespace {
 
 	if ( ! function_exists( 'wp_remote_get' ) ) {
 		function wp_remote_get( string $url, array $args = [] ) {
+			// Controllable for the governance render check: tests set
+			// $GLOBALS['_http_response'] to a fake response array
+			// (['response'=>['code'=>500],'body'=>'…']). Default: HTTP disabled.
+			if ( array_key_exists( '_http_response', $GLOBALS ) ) {
+				return $GLOBALS['_http_response'];
+			}
 			return new \WP_Error( 'http_request_failed', 'HTTP requests are disabled in unit tests.' );
+		}
+	}
+
+	if ( ! function_exists( 'get_post_status' ) ) {
+		function get_post_status( $post = null ) {
+			$id = (int) ( is_object( $post ) ? ( $post->ID ?? 0 ) : $post );
+			return $GLOBALS['_posts'][ $id ]->post_status ?? false;
+		}
+	}
+
+	if ( ! function_exists( 'emcp_governance_render_check' ) ) {
+		// Mirrors the production helper (default false, opt-in). Tests toggle via
+		// the global.
+		function emcp_governance_render_check(): bool {
+			return (bool) ( $GLOBALS['_emcp_render_check'] ?? false );
 		}
 	}
 

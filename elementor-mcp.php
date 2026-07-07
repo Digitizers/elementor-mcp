@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor (Digitizers fork)
  * Plugin URI:        https://github.com/Digitizers/elementor-mcp
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
- * Version:           1.18.0
+ * Version:           1.19.0
  * Requires at least: 6.9
  * Tested up to:      6.9
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.18.0' );
+define( 'ELEMENTOR_MCP_VERSION', '1.19.0' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -125,6 +125,33 @@ function emcp_governance_require_grants(): bool {
 }
 
 /**
+ * Whether a governed page write is verified by a post-write render check.
+ *
+ * When on, after a successful governed write the edited page's front end is
+ * fetched and, if it comes back definitively broken (HTTP 5xx, an empty body /
+ * white screen, or WordPress's "critical error" fatal page), the write is rolled
+ * back to its pre-write snapshot. OPT-IN (default OFF): the check adds a loopback
+ * request per write, and a transient/ambiguous response is treated as
+ * inconclusive (never rolls back a good write), but operators opt in explicitly.
+ *
+ * @since 1.19.0
+ *
+ * @return bool
+ */
+function emcp_governance_render_check(): bool {
+	$enabled = (bool) get_option( 'elementor_mcp_render_check', false );
+
+	/**
+	 * Filters whether governed page writes run a post-write render check.
+	 *
+	 * @since 1.19.0
+	 *
+	 * @param bool $enabled Default: the elementor_mcp_render_check option (off).
+	 */
+	return (bool) apply_filters( 'elementor_mcp_render_check', $enabled );
+}
+
+/**
  * Canonical "Upgrade to Pro" URL — the external pricing page on the EMCP
  * Tools website. Used by every upgrade CTA in the plugin admin so users
  * land on the public pricing page (with full plan comparison + FAQ) rather
@@ -148,9 +175,10 @@ function elementor_mcp_after_uninstall() {
     delete_option( 'elementor_mcp_low_tool_mode' );
     delete_option( 'elementor_mcp_defaults_applied' );
     delete_option( 'elementor_mcp_premium_unlock_applied' );
-    // Grant-enforcement opt-in — clear it so a reinstall never inherits a stale
-    // "require grants" state that would silently reject writes on a governed site.
+    // Governance opt-ins — clear them so a reinstall never inherits a stale
+    // "require grants" / "render check" state on a governed site.
     delete_option( 'elementor_mcp_require_grants' );
+    delete_option( 'elementor_mcp_render_check' );
     delete_transient( 'elementor_mcp_pro_prompts_bundle' );
     delete_transient( 'elementor_mcp_pro_templates_bundle' );
     delete_transient( 'elementor_mcp_pro_brand_kits_bundle' );

@@ -2,6 +2,13 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.19.0 — 2026-07-07
+
+- New: **Post-write render check** for governed page writes — the third and final plank of P0.2. When enabled, after a successful governed write the edited page's front end is fetched and, if it comes back **definitively broken**, the write is reverted to its pre-write snapshot and the tool returns `governance_render_failed` (or `governance_rollback_failed` if the revert itself could not complete). This closes the loop: a write that succeeds at the data layer but produces a white screen / fatal page no longer ships.
+  - **Definitely broken =** HTTP 5xx, an empty body (WSOD), or WordPress's front-end fatal-handler message ("There has been a critical error on this website"). The specific critical-error string is used rather than a bare `Fatal error:` scan so ordinary page copy can't trip it.
+  - **Fail-safe.** A transient loopback failure (timeout, DNS, connection reset — anything returning a `WP_Error`), or a page that isn't a published, publicly-served page, is treated as **inconclusive and never reverts a good write**. The check only rolls back on an unambiguous breakage.
+  - **Opt-in** (default OFF): the check adds a loopback request per governed write, so operators enable it explicitly via the `elementor_mcp_render_check` option / filter (or `emcp_governance_render_check()`). Fires `elementor_mcp_governance_render_reverted` when it reverts. The opt-in is cleared on uninstall.
+
 ## 1.18.0 — 2026-07-07
 
 - New: **Server-enforced approval grants** for governed Elementor writes — the second plank of P0.2. When SiteAgent's Ed25519 grant regime is active (a gateway key is provisioned) **and** grant enforcement is opted in for this plugin, a governed write must present a valid `X-Aura-Approval-Grant` bound to its exact tool + params. The grant is verified **before the tool runs** via SiteAgent's `Aura_Worker_Grant::verify()`, which checks the signature, tool/params/site binding, validity window, and single-use nonce. A missing grant returns `governance_grant_required`; a rejected one returns `governance_grant_invalid` — in both cases the tool never executes (so a create-style tool cannot even `wp_insert_post` an unauthorized draft).

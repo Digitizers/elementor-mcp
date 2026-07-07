@@ -85,6 +85,21 @@ class ControlMapperRangeTest extends TestCase {
 		$this->assertSame( array( 'px', '%', 'em' ), $out['properties']['unit']['enum'] );
 	}
 
+	public function test_slider_advertising_many_units_but_range_for_one_does_not_borrow_bounds(): void {
+		// The control offers px AND % but only defines a range for px. The px
+		// bounds must NOT be applied to `size`, since the user may pick %.
+		$out = $this->map(
+			array(
+				'type'       => 'slider',
+				'size_units' => array( 'px', '%' ),
+				'range'      => array( 'px' => array( 'min' => 0, 'max' => 500 ) ),
+			)
+		);
+		$this->assertArrayNotHasKey( 'minimum', $out['properties']['size'], 'Single-unit range must not constrain a multi-unit slider.' );
+		$this->assertArrayNotHasKey( 'maximum', $out['properties']['size'] );
+		$this->assertSame( array( 'px', '%' ), $out['properties']['unit']['enum'] );
+	}
+
 	public function test_slider_without_range_or_units_stays_open(): void {
 		$out = $this->map( array( 'type' => 'slider' ) );
 		$this->assertSame( 'number', $out['properties']['size']['type'] );

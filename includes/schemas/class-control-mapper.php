@@ -121,30 +121,30 @@ class Elementor_MCP_Control_Mapper {
 			case 'slider':
 				$size = array( 'type' => 'number' );
 				$range = ( isset( $control['range'] ) && is_array( $control['range'] ) ) ? $control['range'] : array();
-				// Slider ranges are keyed by unit (range['px'], range['%'], …) and the
-				// bounds differ per unit, so a hard size min/max is only unambiguous
-				// when the control offers a single unit. Otherwise expose the unit set
-				// and leave size unconstrained.
-				if ( 1 === count( $range ) ) {
-					$only = reset( $range );
-					if ( is_array( $only ) ) {
-						if ( isset( $only['min'] ) && is_numeric( $only['min'] ) ) {
-							$size['minimum'] = $only['min'] + 0;
-						}
-						if ( isset( $only['max'] ) && is_numeric( $only['max'] ) ) {
-							$size['maximum'] = $only['max'] + 0;
-						}
-					}
-				}
+				// The units the control actually offers: size_units if declared,
+				// otherwise inferred from the range's unit keys.
 				$units = array();
 				if ( ! empty( $control['size_units'] ) && is_array( $control['size_units'] ) ) {
-					$units = array_values( array_filter( $control['size_units'], 'is_string' ) );
+					$units = array_values( array_unique( array_filter( $control['size_units'], 'is_string' ) ) );
 				} elseif ( ! empty( $range ) ) {
-					$units = array_values( array_filter( array_keys( $range ), 'is_string' ) );
+					$units = array_values( array_unique( array_filter( array_keys( $range ), 'is_string' ) ) );
+				}
+				// Slider bounds are keyed by unit and differ per unit, so a hard size
+				// min/max is only unambiguous when the control offers exactly ONE unit
+				// and the range defines it. A slider advertising several size_units but
+				// a range for only one must NOT borrow that unit's bounds for the others.
+				if ( 1 === count( $units ) && isset( $range[ $units[0] ] ) && is_array( $range[ $units[0] ] ) ) {
+					$bounds = $range[ $units[0] ];
+					if ( isset( $bounds['min'] ) && is_numeric( $bounds['min'] ) ) {
+						$size['minimum'] = $bounds['min'] + 0;
+					}
+					if ( isset( $bounds['max'] ) && is_numeric( $bounds['max'] ) ) {
+						$size['maximum'] = $bounds['max'] + 0;
+					}
 				}
 				$unit = array( 'type' => 'string' );
 				if ( ! empty( $units ) ) {
-					$unit['enum'] = array_values( array_unique( $units ) );
+					$unit['enum'] = $units;
 				}
 				return array(
 					'type'       => 'object',

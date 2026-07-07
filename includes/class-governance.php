@@ -3,10 +3,12 @@
  * SiteAgent governance bridge for destructive Elementor writes.
  *
  * When the SiteAgent worker (digitizer-site-worker) is installed alongside this
- * plugin, every DESTRUCTIVE ability that targets a specific post is wrapped so
- * the post's Elementor state is snapshotted BEFORE the write and rolled back if
- * the write fails. This gives agent-driven Elementor edits the same
- * capture-before-write safety SiteAgent already gives its own power tools.
+ * plugin, every WRITE-capable ability (annotated readonly=false) that targets a
+ * specific post is wrapped so the post's Elementor state is snapshotted BEFORE
+ * the write and rolled back if the write fails. This gives agent-driven Elementor
+ * edits the same capture-before-write safety SiteAgent already gives its own
+ * power tools. (The gate is readonly=false rather than destructive=true because
+ * many page mutators save _elementor_data while carrying destructive=false.)
  *
  * Soft dependency: when SiteAgent's snapshot engine (\Aura_Worker_Snapshots) is
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
@@ -35,7 +37,7 @@ class Elementor_MCP_Governance {
 	 *
 	 * @var string[]
 	 */
-	const PAGE_META_KEYS = array( '_elementor_data', '_elementor_page_settings' );
+	public const PAGE_META_KEYS = array( '_elementor_data', '_elementor_page_settings' );
 
 	/**
 	 * Is SiteAgent's snapshot engine available to govern writes?
@@ -63,9 +65,20 @@ class Elementor_MCP_Governance {
 			return $args;
 		}
 
-		$destructive = ! empty( $args['meta']['annotations']['destructive'] );
-		if ( ! $destructive ) {
-			return $args;
+		// Govern any WRITE-capable ability (annotated readonly=false), not only
+		// those flagged destructive: many page mutators (update-element,
+		// batch-update, import-template, the atomic add/update tools) save
+		// _elementor_data while carrying destructive=false, so a destructive-only
+		// gate would leave the main edit paths blind. Wrapping is harmless for a
+		// write tool that carries no post_id — run_governed() passes it through.
+		$annotations = ( isset( $args['meta']['annotations'] ) && is_array( $args['meta']['annotations'] ) )
+			? $args['meta']['annotations']
+			: null;
+		$writes = ( null !== $annotations )
+			&& array_key_exists( 'readonly', $annotations )
+			&& false === $annotations['readonly'];
+		if ( ! $writes ) {
+			return $args; // read-only, or annotations we cannot classify → untouched
 		}
 		if ( empty( $args['execute_callback'] ) || ! is_callable( $args['execute_callback'] ) ) {
 			return $args;
@@ -88,7 +101,11 @@ class Elementor_MCP_Governance {
 	 *               be made safe (no snapshot) or failed (rolled back).
 	 */
 	public static function run_governed( string $name, $original, $input ) {
-		$post_id = ( is_array( $input ) && isset( $input['post_id'] ) ) ? (int) $input['post_id'] : 0;
+		// absint() (not (int)) to match the write handlers, which normalize with
+		// absint() before saving — otherwise a negative post_id would fail the
+		// `<= 0` skip here yet still mutate abs(post_id) downstream, bypassing the
+		// snapshot entirely for destructive tools whose schema allows negatives.
+		$post_id = ( is_array( $input ) && isset( $input['post_id'] ) ) ? absint( $input['post_id'] ) : 0;
 
 		// Only page-targeting writes carry a post_id. Kit/repository writes have
 		// nothing to snapshot here — pass straight through.

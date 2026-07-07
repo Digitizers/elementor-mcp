@@ -24,16 +24,19 @@ class GovernanceFunctionalTest extends TestCase {
 		);
 	}
 
-	/** A destructive ability with a page id return payload. */
-	private function destructive_args( $callback ): array {
+	/** A write-capable ability (readonly=false) with the given annotations override. */
+	private function write_args( $callback, array $annotations = array() ): array {
 		return array(
 			'label'            => 'Delete page content',
 			'execute_callback' => $callback,
 			'meta'             => array(
-				'annotations' => array(
-					'readonly'    => false,
-					'destructive' => true,
-					'idempotent'  => true,
+				'annotations' => array_merge(
+					array(
+						'readonly'    => false,
+						'destructive' => true,
+						'idempotent'  => true,
+					),
+					$annotations
 				),
 			),
 		);
@@ -41,32 +44,70 @@ class GovernanceFunctionalTest extends TestCase {
 
 	// --- wrap_ability decision logic ---------------------------------------
 
-	public function test_destructive_ability_is_wrapped(): void {
+	public function test_write_capable_ability_is_wrapped(): void {
 		$original = static function ( $input ) {
 			return array( 'ok' => true );
 		};
-		$args    = $this->destructive_args( $original );
+		$args    = $this->write_args( $original );
 		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/delete-page-content', $args );
 
-		$this->assertNotSame( $original, $wrapped['execute_callback'], 'Destructive callback must be decorated.' );
+		$this->assertNotSame( $original, $wrapped['execute_callback'], 'Write callback must be decorated.' );
 		$this->assertIsCallable( $wrapped['execute_callback'] );
 	}
 
-	public function test_non_destructive_ability_is_not_wrapped(): void {
-		$original                                 = static function ( $input ) {
+	public function test_page_writer_flagged_non_destructive_is_still_wrapped(): void {
+		// The gate keys off readonly=false, NOT destructive=true — many page
+		// mutators (update-element, batch-update) save _elementor_data while
+		// carrying destructive=false and must still be governed (Codex R1 P1).
+		$original = static function ( $input ) {
 			return array( 'ok' => true ); };
-		$args                                     = $this->destructive_args( $original );
-		$args['meta']['annotations']['destructive'] = false;
+		$args    = $this->write_args( $original, array( 'destructive' => false ) );
+
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/update-element', $args );
+		$this->assertNotSame( $original, $wrapped['execute_callback'], 'readonly=false page writers must be governed.' );
+	}
+
+	public function test_readonly_ability_is_not_wrapped(): void {
+		$original = static function ( $input ) {
+			return array( 'ok' => true ); };
+		$args    = $this->write_args( $original, array( 'readonly' => true, 'destructive' => false ) );
 
 		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/export-page', $args );
-		$this->assertSame( $original, $wrapped['execute_callback'], 'Read/non-destructive tools stay untouched.' );
+		$this->assertSame( $original, $wrapped['execute_callback'], 'Read-only tools stay untouched.' );
+	}
+
+	public function test_ability_without_annotations_is_not_wrapped(): void {
+		$args = $this->write_args(
+			static function ( $input ) {
+				return array( 'ok' => true ); }
+		);
+		unset( $args['meta'] ); // unclassifiable — must not be wrapped
+		$original = $args['execute_callback'];
+
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/x', $args );
+		$this->assertSame( $original, $wrapped['execute_callback'] );
 	}
 
 	public function test_ability_without_callback_is_not_wrapped(): void {
-		$args = $this->destructive_args( 'not-callable-string-#' );
+		$args = $this->write_args( 'not-callable-string-#' );
 		unset( $args['execute_callback'] );
 		$wrapped = \Elementor_MCP_Governance::wrap_ability( 'elementor-mcp/x', $args );
 		$this->assertArrayNotHasKey( 'execute_callback', $wrapped );
+	}
+
+	public function test_negative_post_id_is_normalized_before_snapshot(): void {
+		// A negative post_id must not bypass governance: write handlers absint()
+		// their input, so governance must snapshot the same abs(id) (Codex R1 P2).
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/delete-page-content',
+			static function ( $input ) {
+				return array( 'deleted' => true ); },
+			array( 'post_id' => -55 )
+		);
+
+		$this->assertSame( array( 'deleted' => true ), $result );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertSame( 55, $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_id'], 'abs(post_id) is snapshotted.' );
 	}
 
 	// --- run_governed behaviour --------------------------------------------

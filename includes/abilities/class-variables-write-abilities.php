@@ -525,6 +525,10 @@ class Elementor_MCP_Variables_Write_Abilities {
 		// an editor-deleted token that this class hides everywhere else.
 		$this->normalize_tombstones( $repo );
 
+		// A size CSS-function expression must be stored in the atomic custom-size
+		// shape so Elementor preserves it across a later manager save.
+		$stored_value = ( 'size' === $type ) ? $this->prepare_size_value( $value ) : $value;
+
 		// Repository::create enforces label uniqueness + the count cap itself
 		// (skipping tombstoned rows) and mints the id + order.
 		try {
@@ -532,7 +536,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 				array(
 					'type'  => $internal_type,
 					'label' => $label,
-					'value' => $value,
+					'value' => $stored_value,
 				)
 			);
 		} catch ( \Throwable $e ) {
@@ -624,7 +628,9 @@ class Elementor_MCP_Variables_Write_Abilities {
 			if ( is_wp_error( $value_check ) ) {
 				return $value_check;
 			}
-			$changes['value'] = $value;
+			// Store size expressions in the custom-size shape so they survive a
+			// later manager save (see prepare_size_value()).
+			$changes['value'] = ( 'size' === $public_type ) ? $this->prepare_size_value( $value ) : $value;
 		}
 
 		// Repository::update enforces label uniqueness (skipping tombstones) and
@@ -896,6 +902,26 @@ class Elementor_MCP_Variables_Write_Abilities {
 	}
 
 	/**
+	 * Builds the stored value for a size token. A plain dimension is stored as a
+	 * string (Elementor parses it fine); a CSS-function EXPRESSION must be stored
+	 * in the atomic custom-size shape { $$type:'size', value:{ size:<expr>,
+	 * unit:'custom' } }. That's the only shape Elementor's Prop_Type_Adapter
+	 * preserves — `to_storage()` skips array values, and `from_storage()` reads
+	 * `unit:'custom'` to recover the expression. A raw expression string would
+	 * instead be re-parsed as a dimension (parse_size_value) on the next manager
+	 * save and silently lost.
+	 *
+	 * @param string $value The (validated) size value.
+	 * @return string|array String for a dimension, array for an expression.
+	 */
+	private function prepare_size_value( string $value ) {
+		if ( $this->is_size_expression( $value ) && class_exists( 'Elementor_MCP_Atomic_Props' ) ) {
+			return \Elementor_MCP_Atomic_Props::size( $value, 'custom' );
+		}
+		return $value;
+	}
+
+	/**
 	 * Whether a raw variable record is tombstoned (soft-deleted).
 	 *
 	 * Treats EITHER marker as a tombstone: the canonical Repository::delete sets
@@ -1081,6 +1107,12 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return (string) $value;
 		}
 		if ( is_array( $value ) ) {
+			// Custom-size prop { $$type:'size', value:{ size:<expr>, unit:'custom' } }:
+			// the raw CSS expression IS the size; return it directly. (Atomic_Props
+			// ::unwrap would otherwise blindly concatenate size.unit → "<expr>custom".)
+			if ( isset( $value['$$type'], $value['value']['unit'] ) && 'size' === $value['$$type'] && 'custom' === $value['value']['unit'] ) {
+				return isset( $value['value']['size'] ) ? (string) $value['value']['size'] : '';
+			}
 			// Tokens written through Elementor's own manager go via
 			// Variables_Repository -> Prop_Type_Adapter::to_storage(), which stores
 			// prop-typed ARRAY values (e.g. { $$type:'size', value:{ size, unit } }).

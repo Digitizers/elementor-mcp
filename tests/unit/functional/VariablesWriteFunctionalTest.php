@@ -115,13 +115,23 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( 'global-size-variable', $this->stored( $res['id'] )['type'] );
 	}
 
-	public function test_create_size_expression_uses_registered_size_type(): void {
+	public function test_create_size_expression_uses_registered_size_type_and_custom_shape(): void {
 		// Expressions store under the registered `global-size-variable` type (the
-		// custom-size key is an adapter-internal alias, not a stored/registered type).
+		// custom-size key is an adapter-internal alias, not a stored type), with
+		// the value in the atomic custom-size shape so Elementor preserves it.
 		$res = $this->ability->execute_create( array( 'label' => 'Fluid', 'type' => 'size', 'value' => 'clamp(1rem, 2vw, 3rem)' ) );
 		$this->assertNotWPError( $res );
-		$this->assertSame( 'global-size-variable', $this->stored( $res['id'] )['type'] );
-		$this->assertSame( 'clamp(1rem, 2vw, 3rem)', $this->stored( $res['id'] )['value'] );
+		$stored = $this->stored( $res['id'] );
+		$this->assertSame( 'global-size-variable', $stored['type'] );
+		$this->assertSame( array( '$$type' => 'size', 'value' => array( 'size' => 'clamp(1rem, 2vw, 3rem)', 'unit' => 'custom' ) ), $stored['value'] );
+		// And it round-trips back to the plain expression on read.
+		$this->assertSame( 'clamp(1rem, 2vw, 3rem)', $this->ability->execute_get( array( 'variable_id' => $res['id'] ) )['value'] );
+	}
+
+	public function test_create_plain_dimension_stays_a_string(): void {
+		$res = $this->ability->execute_create( array( 'label' => 'Gap', 'type' => 'size', 'value' => '24px' ) );
+		$this->assertNotWPError( $res );
+		$this->assertSame( '24px', $this->stored( $res['id'] )['value'] );
 	}
 
 	public function test_create_font_variable(): void {

@@ -48,6 +48,20 @@ class ControlMapperRangeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'multipleOf', $out, 'An offset grid (min not a multiple of step) must not emit multipleOf.' );
 	}
 
+	public function test_number_without_min_omits_multipleof(): void {
+		// step but no min → no known grid base (base 0 would be a guess), so
+		// multipleOf is omitted rather than risk rejecting a valid value.
+		$out = $this->map(
+			array(
+				'type' => 'number',
+				'max'  => 100,
+				'step' => 5,
+			)
+		);
+		$this->assertSame( 100, $out['maximum'] );
+		$this->assertArrayNotHasKey( 'multipleOf', $out, 'No explicit min → no assumed base → no multipleOf.' );
+	}
+
 	public function test_number_emits_multipleof_when_min_is_a_multiple_of_step(): void {
 		$out = $this->map(
 			array(

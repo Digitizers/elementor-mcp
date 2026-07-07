@@ -110,16 +110,19 @@ class Elementor_MCP_Control_Mapper {
 				if ( isset( $control['max'] ) && is_numeric( $control['max'] ) ) {
 					$number['maximum'] = $control['max'] + 0;
 				}
-				if ( isset( $control['step'] ) && is_numeric( $control['step'] ) && (float) $control['step'] > 0 ) {
-					// `multipleOf` means "divisible by step" — only correct when the
-					// grid starts on a multiple of step. An offset range (min=1, step=2
-					// → 1, 3, 5 …) is NOT a set of multiples of 2, so emitting
-					// multipleOf there would reject every valid value. Only emit it when
-					// the minimum is absent or itself a multiple of the step.
-					$grid_min = ( isset( $control['min'] ) && is_numeric( $control['min'] ) ) ? (float) $control['min'] : 0.0;
-					if ( 0.0 === fmod( $grid_min, (float) $control['step'] ) ) {
-						$number['multipleOf'] = $control['step'] + 0;
-					}
+				// `multipleOf` means "divisible by step", which only holds when the
+				// grid's base is known AND is itself a multiple of step. We therefore
+				// emit it only when there's an EXPLICIT min that lands on the step grid:
+				// an offset base (min=1, step=2 → 1,3,5…) isn't a set of multiples of 2,
+				// and an absent min gives no known base to assume (base 0 would be a
+				// guess), so in both cases we omit it rather than reject valid values.
+				if (
+					isset( $control['step'], $control['min'] )
+					&& is_numeric( $control['step'] ) && (float) $control['step'] > 0
+					&& is_numeric( $control['min'] )
+					&& 0.0 === fmod( (float) $control['min'], (float) $control['step'] )
+				) {
+					$number['multipleOf'] = $control['step'] + 0;
 				}
 				return $number;
 

@@ -387,4 +387,50 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertStringContainsString( 'grant already used', $result->get_error_message() );
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'A rejected grant must not snapshot or persist.' );
 	}
+
+	public function test_create_style_write_without_input_post_id_requires_grant(): void {
+		// create-page / build-page / theme-template creation persist page data to a
+		// NEW post whose id is not in the input — they must still be grant-gated
+		// (Codex R3 P1). No input post_id, so the run arms without one and the grant
+		// is enforced when the tool writes to the new post.
+		$this->require_grants(); // enforced + opted in, but NO header
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/create-page',
+			static function ( $input ) {
+				$gate = \Elementor_MCP_Governance::before_page_write( 4242 ); // brand-new post id
+				if ( is_wp_error( $gate ) ) {
+					return $gate;
+				}
+				return array( 'created' => 4242 );
+			},
+			array( 'title' => 'New Page' ) // NO post_id
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_create_style_write_with_valid_grant_proceeds_and_snapshots_new_post(): void {
+		$this->require_grants( 'payload.signature' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/create-page',
+			static function ( $input ) {
+				$gate = \Elementor_MCP_Governance::before_page_write( 4242 );
+				if ( is_wp_error( $gate ) ) {
+					return $gate;
+				}
+				return array( 'created' => 4242 );
+			},
+			array( 'title' => 'New Page' )
+		);
+
+		$this->assertSame( array( 'created' => 4242 ), $result );
+		$this->assertCount( 1, $GLOBALS['_aura_grant']['verify_calls'] );
+		$this->assertSame( 'elementor-mcp-create-page', $GLOBALS['_aura_grant']['verify_calls'][0]['tool'] );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertSame( 4242, $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_id'] );
+	}
 }

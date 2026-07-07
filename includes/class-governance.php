@@ -3,10 +3,12 @@
  * SiteAgent governance bridge for Elementor page writes.
  *
  * When the SiteAgent worker (digitizer-site-worker) is installed alongside this
- * plugin, a write-capable ability that edits an existing page has the page's
- * Elementor state (`_elementor_data` / `_elementor_page_settings`) snapshotted
- * BEFORE the write and rolled back if the write fails — the same
- * capture-before-write safety SiteAgent gives its own power tools.
+ * plugin, a write-capable ability that writes page data has the page's Elementor
+ * state (`_elementor_data` / `_elementor_page_settings`) snapshotted BEFORE the
+ * write and rolled back if the write fails — the same capture-before-write safety
+ * SiteAgent gives its own power tools. This covers create-style writes (whose
+ * target post id is not in the input) as well as edits, since the snapshot/grant
+ * fire from the write site, which learns the post id there.
  *
  * How it decides WHAT to snapshot — robustly, without a hand-maintained list:
  * the ability wrapper "arms" a governed run for the target post, then the actual
@@ -126,21 +128,15 @@ class Elementor_MCP_Governance {
 	 *               rolled back (or when the rollback itself failed).
 	 */
 	public static function run_governed( string $name, $original, $input ) {
-		// absint() (not (int)) to match the write handlers, which normalize with
-		// absint() before saving — otherwise a negative post_id would arm a
-		// different post than the one actually mutated downstream.
-		$post_id = ( is_array( $input ) && isset( $input['post_id'] ) ) ? absint( $input['post_id'] ) : 0;
-
-		// No specific existing page to protect (e.g. create-page, or a kit/repo
-		// tool) → run ungoverned. A snapshot needs a target post that exists.
-		if ( $post_id <= 0 ) {
-			return call_user_func( $original, $input );
-		}
-
+		// Arm EVERY governed run — including create-style writes whose target post
+		// id is not in the input (create-page, build-page, theme-template / popup
+		// creation). The grant + snapshot fire from the page-write site
+		// (before_page_write), which learns the actual post id there, so tools
+		// with no input post_id are still gated when they persist page data.
 		self::$run = array(
-			'post_id'         => $post_id,
 			'name'            => $name,
 			'input'           => $input,
+			'post_id'         => 0, // set lazily on the first real page write
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
 			'grant_checked'   => false,
@@ -149,13 +145,13 @@ class Elementor_MCP_Governance {
 		try {
 			$result = call_user_func( $original, $input );
 		} catch ( \Throwable $e ) {
-			$out = self::finish_failure( $name, $post_id, $e->getMessage() );
+			$out       = self::finish_failure( $name, self::$run['post_id'], $e->getMessage() );
 			self::$run = null;
 			return $out;
 		}
 
 		if ( is_wp_error( $result ) ) {
-			$out       = self::finish_failure( $name, $post_id, $result->get_error_message(), $result );
+			$out       = self::finish_failure( $name, self::$run['post_id'], $result->get_error_message(), $result );
 			self::$run = null;
 			return $out;
 		}
@@ -163,7 +159,7 @@ class Elementor_MCP_Governance {
 		// Success. If the tool captured a snapshot (i.e. it actually wrote page
 		// data), expose the rollback point so the gateway can offer an undo.
 		if ( null !== self::$run['snapshot_id'] ) {
-			do_action( 'elementor_mcp_governance_write', $name, $post_id, self::$run['snapshot_id'], $result );
+			do_action( 'elementor_mcp_governance_write', $name, self::$run['post_id'], self::$run['snapshot_id'], $result );
 		}
 		self::$run = null;
 		return $result;
@@ -186,13 +182,12 @@ class Elementor_MCP_Governance {
 		if ( null === self::$run || ! self::is_active() ) {
 			return null; // no governed run in flight
 		}
-		if ( self::$run['post_id'] !== absint( $post_id ) ) {
-			return null; // a write to some other post (unexpected) — do not touch
-		}
+		$post_id = absint( $post_id );
 
 		// Server-enforced approval, checked once per run at the real write site —
 		// so a preview or any call that writes no page data never needs a grant
-		// (mirrors how a snapshot is only taken on a real write). Runs BEFORE the
+		// (mirrors how a snapshot is only taken on a real write), while create-
+		// style writes with no input post_id are still gated. Runs BEFORE the
 		// snapshot, so a denied write neither snapshots nor persists.
 		if ( ! self::$run['grant_checked'] ) {
 			self::$run['grant_checked'] = true;
@@ -209,7 +204,9 @@ class Elementor_MCP_Governance {
 			return null; // already snapshotted (or already failed) this run
 		}
 
-		$snap = self::snapshots()->snapshot_meta( absint( $post_id ), self::PAGE_META_KEYS );
+		// The first real write of the run defines the post to protect + roll back.
+		self::$run['post_id'] = $post_id;
+		$snap                 = self::snapshots()->snapshot_meta( $post_id, self::PAGE_META_KEYS );
 		if ( empty( $snap['success'] ) ) {
 			self::$run['snapshot_failed'] = true;
 			return new \WP_Error(

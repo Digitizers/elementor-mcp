@@ -11,7 +11,7 @@
 [![GitHub Issues](https://img.shields.io/github/issues/Digitizers/elementor-mcp)](https://github.com/Digitizers/elementor-mcp/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/Digitizers/elementor-mcp?style=social)](https://github.com/Digitizers/elementor-mcp)
 
-This is the **Digitizers fork of [`msrbuilds/elementor-mcp`](https://github.com/msrbuilds/elementor-mcp)** (GPL). It keeps the original plugin's identity — the `elementor-mcp` slug, the `Elementor_MCP_*` classes, and the `elementor-mcp/` MCP namespace — and takes it in its own direction: a **correct Elementor 4.x atomic engine**, a **bundled MCP Adapter** so it installs as a single plugin, net-new **read-only inspection tools** (`list-media`, `list-global-classes`, `analyze-performance`, `scan-security`), and a **hardened, CI-tested** security posture. It is the engine behind the **Elementor Pro Studio** skill ([`Digitizers/claude-elementor-pro`](https://github.com/Digitizers/claude-elementor-pro), published on ClawHub as `elementor-pro-studio`), which drives it to build and edit real [Elementor](https://digitizer.li/elementor) pages.
+This is the **Digitizers fork of [`msrbuilds/elementor-mcp`](https://github.com/msrbuilds/elementor-mcp)** (GPL). It keeps the original plugin's identity — the `elementor-mcp` slug, the `Elementor_MCP_*` classes, and the `elementor-mcp/` MCP namespace — and takes it in its own direction: a **correct Elementor 4.x atomic engine**, a **bundled MCP Adapter** so it installs as a single plugin, net-new **read-only inspection tools** (`list-media`, `list-global-classes`, `analyze-performance`, `scan-security`), and a **hardened, CI-tested** security posture. It is the engine behind the **SiteAgent Elementor Studio** skill ([`Digitizers/siteagent-elementor-studio`](https://github.com/Digitizers/siteagent-elementor-studio)), which drives it to build and edit real [Elementor](https://digitizer.li/elementor) pages.
 
 The plugin extends the [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter) so AI clients — Claude Code, Claude Desktop, Cursor, and other MCP-compatible tools — can create and manipulate Elementor page designs programmatically over HTTP with just a WordPress Application Password.
 
@@ -43,7 +43,7 @@ This fork deliberately keeps the `elementor-mcp` identity and does **not** adopt
 ## Installation
 
 1. Install and activate [Elementor](https://wordpress.org/plugins/elementor/) (version 3.20+).
-2. Download the latest release zip from this fork's [Releases page](https://github.com/Digitizers/elementor-mcp/releases/latest). (The Elementor Pro Studio skill's installer pulls `releases/latest` automatically.)
+2. Download the latest release zip from this fork's [Releases page](https://github.com/Digitizers/elementor-mcp/releases/latest). (The SiteAgent Elementor Studio skill's installer pulls `releases/latest` automatically.)
 3. In WordPress, go to **Plugins → Add New → Upload Plugin** and upload the zip. The MCP Adapter is bundled — no separate plugin install is required.
 4. Activate the plugin through the **Plugins** menu.
 5. Open the new **EMCP Tools** top-level menu in the WordPress admin sidebar to configure tools and view connection info.

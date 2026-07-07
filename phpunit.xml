@@ -32,6 +32,9 @@
         <testsuite name="SecurityScanner">
             <directory>tests/unit/security-scanner</directory>
         </testsuite>
+        <testsuite name="Schemas">
+            <directory>tests/unit/schemas</directory>
+        </testsuite>
         <testsuite name="Unit">
             <file>tests/unit/WidgetGeneratorTest.php</file>
             <file>tests/unit/PremiumTierUnlockedTest.php</file>

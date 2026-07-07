@@ -622,9 +622,18 @@ namespace Elementor {
 				};
 
 				$this->widgets_manager = new class {
-					/** @return null — widget type not found in tests */
+					/**
+					 * With no arg, return all registered widget types (tests set the
+					 * map via $GLOBALS['_widget_types'] = [ name => widgetStub ]); with a
+					 * name, return that widget or null. Defaults to an empty registry so
+					 * existing tests (which expect null lookups) are unaffected.
+					 */
 					public function get_widget_types( string $widget_type = '' ) {
-						return null;
+						$types = $GLOBALS['_widget_types'] ?? array();
+						if ( '' === $widget_type ) {
+							return $types;
+						}
+						return $types[ $widget_type ] ?? null;
 					}
 				};
 

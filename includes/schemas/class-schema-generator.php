@@ -30,12 +30,18 @@ class Elementor_MCP_Schema_Generator {
 		$widget          = $widgets_manager->get_widget_types( $widget_type );
 
 		if ( ! $widget ) {
+			// Schema-in-error: return the nearest valid widget type names so an
+			// agent that used a wrong name can self-correct in one round trip.
 			return new \WP_Error(
 				'widget_not_found',
 				sprintf(
 					/* translators: %s: widget type name */
 					__( 'Widget type "%s" not found.', 'elementor-mcp' ),
 					$widget_type
+				),
+				array(
+					'requested'   => $widget_type,
+					'suggestions' => $this->suggest_types( $widget_type ),
 				)
 			);
 		}
@@ -67,6 +73,48 @@ class Elementor_MCP_Schema_Generator {
 			),
 			'properties'  => $properties,
 		);
+	}
+
+	/**
+	 * Suggest the valid widget type names closest to a (typically mistyped) one,
+	 * ranked: exact, then substring/contained, then smallest edit distance. Used to
+	 * put "did you mean…" candidates inline in a widget_not_found error so an agent
+	 * can correct a wrong widget name without a second round trip.
+	 *
+	 * @since 1.20.0
+	 *
+	 * @param string $bad   The requested (unknown) widget type.
+	 * @param int    $limit Max suggestions to return.
+	 * @return string[] Closest valid widget type names, best first.
+	 */
+	public function suggest_types( string $bad, int $limit = 6 ): array {
+		$widgets_manager = \Elementor\Plugin::$instance->widgets_manager;
+		$all             = $widgets_manager->get_widget_types();
+		if ( ! is_array( $all ) || empty( $all ) ) {
+			return array();
+		}
+
+		$bad_l  = strtolower( trim( $bad ) );
+		$scored = array();
+		foreach ( array_keys( $all ) as $name ) {
+			$name = (string) $name;
+			$n    = strtolower( $name );
+			if ( '' === $n ) {
+				continue;
+			}
+			if ( '' === $bad_l ) {
+				$score = 0; // no basis to rank — keep registration order
+			} elseif ( $n === $bad_l ) {
+				$score = 0;
+			} elseif ( false !== strpos( $n, $bad_l ) || false !== strpos( $bad_l, $n ) ) {
+				$score = 1; // one contains the other
+			} else {
+				$score = 3 + levenshtein( $bad_l, $n );
+			}
+			$scored[ $name ] = $score;
+		}
+		asort( $scored, SORT_NUMERIC );
+		return array_slice( array_keys( $scored ), 0, max( 0, $limit ) );
 	}
 
 	/**

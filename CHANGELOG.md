@@ -2,6 +2,14 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.20.0 — 2026-07-07
+
+- New: **Schema-in-error widget-type suggestions** (P1.1, first slice) — when a tool is given a widget type that doesn't exist, the error now carries the **nearest valid widget type names** inline so an agent can self-correct in a single round trip instead of guessing or making a second discovery call.
+  - `elementor-mcp/add-widget` with an unknown `widget_type` returns `invalid_widget_type` whose `data` includes `suggestions` (closest names, ranked: exact → substring → smallest edit distance) and a `schema_hint` pointing at `get-widget-schema`.
+  - `Elementor_MCP_Schema_Generator::generate()` (used by `get-widget-schema` and the settings validator) returns the same `suggestions` in its `widget_not_found` error `data`.
+  - New `Elementor_MCP_Schema_Generator::suggest_types( $bad, $limit = 6 )`.
+  - Note: this covers the **wrong-widget-name** mistake (the most common one). Attaching the full compact control schema to bad-**settings** rejections — which for Elementor 4 atomic widgets surface as `save_rejected` — needs an atomic prop-schema extractor and is a follow-up.
+
 ## 1.19.0 — 2026-07-07
 
 - New: **Post-write render check** for governed page writes — the third and final plank of P0.2. When enabled, after a successful governed write the edited page's front end is fetched and, if it comes back **definitively broken**, the write is reverted to its pre-write snapshot and the tool returns `governance_render_failed` (or `governance_rollback_failed` if the revert itself could not complete). This closes the loop: a write that succeeds at the data layer but produces a white screen / fatal page no longer ships.

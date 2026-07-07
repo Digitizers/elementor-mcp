@@ -294,6 +294,19 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( 1, $this->ability->execute_list( array() )['count'] );
 	}
 
+	public function test_create_reuses_label_of_deleted_at_only_tombstone(): void {
+		// A token soft-deleted via Elementor's entity/service path carries only
+		// `deleted_at`. Recreating its label must succeed (the raw Repository's own
+		// dup check skips only `deleted === true`, so we normalize first).
+		Repository::__reset( array(
+			'e-gv-ghost' => array( 'type' => 'global-color-variable', 'label' => 'Ghost', 'value' => '#111111', 'order' => 1, 'deleted_at' => '2025-01-01 00:00:00' ),
+		) );
+		$res = $this->ability->execute_create( array( 'label' => 'Ghost', 'type' => 'color', 'value' => '#222222' ) );
+		$this->assertNotWPError( $res, 'label of a deleted_at-only token is reusable' );
+		// The legacy tombstone was normalized to carry `deleted` too.
+		$this->assertTrue( ! empty( Repository::$store['e-gv-ghost']['deleted'] ) );
+	}
+
 	public function test_delete_missing_is_not_found(): void {
 		$res = $this->ability->execute_delete( array( 'variable_id' => 'e-gv-nope' ) );
 		$this->assertWPError( $res, 'not_found' );

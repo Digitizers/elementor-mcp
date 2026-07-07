@@ -520,6 +520,11 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return $repo;
 		}
 
+		// Complete any legacy `deleted_at`-only tombstones so Repository::create's
+		// own label/limit asserts (which skip only `deleted === true`) don't count
+		// an editor-deleted token that this class hides everywhere else.
+		$this->normalize_tombstones( $repo );
+
 		// Repository::create enforces label uniqueness + the count cap itself
 		// (skipping tombstoned rows) and mints the id + order.
 		try {
@@ -692,6 +697,11 @@ class Elementor_MCP_Variables_Write_Abilities {
 		if ( is_wp_error( $repo ) ) {
 			return $repo;
 		}
+
+		// Complete any legacy `deleted_at`-only tombstones so Repository::restore's
+		// label/limit re-checks (which skip only `deleted === true`) stay consistent
+		// with how this class treats those rows everywhere else.
+		$this->normalize_tombstones( $repo );
 
 		try {
 			$records = (array) $repo->variables();
@@ -897,6 +907,37 @@ class Elementor_MCP_Variables_Write_Abilities {
 	 * @param array $record Raw variable record.
 	 * @return bool
 	 */
+	/**
+	 * Completes any `deleted_at`-only tombstone into the canonical
+	 * `deleted` + `deleted_at` shape before a mutating op.
+	 *
+	 * Elementor's `Repository::create()/restore()` skip only rows where
+	 * `deleted === true` in their internal label-uniqueness + count-limit asserts,
+	 * so a token soft-deleted through the entity/service path (which can leave
+	 * only `deleted_at`) would still block reusing its label / count toward the
+	 * cap even though this class hides it everywhere else. `Repository::delete()`
+	 * sets both flags, so re-deleting such rows normalizes them (idempotent).
+	 *
+	 * @param object $repo The Variables repository.
+	 */
+	private function normalize_tombstones( $repo ): void {
+		try {
+			$records = (array) $repo->variables();
+		} catch ( \Throwable $e ) {
+			return;
+		}
+		foreach ( $records as $id => $record ) {
+			$record = (array) $record;
+			if ( empty( $record['deleted'] ) && ! empty( $record['deleted_at'] ) ) {
+				try {
+					$repo->delete( (string) $id );
+				} catch ( \Throwable $e ) {
+					// Best-effort — a failure here just leaves the legacy row as-is.
+				}
+			}
+		}
+	}
+
 	private function is_readable( array $record ): bool {
 		if ( $this->is_tombstoned( $record ) ) {
 			return false;

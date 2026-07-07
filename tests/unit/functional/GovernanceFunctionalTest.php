@@ -692,6 +692,26 @@ class GovernanceFunctionalTest extends TestCase {
 		$args = $GLOBALS['_http_last_args'] ?? array();
 		$this->assertArrayHasKey( 'limit_response_size', $args );
 		$this->assertLessThanOrEqual( 512 * 1024, $args['limit_response_size'] );
+		// Must not follow redirects — an off-origin redirect would be an SSRF.
+		$this->assertSame( 0, $args['redirection'] ?? -1 );
+	}
+
+	public function test_redirecting_page_is_inconclusive_and_never_reverts(): void {
+		// A page that responds with a redirect (potential open redirect) must not
+		// be followed server-side; the 3xx is inconclusive, so the write stands
+		// and no SSRF hop is made (Codex R7 P2, security).
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 302, '' ); // both probes see a redirect (not followed)
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
 	public function test_transient_loopback_failure_never_reverts(): void {

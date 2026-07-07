@@ -450,7 +450,12 @@ class Elementor_MCP_Governance {
 			array(
 				'timeout'     => 15,
 				'sslverify'   => false,
-				'redirection' => 3,
+				// Do NOT follow redirects: an edited page that issues an off-origin
+				// (open) redirect would otherwise make wp_remote_get fetch an
+				// attacker-controlled URL server-side — an SSRF. The initial URL is
+				// always this site's own permalink; a redirect response is a 3xx,
+				// which probe_render() already treats as inconclusive.
+				'redirection' => 0,
 				// The check only needs to tell empty from non-empty and scan for the
 				// fatal marker (which a WordPress fatal page emits near the top), so
 				// bound the buffered body — a huge healthy page must not make the

@@ -101,17 +101,56 @@ class Elementor_MCP_Control_Mapper {
 				return array( 'type' => 'string' );
 
 			case 'number':
-				return array( 'type' => 'number' );
+				$number = array( 'type' => 'number' );
+				// Elementor's number control carries min/max/step directly (no unit),
+				// so the range is unambiguous — emit it as JSON-Schema constraints.
+				if ( isset( $control['min'] ) && is_numeric( $control['min'] ) ) {
+					$number['minimum'] = $control['min'] + 0;
+				}
+				if ( isset( $control['max'] ) && is_numeric( $control['max'] ) ) {
+					$number['maximum'] = $control['max'] + 0;
+				}
+				if ( isset( $control['step'] ) && is_numeric( $control['step'] ) && (float) $control['step'] > 0 ) {
+					$number['multipleOf'] = $control['step'] + 0;
+				}
+				return $number;
 
 			case 'hidden':
 				return array( 'type' => 'string' );
 
 			case 'slider':
+				$size = array( 'type' => 'number' );
+				$range = ( isset( $control['range'] ) && is_array( $control['range'] ) ) ? $control['range'] : array();
+				// Slider ranges are keyed by unit (range['px'], range['%'], …) and the
+				// bounds differ per unit, so a hard size min/max is only unambiguous
+				// when the control offers a single unit. Otherwise expose the unit set
+				// and leave size unconstrained.
+				if ( 1 === count( $range ) ) {
+					$only = reset( $range );
+					if ( is_array( $only ) ) {
+						if ( isset( $only['min'] ) && is_numeric( $only['min'] ) ) {
+							$size['minimum'] = $only['min'] + 0;
+						}
+						if ( isset( $only['max'] ) && is_numeric( $only['max'] ) ) {
+							$size['maximum'] = $only['max'] + 0;
+						}
+					}
+				}
+				$units = array();
+				if ( ! empty( $control['size_units'] ) && is_array( $control['size_units'] ) ) {
+					$units = array_values( array_filter( $control['size_units'], 'is_string' ) );
+				} elseif ( ! empty( $range ) ) {
+					$units = array_values( array_filter( array_keys( $range ), 'is_string' ) );
+				}
+				$unit = array( 'type' => 'string' );
+				if ( ! empty( $units ) ) {
+					$unit['enum'] = array_values( array_unique( $units ) );
+				}
 				return array(
 					'type'       => 'object',
 					'properties' => array(
-						'size' => array( 'type' => 'number' ),
-						'unit' => array( 'type' => 'string' ),
+						'size' => $size,
+						'unit' => $unit,
 					),
 				);
 

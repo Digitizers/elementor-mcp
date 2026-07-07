@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.22.0
+Stable tag: 1.23.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,11 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.23.0 =
+New: Numeric range constraints in get-widget-schema.
+* number controls emit minimum/maximum/multipleOf from the control's min/max/step (a zero/omitted step is not emitted). slider controls expose a unit enum (size_units, else the range's unit keys) and, for a single-unit control, a size minimum/maximum from that unit's range; multi-unit sliders leave size unconstrained rather than assert a per-unit-wrong bound. Regression-tested.
+* Context: a source-verified competitor pass confirmed the fork's runtime schema discovery already matches and exceeds the benchmark — get_full_controls() enables style/group controls outside the editor (Performance::set_use_style_controls()), which a bare get_controls() misses under Optimized Control Loading. This closes the one remaining schema-richness delta.
 
 = 1.22.0 =
 Removed: the vendored Freemius SDK and the upstream hosted/licensed Pro marketplace it gated.

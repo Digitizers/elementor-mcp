@@ -1,0 +1,94 @@
+<?php
+/**
+ * Numeric range enrichment: number/slider controls carry their range into the
+ * generated JSON Schema so an agent sees the valid bounds without a second lookup.
+ *
+ * @group schemas
+ * @package Elementor_MCP\Tests\Schemas
+ */
+
+namespace Elementor_MCP\Tests\Schemas;
+
+use PHPUnit\Framework\TestCase;
+
+class ControlMapperRangeTest extends TestCase {
+
+	private function map( array $control ): array {
+		return \Elementor_MCP_Control_Mapper::map( $control );
+	}
+
+	public function test_number_emits_min_max_step(): void {
+		$out = $this->map(
+			array(
+				'type' => 'number',
+				'min'  => 1,
+				'max'  => 12,
+				'step' => 2,
+			)
+		);
+		$this->assertSame( 'number', $out['type'] );
+		$this->assertSame( 1, $out['minimum'] );
+		$this->assertSame( 12, $out['maximum'] );
+		$this->assertSame( 2, $out['multipleOf'] );
+	}
+
+	public function test_number_without_range_stays_bare(): void {
+		$out = $this->map( array( 'type' => 'number' ) );
+		$this->assertSame( 'number', $out['type'] );
+		$this->assertArrayNotHasKey( 'minimum', $out );
+		$this->assertArrayNotHasKey( 'maximum', $out );
+		$this->assertArrayNotHasKey( 'multipleOf', $out );
+	}
+
+	public function test_number_ignores_non_numeric_and_zero_step(): void {
+		$out = $this->map(
+			array(
+				'type' => 'number',
+				'min'  => '',
+				'max'  => 'x',
+				'step' => 0,
+			)
+		);
+		$this->assertArrayNotHasKey( 'minimum', $out );
+		$this->assertArrayNotHasKey( 'maximum', $out );
+		$this->assertArrayNotHasKey( 'multipleOf', $out, 'A zero/omitted step must not emit multipleOf (0 is invalid JSON Schema).' );
+	}
+
+	public function test_slider_single_unit_range_constrains_size(): void {
+		$out = $this->map(
+			array(
+				'type'       => 'slider',
+				'size_units' => array( 'px' ),
+				'range'      => array( 'px' => array( 'min' => 0, 'max' => 500 ) ),
+			)
+		);
+		$this->assertSame( 'object', $out['type'] );
+		$this->assertSame( 0, $out['properties']['size']['minimum'] );
+		$this->assertSame( 500, $out['properties']['size']['maximum'] );
+		$this->assertSame( array( 'px' ), $out['properties']['unit']['enum'] );
+	}
+
+	public function test_slider_multi_unit_range_leaves_size_unconstrained(): void {
+		$out = $this->map(
+			array(
+				'type'       => 'slider',
+				'size_units' => array( 'px', '%', 'em' ),
+				'range'      => array(
+					'px' => array( 'min' => 0, 'max' => 1000 ),
+					'%'  => array( 'min' => 0, 'max' => 100 ),
+				),
+			)
+		);
+		// Bounds differ per unit → no hard size min/max, but expose the unit set.
+		$this->assertArrayNotHasKey( 'minimum', $out['properties']['size'] );
+		$this->assertArrayNotHasKey( 'maximum', $out['properties']['size'] );
+		$this->assertSame( array( 'px', '%', 'em' ), $out['properties']['unit']['enum'] );
+	}
+
+	public function test_slider_without_range_or_units_stays_open(): void {
+		$out = $this->map( array( 'type' => 'slider' ) );
+		$this->assertSame( 'number', $out['properties']['size']['type'] );
+		$this->assertSame( 'string', $out['properties']['unit']['type'] );
+		$this->assertArrayNotHasKey( 'enum', $out['properties']['unit'] );
+	}
+}

@@ -2,6 +2,14 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.23.0 — 2026-07-08
+
+- New: **Numeric range constraints in `get-widget-schema`.** The control→JSON-Schema mapper now carries a control's own bounds into the schema so an agent sees valid values without a second lookup:
+  - `number` controls emit `minimum` / `maximum` / `multipleOf` from the control's `min` / `max` / `step` (unit-free, so unambiguous). A zero/omitted step is not emitted (`multipleOf: 0` is invalid).
+  - `slider` controls expose a `unit` enum (from `size_units`, else the range's unit keys) and, when the control offers a **single** unit, a `size` `minimum` / `maximum` from that unit's range. Multi-unit sliders (bounds differ per unit, e.g. `px` 0–1000 vs `%` 0–100) leave `size` unconstrained rather than assert a wrong bound.
+  - Regression-tested in `tests/unit/schemas/ControlMapperRangeTest.php`.
+  - Context: a source-verified competitor pass confirmed the fork's runtime schema discovery already matches **and exceeds** the "benchmark" — our `get_full_controls()` enables style/group controls **outside the editor** (via `Performance::set_use_style_controls()`), which the benchmark's bare `get_controls()` misses under Optimized Control Loading. This range enrichment closes the one remaining schema-richness delta.
+
 ## 1.22.0 — 2026-07-07
 
 - Removed: **the vendored Freemius SDK** (`includes/vendors/fremius/`, ~198 files) and the upstream **hosted/licensed Pro marketplace** it gated — the **Templates** and **Skills** tabs (purely hosted/licensed content) in full, plus the **hosted fetchers** behind the Prompts and Brand-Kits tabs, which pulled upstream's licensed content from `emcp.msrbuilds.com` (and phoned home the site URL). Those hosted pieces were permanently dormant in this fork (no paid plans, no license path) and are not ours to serve, so they are gone rather than left dead. This severs the last runtime tie to upstream's monetization account (Freemius product `30577`).

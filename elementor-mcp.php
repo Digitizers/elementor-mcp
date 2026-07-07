@@ -148,6 +148,9 @@ function elementor_mcp_after_uninstall() {
     delete_option( 'elementor_mcp_low_tool_mode' );
     delete_option( 'elementor_mcp_defaults_applied' );
     delete_option( 'elementor_mcp_premium_unlock_applied' );
+    // Grant-enforcement opt-in — clear it so a reinstall never inherits a stale
+    // "require grants" state that would silently reject writes on a governed site.
+    delete_option( 'elementor_mcp_require_grants' );
     delete_transient( 'elementor_mcp_pro_prompts_bundle' );
     delete_transient( 'elementor_mcp_pro_templates_bundle' );
     delete_transient( 'elementor_mcp_pro_brand_kits_bundle' );

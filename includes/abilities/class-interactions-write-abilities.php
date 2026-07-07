@@ -107,6 +107,12 @@ class Elementor_MCP_Interactions_Write_Abilities {
 	const DEFAULT_DELAY_MS = 0;
 
 	/**
+	 * Elementor's per-element interaction cap. Elementor's Interactions Validation
+	 * rejects an element with MORE than this many interactions on save.
+	 */
+	const MAX_INTERACTIONS = 5;
+
+	/**
 	 * The data access layer (page read/find/save).
 	 *
 	 * @var Elementor_MCP_Data
@@ -479,6 +485,20 @@ class Elementor_MCP_Interactions_Write_Abilities {
 				$element = $this->data->find_element_by_id( $page, $element_id );
 				$items   = is_array( $element ) ? $this->decode_items( $element['interactions'] ?? '' ) : $items;
 			}
+		}
+
+		// Elementor caps each element at MAX_INTERACTIONS; a native save of a 6th
+		// throws, and the raw-meta fallback would persist an invalid list Elementor
+		// later rejects/sanitizes. Refuse up front.
+		if ( count( $items ) >= self::MAX_INTERACTIONS ) {
+			return new \WP_Error(
+				'interaction_limit_reached',
+				sprintf(
+					/* translators: %d: the per-element interaction limit */
+					__( 'This element already has the maximum of %d interactions. Delete one before adding another.', 'elementor-mcp' ),
+					self::MAX_INTERACTIONS
+				)
+			);
 		}
 
 		$temp_id = 'temp-' . bin2hex( random_bytes( 8 ) );

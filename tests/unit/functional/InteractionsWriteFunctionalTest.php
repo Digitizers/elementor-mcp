@@ -135,6 +135,20 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( '7-atom1-bare01', $decoded['items'][0]['value']['interaction_id']['value'], 'id preserved through patch' );
 	}
 
+	public function test_add_rejects_beyond_the_five_interaction_cap(): void {
+		$items = array();
+		for ( $i = 0; $i < 5; $i++ ) {
+			$items[] = array(
+				'$$type' => 'interaction-item',
+				'value'  => array( 'interaction_id' => array( '$$type' => 'string', 'value' => "7-atom1-$i" ) ),
+			);
+		}
+		$full    = wp_json_encode( array( 'version' => 1, 'items' => $items ) );
+		$ability = $this->ability_with_page( $this->atomic_page( $full ) );
+		$res     = $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'effect' => 'fade' ) );
+		$this->assertWPError( $res, 'interaction_limit_reached' );
+	}
+
 	private function atomic_page( $interactions = null ): array {
 		$el = array(
 			'id'         => 'atom1',

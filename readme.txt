@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.23.0
+Stable tag: 1.24.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,11 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.24.0 =
+New: Kit-scoped governance (design-token writes get snapshot-before-write + rollback).
+* The system-kit writers (replace-system-colors/typography) and v4 Variables writers (create/edit/delete/restore-variable) act on the active kit post, not a page, so they never hit the page write-site and were ungoverned for reversal. They now declare a kit governance scope; run_governed() eagerly snapshots the kit's design-token meta (_elementor_page_settings, _elementor_global_variables) via SiteAgent's snapshot_meta before the write and rolls back on failure (a first-write create is fully reverted since restore deletes absent-at-capture keys).
+* Fail-closed: no active kit or a snapshot failure refuses the write (governance_snapshot_failed). Grants (opt-in) checked before the snapshot. No render check (a kit affects the whole site). Soft dependency on SiteAgent's snapshot engine. Not covered yet: global classes (separate CPT — plank 2) and interactions (page-data, already governed).
 
 = 1.23.0 =
 New: Numeric range constraints in get-widget-schema.

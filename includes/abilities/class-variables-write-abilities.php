@@ -283,6 +283,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 				),
 				'meta'                => array(
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
+					'governance'  => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)
@@ -316,6 +317,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 				),
 				'meta'                => array(
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
+					'governance'  => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)
@@ -347,6 +349,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 				),
 				'meta'                => array(
 					'annotations'  => array( 'readonly' => false, 'destructive' => true, 'idempotent' => true ),
+					'governance'  => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)
@@ -378,6 +381,7 @@ class Elementor_MCP_Variables_Write_Abilities {
 				),
 				'meta'                => array(
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
+					'governance'  => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)

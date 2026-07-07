@@ -830,4 +830,110 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
 	}
+
+	// --- kit-scoped (design-token) governance ------------------------------
+
+	/** Point the stub kits_manager at an active kit with the given id. */
+	private function set_active_kit( int $id ): void {
+		$GLOBALS['_active_kit'] = new class( $id ) {
+			private int $id;
+			public function __construct( int $id ) {
+				$this->id = $id; }
+			public function get_id() {
+				return $this->id; }
+		};
+	}
+
+	/** Write-capable args tagged as a kit-scoped design-token write. */
+	private function kit_write_args( $callback ): array {
+		$args                       = $this->write_args( $callback );
+		$args['meta']['governance'] = array( 'scope' => 'kit' );
+		return $args;
+	}
+
+	/** Run a kit-scoped tool through the real wrap → execute path. */
+	private function run_kit_tool( string $name, $callback, $input = array() ) {
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( $name, $this->kit_write_args( $callback ) );
+		return call_user_func( $wrapped['execute_callback'], $input );
+	}
+
+	public function test_kit_write_snapshots_the_kit_before_success(): void {
+		$this->set_active_kit( 7 );
+		$result = $this->run_kit_tool(
+			'elementor-mcp/create-variable',
+			static function ( $input ) {
+				return array( 'created' => true ); }
+		);
+
+		$this->assertSame( array( 'created' => true ), $result );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertSame( 7, $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_id'], 'Snapshots the active kit post.' );
+		$this->assertSame( \Elementor_MCP_Governance::KIT_META_KEYS, $GLOBALS['_aura_snap']['snapshot_calls'][0]['keys'] );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_kit_write_rolls_back_on_failure(): void {
+		$this->set_active_kit( 7 );
+		$result = $this->run_kit_tool(
+			'elementor-mcp/replace-system-colors',
+			static function ( $input ) {
+				return new \WP_Error( 'boom', 'kit write failed' ); }
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['restore_calls'], 'A failed kit write is rolled back.' );
+	}
+
+	public function test_kit_write_fails_closed_when_no_active_kit(): void {
+		$GLOBALS['_active_kit'] = null;
+		$ran                    = false;
+		$result                 = $this->run_kit_tool(
+			'elementor-mcp/create-variable',
+			static function ( $input ) use ( &$ran ) {
+				$ran = true;
+				return array( 'created' => true );
+			}
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
+		$this->assertFalse( $ran, 'The tool must not run when the kit cannot be snapshotted.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_kit_write_fails_closed_when_snapshot_fails(): void {
+		$this->set_active_kit( 7 );
+		$GLOBALS['_aura_snap']['fail_snapshot'] = true;
+		$ran                                    = false;
+		$result                                 = $this->run_kit_tool(
+			'elementor-mcp/replace-system-typography',
+			static function ( $input ) use ( &$ran ) {
+				$ran = true;
+				return array( 'ok' => true );
+			}
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
+		$this->assertFalse( $ran, 'A snapshot failure must refuse the write, not mutate design tokens.' );
+	}
+
+	public function test_kit_write_requires_grant_when_enforced(): void {
+		$this->set_active_kit( 7 );
+		$this->require_grants(); // enforced, no grant header
+		$ran    = false;
+		$result = $this->run_kit_tool(
+			'elementor-mcp/create-variable',
+			static function ( $input ) use ( &$ran ) {
+				$ran = true;
+				return array( 'created' => true );
+			}
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
+		$this->assertFalse( $ran, 'No grant → the kit write never runs.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'Grant is checked before the kit snapshot.' );
+	}
 }

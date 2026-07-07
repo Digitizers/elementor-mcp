@@ -208,7 +208,9 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 		// here raised a TypeError and broke add-atomic-widget entirely.
 		$save = $this->data->save_page_data( $post_id, $page_data );
 		if ( is_wp_error( $save ) ) {
-			return $save;
+			// Schema-in-error: if Elementor rejected the atomic settings, return the
+			// widget's compact prop schema so the agent can fix it in one round trip.
+			return Elementor_MCP_Atomic_Props::enrich_save_rejection( $save, $widget_type );
 		}
 
 		return array( 'element_id' => $element['id'] );
@@ -271,7 +273,11 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 		// add-atomic-widget above).
 		$save = $this->data->save_page_data( $post_id, $page_data );
 		if ( is_wp_error( $save ) ) {
-			return $save;
+			// Schema-in-error: resolve the element's atomic type and attach its
+			// compact prop schema to a rejection so the agent can self-correct.
+			$element     = $this->data->find_element_by_id( $page_data, $element_id );
+			$widget_type = is_array( $element ) ? (string) ( $element['widgetType'] ?? $element['elType'] ?? '' ) : '';
+			return Elementor_MCP_Atomic_Props::enrich_save_rejection( $save, $widget_type );
 		}
 
 		return array( 'success' => true );
@@ -344,7 +350,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 
 					$save = $this->data->save_page_data( $post_id, $page_data );
 					if ( is_wp_error( $save ) ) {
-						return $save;
+						return Elementor_MCP_Atomic_Props::enrich_save_rejection( $save, $widget_type );
 					}
 
 					return array( 'element_id' => $element['id'] );

@@ -31,17 +31,20 @@ class Elementor_MCP_Schema_Generator {
 
 		if ( ! $widget ) {
 			// Schema-in-error: return the nearest valid widget type names so an
-			// agent that used a wrong name can self-correct in one round trip.
+			// agent that used a wrong name can self-correct in one round trip. The
+			// MCP adapter surfaces only the message + code (it drops WP_Error data),
+			// so the suggestions go into the MESSAGE; data is kept for REST callers.
+			$suggestions = $this->suggest_types( $widget_type );
 			return new \WP_Error(
 				'widget_not_found',
 				sprintf(
 					/* translators: %s: widget type name */
 					__( 'Widget type "%s" not found.', 'elementor-mcp' ),
 					$widget_type
-				),
+				) . self::format_suggestions( $suggestions ),
 				array(
 					'requested'   => $widget_type,
-					'suggestions' => $this->suggest_types( $widget_type ),
+					'suggestions' => $suggestions,
 				)
 			);
 		}
@@ -115,6 +118,23 @@ class Elementor_MCP_Schema_Generator {
 		}
 		asort( $scored, SORT_NUMERIC );
 		return array_slice( array_keys( $scored ), 0, max( 0, $limit ) );
+	}
+
+	/**
+	 * Render a "did you mean" suffix for an error MESSAGE (the MCP adapter drops
+	 * WP_Error data, so suggestions must live in the message to reach agents).
+	 *
+	 * @since 1.21.0
+	 *
+	 * @param string[] $suggestions Candidate widget type names.
+	 * @return string Leading-space-prefixed suffix, or '' when there are none.
+	 */
+	public static function format_suggestions( array $suggestions ): string {
+		$suggestions = array_values( array_filter( array_map( 'strval', $suggestions ) ) );
+		if ( empty( $suggestions ) ) {
+			return '';
+		}
+		return ' Did you mean: ' . implode( ', ', $suggestions ) . '?';
 	}
 
 	/**

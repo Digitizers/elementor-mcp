@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.20.0
+Stable tag: 1.21.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,11 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.21.0 =
+New: Atomic schema-in-error (P1.1, second slice).
+* When Elementor rejects invalid atomic widget settings (save_rejected), the error now carries the target atomic type's compact prop schema inline, so an agent can correct it in one round trip. Wired into add-atomic-widget, update-atomic-widget, and the atomic convenience tools.
+* The schema is distilled from Elementor's own get_props_schema() (source-verified vs Elementor 4.1.4) via each prop's JsonSerializable form to { prop => { type, enum? } } — e.g. e-heading tag → { type: string, enum: [h1..h6] }. New Atomic_Props::schema_for() + enrich_save_rejection(). Fail-safe: only save_rejected is rewritten; never throws.
 
 = 1.20.0 =
 New: Schema-in-error widget-type suggestions (P1.1, first slice).

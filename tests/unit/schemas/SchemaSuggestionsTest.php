@@ -63,6 +63,9 @@ class SchemaSuggestionsTest extends TestCase {
 		$data = $result->get_error_data();
 		$this->assertSame( 'headline', $data['requested'] );
 		$this->assertContains( 'heading', $data['suggestions'] );
+		// The MCP adapter drops WP_Error data, so suggestions must be in the message.
+		$this->assertStringContainsString( 'Did you mean', $result->get_error_message() );
+		$this->assertStringContainsString( 'heading', $result->get_error_message() );
 	}
 
 	public function test_get_widget_schema_unknown_type_returns_suggestions(): void {
@@ -97,5 +100,6 @@ class SchemaSuggestionsTest extends TestCase {
 		$err = $result->get_error_data();
 		$this->assertContains( 'heading', $err['suggestions'] );
 		$this->assertArrayHasKey( 'schema_hint', $err );
+		$this->assertStringContainsString( 'Did you mean', $result->get_error_message() );
 	}
 }

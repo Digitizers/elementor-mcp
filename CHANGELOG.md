@@ -2,6 +2,13 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.21.0 — 2026-07-07
+
+- New: **Atomic schema-in-error** (P1.1, second slice) — when Elementor rejects invalid **atomic** widget settings (an Elementor 4 atomic widget throws on bad settings, which the write path surfaces as `save_rejected`), the error now carries the target atomic type's **compact prop schema** inline, so an agent can correct the settings in a single round trip instead of guessing.
+  - Wired into `add-atomic-widget`, `update-atomic-widget` (the type is resolved from the element), and the atomic convenience tools (`add-atomic-heading` / `-paragraph` / `-button` / `-image` / …).
+  - The schema is distilled from **Elementor's own `get_props_schema()`** (source-verified against Elementor 4.1.4): each prop is read via its `JsonSerializable` form to `{ prop => { type, enum? } }` — e.g. `e-heading` → `tag: { type: string, enum: [h1…h6] }`, `title: { type: html }`, `link: { type: link }`. New `Elementor_MCP_Atomic_Props::schema_for()` + `enrich_save_rejection()`.
+  - Fail-safe: only the `save_rejected` error is rewritten; a non-error, a different error code, or a type with no resolvable schema is returned untouched. Never throws.
+
 ## 1.20.0 — 2026-07-07
 
 - New: **Schema-in-error widget-type suggestions** (P1.1, first slice) — when a tool is given a widget type that doesn't exist, the error now carries the **nearest valid widget type names** inline so an agent can self-correct in a single round trip instead of guessing or making a second discovery call.

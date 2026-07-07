@@ -135,6 +135,20 @@ class InteractionsWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( '7-atom1-bare01', $decoded['items'][0]['value']['interaction_id']['value'], 'id preserved through patch' );
 	}
 
+	public function test_write_refreshes_the_interactions_postmeta_cache(): void {
+		// After a save (incl. the raw-meta fallback that skips document/after_save),
+		// the interactions cache must be rebuilt from the just-written page.
+		unset( $GLOBALS['_ix_cache'] );
+		$ability = $this->ability_with_page( $this->atomic_page() );
+		$res     = $ability->execute_add( array( 'post_id' => 7, 'element_id' => 'atom1', 'effect' => 'fade' ) );
+		$this->assertNotWPError( $res );
+		$this->assertArrayHasKey( '_ix_cache', $GLOBALS, 'interactions cache refreshed' );
+		$this->assertSame( 7, $GLOBALS['_ix_cache']['post_id'] );
+		// Rebuilt from the document-shaped payload keyed by `elements`.
+		$this->assertArrayHasKey( 'elements', $GLOBALS['_ix_cache']['data'] );
+		unset( $GLOBALS['_ix_cache'] );
+	}
+
 	public function test_add_rejects_beyond_the_five_interaction_cap(): void {
 		$items = array();
 		for ( $i = 0; $i < 5; $i++ ) {

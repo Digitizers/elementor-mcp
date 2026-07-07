@@ -713,7 +713,44 @@ class Elementor_MCP_Interactions_Write_Abilities {
 		if ( is_wp_error( $save ) ) {
 			return $save;
 		}
+
+		// Refresh Elementor's interactions postmeta cache from the just-written
+		// page. On a raw `_elementor_data` meta write (the REST/CLI fallback),
+		// `elementor/document/after_save` never fires, so the cache the frontend
+		// reads (`elementor-interactions-cache`) would otherwise stay stale.
+		// Idempotent when the document-save path already rebuilt it.
+		$this->refresh_interactions_cache( $post_id, $page );
+
 		return true;
+	}
+
+	/**
+	 * Rebuilds Elementor's interactions postmeta cache from the current page
+	 * elements, so add/edit/delete take effect on the frontend even when the save
+	 * fell back to a raw meta write (which skips `document/after_save`). Guarded +
+	 * non-fatal.
+	 *
+	 * @param int   $post_id The post id.
+	 * @param array $page    The page element tree (as saved).
+	 */
+	private function refresh_interactions_cache( int $post_id, array $page ): void {
+		$cls = '\\Elementor\\Modules\\Interactions\\Cache\\Interactions_Postmeta';
+		if ( ! class_exists( $cls ) ) {
+			return;
+		}
+		try {
+			$postmeta = new $cls();
+			if ( method_exists( $postmeta, 'process_content' ) ) {
+				// parse_from() expects a document-shaped payload keyed by `elements`.
+				$postmeta->process_content( $post_id, array( 'elements' => $page ) );
+			}
+		} catch ( \Throwable $e ) {
+			// Non-fatal — the document save may already have refreshed the cache.
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				error_log( '[Elementor MCP] interactions cache refresh failed: ' . $e->getMessage() );
+			}
+		}
 	}
 
 	/**

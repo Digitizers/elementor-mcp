@@ -861,6 +861,23 @@ namespace Elementor\Modules\Variables\Storage {
 }
 
 // ---------------------------------------------------------------------------
+// Elementor Interactions postmeta-cache stub
+//
+// Records process_content() calls so the interactions write tools' cache-refresh
+// (after a raw-meta save) can be asserted. State in $GLOBALS['_ix_cache'].
+// ---------------------------------------------------------------------------
+
+namespace Elementor\Modules\Interactions\Cache {
+	if ( ! class_exists( 'Elementor\\Modules\\Interactions\\Cache\\Interactions_Postmeta' ) ) {
+		class Interactions_Postmeta {
+			public function process_content( $post_id, $data ) {
+				$GLOBALS['_ix_cache'] = array( 'post_id' => $post_id, 'data' => $data );
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Plugin class autoloader (back in global namespace)
 // ---------------------------------------------------------------------------
 

@@ -162,6 +162,7 @@ class Elementor_MCP_Governance {
 			'post_id'         => 0, // set lazily on the first real page write
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
+			'pre_broken'      => false, // was the page already broken before the write?
 		);
 
 		try {
@@ -184,8 +185,11 @@ class Elementor_MCP_Governance {
 			$snapshot_id = self::$run['snapshot_id'];
 
 			// Optional post-write render check: if the edited page now renders
-			// definitively broken, revert to the pre-write snapshot.
-			if ( self::render_check_enabled() && self::page_render_broken( $post_id ) ) {
+			// definitively broken AND it wasn't already broken before the write
+			// (maintenance mode / unrelated 5xx are not the edit's fault), revert
+			// to the pre-write snapshot.
+			$pre_broken = ! empty( self::$run['pre_broken'] );
+			if ( self::render_check_enabled() && ! $pre_broken && self::page_render_broken( $post_id ) ) {
 				$restore   = self::snapshots()->restore( $snapshot_id );
 				self::$run = null;
 				if ( empty( $restore['success'] ) ) {
@@ -259,6 +263,13 @@ class Elementor_MCP_Governance {
 			);
 		}
 		self::$run['snapshot_id'] = $snap['snapshot']['id'];
+
+		// Baseline the page's render BEFORE the write (the old data is still in
+		// place at this point) so the post-write check can tell a breakage the edit
+		// caused from one that was already there (maintenance mode, unrelated 5xx).
+		if ( self::render_check_enabled() ) {
+			self::$run['pre_broken'] = self::page_render_broken( $post_id );
+		}
 		return null;
 	}
 

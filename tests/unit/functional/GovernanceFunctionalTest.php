@@ -33,6 +33,7 @@ class GovernanceFunctionalTest extends TestCase {
 		$GLOBALS['_emcp_require_grants'] = false;
 		$GLOBALS['_emcp_render_check']  = false;
 		unset( $GLOBALS['_http_response'] );
+		unset( $GLOBALS['_http_response_queue'] );
 		unset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] );
 		\Elementor_MCP_Governance::reset_state();
 	}
@@ -480,6 +481,15 @@ class GovernanceFunctionalTest extends TestCase {
 		$GLOBALS['_http_response'] = array( 'response' => array( 'code' => $code ), 'body' => $body );
 	}
 
+	private function resp( int $code, string $body ): array {
+		return array( 'response' => array( 'code' => $code ), 'body' => $body );
+	}
+
+	/** A render sequence: baseline probe first, then the post-write probe. */
+	private function fake_http_seq( array $responses ): void {
+		$GLOBALS['_http_response_queue'] = $responses;
+	}
+
 	public function test_render_check_off_by_default_keeps_the_write(): void {
 		$this->publish( 55 );
 		$this->fake_http( 500, '' ); // would be "broken" if checked
@@ -498,7 +508,8 @@ class GovernanceFunctionalTest extends TestCase {
 	public function test_broken_page_is_reverted_on_5xx(): void {
 		$this->publish( 55 );
 		$this->enable_render_check();
-		$this->fake_http( 500, 'Internal Server Error' );
+		// Healthy before the write, 5xx after → the write caused it → revert.
+		$this->fake_http_seq( array( $this->resp( 200, 'ok' ), $this->resp( 500, 'Internal Server Error' ) ) );
 
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
@@ -514,7 +525,7 @@ class GovernanceFunctionalTest extends TestCase {
 	public function test_broken_page_is_reverted_on_white_screen(): void {
 		$this->publish( 55 );
 		$this->enable_render_check();
-		$this->fake_http( 200, '   ' ); // empty/whitespace body = WSOD
+		$this->fake_http_seq( array( $this->resp( 200, 'ok' ), $this->resp( 200, '   ' ) ) ); // WSOD after
 
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
@@ -529,7 +540,10 @@ class GovernanceFunctionalTest extends TestCase {
 	public function test_broken_page_is_reverted_on_wp_critical_error(): void {
 		$this->publish( 55 );
 		$this->enable_render_check();
-		$this->fake_http( 200, '<html><body>There has been a critical error on this website.</body></html>' );
+		$this->fake_http_seq( array(
+			$this->resp( 200, 'ok' ),
+			$this->resp( 200, '<html><body>There has been a critical error on this website.</body></html>' ),
+		) );
 
 		$result = \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
@@ -538,6 +552,24 @@ class GovernanceFunctionalTest extends TestCase {
 		);
 
 		$this->assertSame( 'governance_render_failed', $result->get_error_code() );
+	}
+
+	public function test_pre_existing_5xx_is_not_the_edits_fault_and_keeps_the_write(): void {
+		// The page is ALREADY 5xx before the write (maintenance mode / unrelated
+		// upstream 503). Both probes see 500 → not the edit's fault → keep the
+		// write, don't block editing until the 5xx clears (Codex R4 P2).
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 500, '' ); // every probe → 500
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
 	public function test_healthy_page_keeps_the_write(): void {
@@ -659,7 +691,7 @@ class GovernanceFunctionalTest extends TestCase {
 	public function test_render_revert_that_fails_to_restore_is_surfaced(): void {
 		$this->publish( 55 );
 		$this->enable_render_check();
-		$this->fake_http( 500, '' );
+		$this->fake_http_seq( array( $this->resp( 200, 'ok' ), $this->resp( 500, '' ) ) );
 		$GLOBALS['_aura_snap']['fail_restore'] = true;
 
 		$result = \Elementor_MCP_Governance::run_governed(

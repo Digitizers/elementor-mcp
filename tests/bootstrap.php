@@ -319,10 +319,15 @@ namespace {
 
 	if ( ! function_exists( 'wp_remote_get' ) ) {
 		function wp_remote_get( string $url, array $args = [] ) {
-			// Controllable for the governance render check: tests set
-			// $GLOBALS['_http_response'] to a fake response array
-			// (['response'=>['code'=>500],'body'=>'…']). Default: HTTP disabled.
+			// Controllable for the governance render check. Tests set either
+			//   $GLOBALS['_http_response']       — one response for every call, or
+			//   $GLOBALS['_http_response_queue'] — a sequence (baseline, then post-
+			//                                      write) consumed one per call.
+			// Default: HTTP disabled (WP_Error).
 			$GLOBALS['_http_last_url'] = $url; // let tests assert cache-busting
+			if ( ! empty( $GLOBALS['_http_response_queue'] ) ) {
+				return array_shift( $GLOBALS['_http_response_queue'] );
+			}
 			if ( array_key_exists( '_http_response', $GLOBALS ) ) {
 				return $GLOBALS['_http_response'];
 			}

@@ -270,6 +270,120 @@ class Elementor_MCP_Atomic_Props {
 	 *
 	 * @return bool True if atomic element types are registered/available.
 	 */
+	/**
+	 * Resolve an atomic type name to its registered element/widget instance.
+	 * Atomic widgets (e-heading / e-paragraph / e-button / e-image) live in the
+	 * widgets manager; atomic elements (e-div-block / e-flexbox) in the elements
+	 * manager. Returns null when the type isn't registered.
+	 *
+	 * @since 1.21.0
+	 *
+	 * @param string $type Atomic type name.
+	 * @return object|null
+	 */
+	private static function resolve_atomic_instance( string $type ) {
+		if ( '' === $type || ! class_exists( '\Elementor\Plugin' ) || ! method_exists( '\Elementor\Plugin', 'instance' ) ) {
+			return null;
+		}
+		$elementor = \Elementor\Plugin::instance();
+
+		if ( isset( $elementor->widgets_manager ) && is_object( $elementor->widgets_manager )
+			&& method_exists( $elementor->widgets_manager, 'get_widget_types' ) ) {
+			$inst = $elementor->widgets_manager->get_widget_types( $type );
+			if ( is_object( $inst ) ) {
+				return $inst;
+			}
+		}
+		if ( isset( $elementor->elements_manager ) && is_object( $elementor->elements_manager )
+			&& method_exists( $elementor->elements_manager, 'get_element_types' ) ) {
+			$inst = $elementor->elements_manager->get_element_types( $type );
+			if ( is_object( $inst ) ) {
+				return $inst;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * A compact prop schema for an atomic type: `{ prop => { type, enum? } }`,
+	 * distilled from Elementor's own static `get_props_schema()`. Empty array when
+	 * the type is unknown or has no schema. Never throws.
+	 *
+	 * Each Prop_Type is read via its JsonSerializable form (`{ key, settings:{enum?} }`),
+	 * which is stable across Elementor's plain/object/union prop-type shapes — so we
+	 * don't depend on per-class static getters.
+	 *
+	 * @since 1.21.0
+	 *
+	 * @param string $type Atomic type name (e.g. 'e-heading').
+	 * @return array<string,array<string,mixed>>
+	 */
+	public static function schema_for( string $type ): array {
+		$inst = self::resolve_atomic_instance( $type );
+		if ( ! is_object( $inst ) ) {
+			return array();
+		}
+		$class = get_class( $inst );
+		if ( ! method_exists( $class, 'get_props_schema' ) ) {
+			return array();
+		}
+		try {
+			$schema = $class::get_props_schema();
+		} catch ( \Throwable $e ) {
+			return array();
+		}
+		if ( ! is_array( $schema ) ) {
+			return array();
+		}
+
+		$out = array();
+		foreach ( $schema as $prop => $prop_type ) {
+			if ( ! is_object( $prop_type ) ) {
+				continue;
+			}
+			$json = json_decode( wp_json_encode( $prop_type ), true );
+			if ( ! is_array( $json ) ) {
+				continue;
+			}
+			$entry = array( 'type' => (string) ( $json['key'] ?? 'mixed' ) );
+			$enum  = $json['settings']['enum'] ?? null;
+			if ( is_array( $enum ) && ! empty( $enum ) ) {
+				$entry['enum'] = array_values( $enum );
+			}
+			$out[ (string) $prop ] = $entry;
+		}
+		return $out;
+	}
+
+	/**
+	 * Enrich an Elementor save rejection with the target atomic type's compact prop
+	 * schema, so an agent that sent invalid atomic settings can self-correct in one
+	 * round trip. Only the `save_rejected` error is rewritten (Elementor 4 atomic
+	 * widgets throw on invalid settings, which save_page_data() maps to that code);
+	 * any other value — including a non-error or a different error code — is returned
+	 * unchanged, as is a `save_rejected` for a type with no resolvable schema.
+	 *
+	 * @since 1.21.0
+	 *
+	 * @param mixed  $save        The save result (\WP_Error on rejection).
+	 * @param string $widget_type The atomic type that was written.
+	 * @return mixed
+	 */
+	public static function enrich_save_rejection( $save, string $widget_type ) {
+		if ( ! is_wp_error( $save ) || 'save_rejected' !== $save->get_error_code() ) {
+			return $save;
+		}
+		$schema = self::schema_for( $widget_type );
+		if ( empty( $schema ) ) {
+			return $save;
+		}
+		$data = $save->get_error_data();
+		$data = is_array( $data ) ? $data : array();
+		$data['widget_type'] = $widget_type;
+		$data['schema']      = $schema;
+		return new \WP_Error( $save->get_error_code(), $save->get_error_message(), $data );
+	}
+
 	public static function is_atomic_supported(): bool {
 		if ( class_exists( '\Elementor\Plugin' ) && method_exists( '\Elementor\Plugin', 'instance' ) ) {
 			$elementor = \Elementor\Plugin::instance();

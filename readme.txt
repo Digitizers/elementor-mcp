@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.21.0
+Stable tag: 1.22.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -31,10 +31,10 @@ Tool counts scale with your environment: 61 tools on a free Elementor install, 1
 * **SVG Icons** — Upload SVG icons from URL or raw markup for use with Elementor icon widgets.
 * **Custom Code** — Add custom CSS (element/page level), inject JavaScript, create site-wide code snippets for head/body injection.
 * **AI Widget Builder (Pro)** — Let an AI agent design custom Elementor widgets from a structured spec (no hand-written PHP). The plugin compiles the spec into a sandboxed widget that appears in the Elementor panel — 35 control types, optional CSS/JS, with a runtime safety net so a bad widget can never break the editor.
-* **Brand Kits** — One-click color + typography kits that re-skin your whole site. 10 kits are free to apply (with backup + restore); 50+ with Pro.
+* **Brand Kits** — One-click color + typography kits that re-skin your whole site. 10 bundled kits, free to apply, with backup + restore.
 * **Low-tools Mode** — One-click toggle that trims the active tool list to a curated 50-or-so essentials so MCP clients with strict tool caps (Antigravity, Gemini API, etc.) stay under their limits.
 * **Sample Prompts** — Ready-to-use landing page blueprints with one-click copy from the admin dashboard.
-* **Admin Dashboard** — Dedicated top-level menu with Tools, Connection, Prompts, Templates, Brand Kits, Skills, Widget Builder, and Changelog tabs. Toggle individual tools on/off, view connection configs for all supported MCP clients, and get help via the built-in Get Support link.
+* **Admin Dashboard** — Dedicated top-level menu with Tools, Connection, Prompts, Brand Kits, Widget Builder, and Changelog tabs. Toggle individual tools on/off, view connection configs for all supported MCP clients, and get help via the built-in Get Support link.
 
 **Requires:**
 
@@ -155,6 +155,14 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.22.0 =
+Removed: the vendored Freemius SDK and the upstream hosted/licensed Pro marketplace it gated.
+* Deleted includes/vendors/fremius/ (~198 files), the Templates and Skills admin tabs (purely hosted/licensed content) in full, and the hosted fetchers behind the Prompts and Brand-Kits tabs, which pulled upstream's licensed content from emcp.msrbuilds.com and phoned home the site URL. Those hosted pieces were permanently dormant in this fork (no paid plans / no license path) and are not ours to serve. Severs the last runtime tie to upstream's Freemius product 30577.
+* Free features retained: the Sample Prompts tab (bundled .md blueprints with one-click copy) and the Brand Kits tab (10 bundled kits, free to apply, with backup + restore via the local System_Kit_Writer + emcp_kit_backup store) stay exactly as they were — only their hosted/licensed halves (the "Sync Library" fetch + upgrade CTA) were stripped. The free brand-kit apply/backup/restore is capability-gated on manage_options, no license.
+* No change to the MCP tool surface: the 19 GPL tools already registered via emcp_fork_premium_tools_enabled() with no Freemius dependency (since 1.13.0). The two hosted brand-kit tools (list/apply-brand-kits) fetched the licensed upstream library and never registered without a license — removed with it. Free bundled brand kits + local system-kit writers unchanged.
+* Restored a native uninstall.php (cleanup previously ran via the Freemius after_uninstall hook): deletes the same plugin-owned options/transients/user-meta, runs the generated-executable-PHP cleanup, and best-effort clears leftover legacy fs_* options. User page content + brand-kit backups still preserved.
+* Admin keeps the Tools, Connection, Prompts, Brand Kits, Widget Builder, and Changelog tabs. Distribution unchanged (GitHub releases).
 
 = 1.21.0 =
 New: Atomic schema-in-error (P1.1, second slice).

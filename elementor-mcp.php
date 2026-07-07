@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor (Digitizers fork)
  * Plugin URI:        https://github.com/Digitizers/elementor-mcp
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
- * Version:           1.21.0
+ * Version:           1.22.0
  * Requires at least: 6.9
  * Tested up to:      6.9
  * Requires PHP:      8.0
@@ -20,65 +20,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.21.0' );
+define( 'ELEMENTOR_MCP_VERSION', '1.22.0' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
 
-if ( ! function_exists( 'emcp_pro_fs' ) ) {
-    // Create a helper function for easy SDK access.
-    function emcp_pro_fs() {
-        global $emcp_pro_fs;
-
-        if ( ! isset( $emcp_pro_fs ) ) {
-            // Activate multisite network integration.
-            if ( ! defined( 'WP_FS__PRODUCT_30577_MULTISITE' ) ) {
-                define( 'WP_FS__PRODUCT_30577_MULTISITE', true );
-            }
-
-            // Include Freemius SDK.
-            require_once dirname( __FILE__ ) . '/includes/vendors/fremius/start.php';
-
-            $emcp_pro_fs = fs_dynamic_init( array(
-                'id'                  => '30577',
-                'slug'                => 'elementor-mcp',
-                'premium_slug'        => 'emcp-pro',
-                'type'                => 'plugin',
-                'public_key'          => 'pk_2b2a026d5c27655581635abcd4556',
-                'is_premium'          => false,
-                'has_addons'          => false,
-                'has_paid_plans'      => false,
-                'is_org_compliant'    => false,
-                'has_affiliation'     => 'selected',
-                'menu'                => array(
-                    'slug'           => 'elementor-mcp',
-                    'support'        => false,
-                ),
-            ) );
-        }
-
-        return $emcp_pro_fs;
-    }
-
-    // Init Freemius.
-    emcp_pro_fs();
-    // Signal that SDK was initiated.
-    do_action( 'emcp_pro_fs_loaded' );
-}
-
 /**
  * Whether the fork's premium-tier GPL tools are enabled.
  *
- * Upstream gated 19 MCP tools (brand kits, SEO audits, a11y audits, Widget
- * Builder) plus the generated-widget loader/store behind a Freemius paid
- * license. This fork ships no paid plans (`has_paid_plans => false`), so
- * that gate left GPL code living in this repo permanently dormant. The fork
- * enables it for everyone; the filter lets an operator turn the pack off.
- *
- * NOTE: this deliberately does NOT unlock the admin marketplace fetchers
- * (Pro templates / prompts / brand-kit bundles / skills downloads) — those
- * gate access to upstream's licensed hosted content on emcp.msrbuilds.com,
- * which is not ours to unlock.
+ * Upstream gated these 19 GPL tools (brand kits, SEO audits, a11y audits,
+ * Widget Builder) plus the generated-widget loader/store behind a Freemius
+ * paid license that this fork never carried; the SDK has since been removed,
+ * and the pack is enabled for everyone, filterable off.
  *
  * @since 1.13.0
  *
@@ -152,297 +105,6 @@ function emcp_governance_render_check(): bool {
 }
 
 /**
- * Canonical "Upgrade to Pro" URL — the external pricing page on the EMCP
- * Tools website. Used by every upgrade CTA in the plugin admin so users
- * land on the public pricing page (with full plan comparison + FAQ) rather
- * than Freemius's bundled in-admin pricing iframe.
- *
- * @since 1.7.1
- *
- * @return string
- */
-function elementor_mcp_upgrade_url(): string {
-    return 'https://emcp.msrbuilds.com/pricing';
-}
-
-/**
- * Removes plugin-owned options on uninstall.
- *
- * @since 1.6.1
- */
-function elementor_mcp_after_uninstall() {
-    delete_option( 'elementor_mcp_disabled_tools' );
-    delete_option( 'elementor_mcp_low_tool_mode' );
-    delete_option( 'elementor_mcp_defaults_applied' );
-    delete_option( 'elementor_mcp_premium_unlock_applied' );
-    // Governance opt-ins — clear them so a reinstall never inherits a stale
-    // "require grants" / "render check" state on a governed site.
-    delete_option( 'elementor_mcp_require_grants' );
-    delete_option( 'elementor_mcp_render_check' );
-    delete_transient( 'elementor_mcp_pro_prompts_bundle' );
-    delete_transient( 'elementor_mcp_pro_templates_bundle' );
-    delete_transient( 'elementor_mcp_pro_brand_kits_bundle' );
-    // Drop the dismissal flag from every user.
-    delete_metadata( 'user', 0, 'elementor_mcp_upgrade_notice_dismissed', '', true );
-    // Brand-kit backups (emcp_kit_backup CPT) are intentionally LEFT in place
-    // on uninstall — treated as recoverable user content so a user who removes
-    // the plugin can still roll back their pre-kit brand after reinstalling.
-
-    // Widget Builder: generated executable PHP must NOT survive uninstall —
-    // delete every emcp_widget post and remove the uploads sandbox tree.
-    if ( ! class_exists( 'Elementor_MCP_Widget_Store' ) ) {
-        require_once ELEMENTOR_MCP_DIR . 'includes/class-widget-store.php';
-    }
-    if ( class_exists( 'Elementor_MCP_Widget_Store' ) ) {
-        Elementor_MCP_Widget_Store::uninstall_cleanup();
-    }
-}
-
-/**
- * AJAX handler for the "Sync Library" button on the Pro Prompts page.
- *
- * @since 1.7.0
- */
-function elementor_mcp_sync_pro_prompts_ajax() {
-    check_ajax_referer( 'elementor_mcp_sync_pro_prompts', 'nonce' );
-
-    if ( ! current_user_can( 'manage_options' ) ) {
-        wp_send_json_error( array( 'message' => __( 'You do not have permission to sync prompts.', 'elementor-mcp' ) ), 403 );
-    }
-
-    $bundle = Elementor_MCP_Pro_Prompts::get_bundle( true );
-    if ( is_wp_error( $bundle ) ) {
-        wp_send_json_error( array( 'message' => $bundle->get_error_message() ), 400 );
-    }
-
-    $total = 0;
-    foreach ( $bundle['categories'] as $category ) {
-        $total += isset( $category['prompts'] ) && is_array( $category['prompts'] ) ? count( $category['prompts'] ) : 0;
-    }
-
-    wp_send_json_success(
-        array(
-            'message'    => sprintf(
-                /* translators: %1$d: total prompts, %2$d: total categories */
-                __( 'Synced %1$d prompts across %2$d categories.', 'elementor-mcp' ),
-                $total,
-                count( $bundle['categories'] )
-            ),
-            'fetched_at' => $bundle['fetched_at'],
-        )
-    );
-}
-
-/**
- * AJAX handler for the Sync Library button on the Pro Templates page.
- *
- * @since 1.7.1
- */
-function elementor_mcp_sync_pro_templates_ajax() {
-    check_ajax_referer( 'elementor_mcp_sync_pro_templates', 'nonce' );
-
-    if ( ! current_user_can( 'manage_options' ) ) {
-        wp_send_json_error( array( 'message' => __( 'You do not have permission to sync templates.', 'elementor-mcp' ) ), 403 );
-    }
-
-    $bundle = Elementor_MCP_Pro_Templates::get_bundle( true );
-    if ( is_wp_error( $bundle ) ) {
-        wp_send_json_error( array( 'message' => $bundle->get_error_message() ), 400 );
-    }
-
-    $total = 0;
-    foreach ( $bundle['categories'] as $category ) {
-        $total += isset( $category['templates'] ) && is_array( $category['templates'] ) ? count( $category['templates'] ) : 0;
-    }
-
-    wp_send_json_success(
-        array(
-            'message'    => sprintf(
-                /* translators: %1$d: total templates, %2$d: total categories */
-                __( 'Synced %1$d templates across %2$d categories.', 'elementor-mcp' ),
-                $total,
-                count( $bundle['categories'] )
-            ),
-            'fetched_at' => $bundle['fetched_at'],
-        )
-    );
-}
-
-/**
- * AJAX handler for applying a template to a new (or existing) page.
- *
- * @since 1.7.1
- */
-function elementor_mcp_apply_pro_template_ajax() {
-    check_ajax_referer( 'elementor_mcp_apply_pro_template', 'nonce' );
-
-    if ( ! current_user_can( 'edit_pages' ) ) {
-        wp_send_json_error( array( 'message' => __( 'You do not have permission to create pages.', 'elementor-mcp' ) ), 403 );
-    }
-
-    $category_slug  = isset( $_POST['category_slug'] ) ? sanitize_key( wp_unslash( $_POST['category_slug'] ) ) : '';
-    $template_slug  = isset( $_POST['template_slug'] ) ? sanitize_key( wp_unslash( $_POST['template_slug'] ) ) : '';
-    $target_post_id = isset( $_POST['target_post_id'] ) ? absint( wp_unslash( $_POST['target_post_id'] ) ) : 0;
-
-    if ( '' === $category_slug || '' === $template_slug ) {
-        wp_send_json_error( array( 'message' => __( 'Missing category or template slug.', 'elementor-mcp' ) ), 400 );
-    }
-
-    $result = Elementor_MCP_Pro_Templates::apply_template( $category_slug, $template_slug, $target_post_id );
-    if ( is_wp_error( $result ) ) {
-        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
-    }
-
-    wp_send_json_success( $result );
-}
-
-/**
- * AJAX handler for importing a template into Elementor's Saved Templates library.
- *
- * @since 1.7.1
- */
-function elementor_mcp_import_pro_template_ajax() {
-    check_ajax_referer( 'elementor_mcp_import_pro_template', 'nonce' );
-
-    if ( ! current_user_can( 'edit_posts' ) ) {
-        wp_send_json_error( array( 'message' => __( 'You do not have permission to import templates.', 'elementor-mcp' ) ), 403 );
-    }
-
-    $category_slug = isset( $_POST['category_slug'] ) ? sanitize_key( wp_unslash( $_POST['category_slug'] ) ) : '';
-    $template_slug = isset( $_POST['template_slug'] ) ? sanitize_key( wp_unslash( $_POST['template_slug'] ) ) : '';
-
-    if ( '' === $category_slug || '' === $template_slug ) {
-        wp_send_json_error( array( 'message' => __( 'Missing category or template slug.', 'elementor-mcp' ) ), 400 );
-    }
-
-    $result = Elementor_MCP_Pro_Templates::import_to_library( $category_slug, $template_slug );
-    if ( is_wp_error( $result ) ) {
-        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
-    }
-
-    wp_send_json_success( $result );
-}
-
-/**
- * AJAX handler for the Sync Library button on the Brand Kits page.
- *
- * @since 1.8.0
- */
-function elementor_mcp_sync_pro_brand_kits_ajax() {
-    check_ajax_referer( 'elementor_mcp_sync_pro_brand_kits', 'nonce' );
-
-    if ( ! current_user_can( 'manage_options' ) || ! Elementor_MCP_Pro_Brand_Kits::user_has_access() ) {
-        wp_send_json_error( array( 'message' => __( 'You do not have permission to sync brand kits.', 'elementor-mcp' ) ), 403 );
-    }
-
-    $bundle = Elementor_MCP_Pro_Brand_Kits::get_bundle( true );
-    if ( is_wp_error( $bundle ) ) {
-        wp_send_json_error( array( 'message' => $bundle->get_error_message() ), 400 );
-    }
-
-    $total = 0;
-    foreach ( $bundle['categories'] as $category ) {
-        $total += isset( $category['kits'] ) && is_array( $category['kits'] ) ? count( $category['kits'] ) : 0;
-    }
-
-    wp_send_json_success(
-        array(
-            'message'    => sprintf(
-                /* translators: %1$d: total kits, %2$d: total categories */
-                __( 'Synced %1$d brand kits across %2$d categories.', 'elementor-mcp' ),
-                $total,
-                count( $bundle['categories'] )
-            ),
-            'fetched_at' => $bundle['fetched_at'],
-        )
-    );
-}
-
-/**
- * AJAX handler for applying a brand kit from the admin page.
- *
- * @since 1.8.0
- */
-function elementor_mcp_apply_pro_brand_kit_ajax() {
-    check_ajax_referer( 'elementor_mcp_apply_pro_brand_kit', 'nonce' );
-
-    if ( ! current_user_can( 'manage_options' ) ) {
-        wp_send_json_error( array( 'message' => __( 'You do not have permission to apply brand kits.', 'elementor-mcp' ) ), 403 );
-    }
-
-    $kit_slug      = isset( $_POST['kit_slug'] ) ? sanitize_key( wp_unslash( $_POST['kit_slug'] ) ) : '';
-    $category_slug = isset( $_POST['category_slug'] ) ? sanitize_key( wp_unslash( $_POST['category_slug'] ) ) : '';
-    $do_backup     = ! isset( $_POST['backup'] ) || '0' !== (string) wp_unslash( $_POST['backup'] );
-
-    if ( '' === $kit_slug ) {
-        wp_send_json_error( array( 'message' => __( 'Missing kit slug.', 'elementor-mcp' ) ), 400 );
-    }
-
-    // Resolve the kit from the Pro remote library when the site has it, falling
-    // back to the 10 bundled free kits otherwise. Applying is a free feature;
-    // the Pro library is just a larger pool of kits to apply from.
-    $kit = null;
-    if ( class_exists( 'Elementor_MCP_Pro_Brand_Kits' ) && Elementor_MCP_Pro_Brand_Kits::user_has_access() ) {
-        $kit = Elementor_MCP_Pro_Brand_Kits::find_kit( $kit_slug, $category_slug );
-    }
-    if ( null === $kit && class_exists( 'Elementor_MCP_Free_Brand_Kits' ) ) {
-        $kit = Elementor_MCP_Free_Brand_Kits::find_kit( $kit_slug, $category_slug );
-    }
-    if ( null === $kit ) {
-        wp_send_json_error( array( 'message' => __( 'Brand kit not found. Try syncing the library first.', 'elementor-mcp' ) ), 404 );
-    }
-
-    $backup_id = null;
-    if ( $do_backup ) {
-        $backup = Elementor_MCP_Kit_Backup_Store::create( isset( $kit['title'] ) ? (string) $kit['title'] : $kit_slug );
-        if ( ! is_wp_error( $backup ) ) {
-            $backup_id = (int) $backup;
-        }
-    }
-
-    $result = Elementor_MCP_Pro_Brand_Kits::apply_kit( $kit );
-    if ( is_wp_error( $result ) ) {
-        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
-    }
-
-    $result['backup_id'] = $backup_id;
-    $result['view_url']  = elementor_mcp_recent_elementor_page_url();
-    wp_send_json_success( $result );
-}
-
-/**
- * AJAX handler for restoring a brand kit backup from the admin page.
- *
- * @since 1.8.0
- */
-function elementor_mcp_restore_pro_brand_kit_ajax() {
-    check_ajax_referer( 'elementor_mcp_restore_pro_brand_kit', 'nonce' );
-
-    if ( ! current_user_can( 'manage_options' ) ) {
-        wp_send_json_error( array( 'message' => __( 'You do not have permission to restore brand kits.', 'elementor-mcp' ) ), 403 );
-    }
-
-    $backup_id    = isset( $_POST['backup_id'] ) ? absint( wp_unslash( $_POST['backup_id'] ) ) : 0;
-    $full_clobber = isset( $_POST['full_clobber'] ) && '1' === (string) wp_unslash( $_POST['full_clobber'] );
-
-    if ( $backup_id <= 0 ) {
-        wp_send_json_error( array( 'message' => __( 'Missing or invalid backup.', 'elementor-mcp' ) ), 400 );
-    }
-
-    $result = Elementor_MCP_Kit_Backup_Store::restore( $backup_id, $full_clobber );
-    if ( is_wp_error( $result ) ) {
-        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
-    }
-
-    wp_send_json_success(
-        array(
-            'message'  => __( 'Brand restored from backup.', 'elementor-mcp' ),
-            'view_url' => elementor_mcp_recent_elementor_page_url(),
-        )
-    );
-}
-
-/**
  * URL of the most-recently-modified Elementor page (builder mode), or the
  * site homepage as a fallback. Used by the apply/restore toasts so the user
  * lands somewhere that actually showcases the change.
@@ -477,6 +139,96 @@ function elementor_mcp_recent_elementor_page_url(): string {
     }
 
     return home_url( '/' );
+}
+
+/**
+ * AJAX handler for applying a bundled (free) brand kit from the admin page.
+ *
+ * Free feature — capability-gated on manage_options, no license. Looks the kit
+ * up in the bundled Free_Brand_Kits set, optionally snapshots the current kit
+ * into the emcp_kit_backup CPT (backup-before-apply), then applies it through
+ * the shared Elementor_MCP_System_Kit_Writer.
+ *
+ * @since 1.22.0
+ */
+function elementor_mcp_apply_brand_kit_ajax() {
+    check_ajax_referer( 'elementor_mcp_apply_brand_kit', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( array( 'message' => __( 'You do not have permission to apply brand kits.', 'elementor-mcp' ) ), 403 );
+    }
+
+    $kit_slug      = isset( $_POST['kit_slug'] ) ? sanitize_key( wp_unslash( $_POST['kit_slug'] ) ) : '';
+    $category_slug = isset( $_POST['category_slug'] ) ? sanitize_key( wp_unslash( $_POST['category_slug'] ) ) : '';
+    $do_backup     = ! isset( $_POST['backup'] ) || '0' !== (string) wp_unslash( $_POST['backup'] );
+
+    if ( '' === $kit_slug ) {
+        wp_send_json_error( array( 'message' => __( 'Missing kit slug.', 'elementor-mcp' ) ), 400 );
+    }
+
+    $kit = class_exists( 'Elementor_MCP_Free_Brand_Kits' )
+        ? Elementor_MCP_Free_Brand_Kits::find_kit( $kit_slug, $category_slug )
+        : null;
+    if ( null === $kit ) {
+        wp_send_json_error( array( 'message' => __( 'Brand kit not found.', 'elementor-mcp' ) ), 404 );
+    }
+
+    $backup_id = null;
+    if ( $do_backup && class_exists( 'Elementor_MCP_Kit_Backup_Store' ) ) {
+        $backup = Elementor_MCP_Kit_Backup_Store::create( isset( $kit['title'] ) ? (string) $kit['title'] : $kit_slug );
+        if ( ! is_wp_error( $backup ) ) {
+            $backup_id = (int) $backup;
+        }
+    }
+
+    $result = Elementor_MCP_System_Kit_Writer::apply_kit( $kit );
+    if ( is_wp_error( $result ) ) {
+        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
+    }
+
+    $result['backup_id'] = $backup_id;
+    $result['view_url']  = elementor_mcp_recent_elementor_page_url();
+    wp_send_json_success( $result );
+}
+
+/**
+ * AJAX handler for restoring a brand-kit backup from the admin page.
+ *
+ * Free feature — capability-gated on manage_options. Reads the chosen
+ * emcp_kit_backup snapshot and restores it via the shared backup store (which
+ * routes through Elementor_MCP_System_Kit_Writer::restore_snapshot()).
+ *
+ * @since 1.22.0
+ */
+function elementor_mcp_restore_brand_kit_ajax() {
+    check_ajax_referer( 'elementor_mcp_restore_brand_kit', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( array( 'message' => __( 'You do not have permission to restore brand kits.', 'elementor-mcp' ) ), 403 );
+    }
+
+    $backup_id    = isset( $_POST['backup_id'] ) ? absint( wp_unslash( $_POST['backup_id'] ) ) : 0;
+    $full_clobber = isset( $_POST['full_clobber'] ) && '1' === (string) wp_unslash( $_POST['full_clobber'] );
+
+    if ( $backup_id <= 0 ) {
+        wp_send_json_error( array( 'message' => __( 'Missing or invalid backup.', 'elementor-mcp' ) ), 400 );
+    }
+
+    if ( ! class_exists( 'Elementor_MCP_Kit_Backup_Store' ) ) {
+        wp_send_json_error( array( 'message' => __( 'Backup store unavailable.', 'elementor-mcp' ) ), 500 );
+    }
+
+    $result = Elementor_MCP_Kit_Backup_Store::restore( $backup_id, $full_clobber );
+    if ( is_wp_error( $result ) ) {
+        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
+    }
+
+    wp_send_json_success(
+        array(
+            'message'  => __( 'Brand restored from backup.', 'elementor-mcp' ),
+            'view_url' => elementor_mcp_recent_elementor_page_url(),
+        )
+    );
 }
 
 /**
@@ -688,7 +440,6 @@ function elementor_mcp_init(): void {
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-system-kit-writer.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-kit-backup-store.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-free-brand-kits.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-pro-brand-kits.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-system-kit-abilities.php';
 	add_action( 'init', array( 'Elementor_MCP_Kit_Backup_Store', 'register_post_type' ) );
 	// Widget Builder (Pro) — sandboxed AI-generated Elementor widgets. The
@@ -717,26 +468,9 @@ function elementor_mcp_init(): void {
 	if ( is_admin() ) {
 		require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-admin.php';
 
-		if ( function_exists( 'emcp_pro_fs' ) ) {
-			require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-pro-prompts.php';
-			add_action( 'wp_ajax_elementor_mcp_sync_pro_prompts', 'elementor_mcp_sync_pro_prompts_ajax' );
-
-			require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-pro-templates.php';
-			add_action( 'wp_ajax_elementor_mcp_sync_pro_templates', 'elementor_mcp_sync_pro_templates_ajax' );
-			add_action( 'wp_ajax_elementor_mcp_apply_pro_template', 'elementor_mcp_apply_pro_template_ajax' );
-			add_action( 'wp_ajax_elementor_mcp_import_pro_template', 'elementor_mcp_import_pro_template_ajax' );
-
-			// Brand Kits (class loaded unconditionally above).
-			add_action( 'wp_ajax_elementor_mcp_sync_pro_brand_kits', 'elementor_mcp_sync_pro_brand_kits_ajax' );
-			add_action( 'wp_ajax_elementor_mcp_apply_pro_brand_kit', 'elementor_mcp_apply_pro_brand_kit_ajax' );
-			add_action( 'wp_ajax_elementor_mcp_restore_pro_brand_kit', 'elementor_mcp_restore_pro_brand_kit_ajax' );
-
-			require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-pro-skills.php';
-			( new Elementor_MCP_Pro_Skills() )->init();
-
-			require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-upgrade-notice.php';
-			( new Elementor_MCP_Upgrade_Notice() )->init();
-		}
+		// Free brand-kit apply/restore AJAX (capability-gated, no license gate).
+		add_action( 'wp_ajax_elementor_mcp_apply_brand_kit', 'elementor_mcp_apply_brand_kit_ajax' );
+		add_action( 'wp_ajax_elementor_mcp_restore_brand_kit', 'elementor_mcp_restore_brand_kit_ajax' );
 	}
 
 	// Boot the plugin.

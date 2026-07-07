@@ -2,11 +2,13 @@
 /**
  * Unit tests for F-015: plugin uninstall cleanup.
  *
- * Architecture note (updated for v1.6.1+)
- * ---------------------------------------
- * `uninstall.php` was REMOVED in v1.6.1 — Freemius rejects builds that contain
- * it. Cleanup now runs via the Freemius `after_uninstall` action wired in the
- * main plugin file to elementor_mcp_after_uninstall() (elementor-mcp.php).
+ * Architecture note (updated for the Freemius-SDK removal)
+ * -------------------------------------------------------
+ * The vendored Freemius SDK was removed from this fork. Cleanup previously ran
+ * via the SDK's `after_uninstall` action (wired to elementor_mcp_after_uninstall()
+ * in the main plugin file). With the SDK gone, a native `uninstall.php` at the
+ * plugin root is restored — WordPress runs it directly when the plugin is
+ * deleted.
  *
  * The cleanup removes plugin-OWNED data (options, transients, dismissal
  * user-meta) and the generated executable PHP for custom widgets + PHP snippets
@@ -24,19 +26,19 @@ namespace Elementor_MCP\Tests\Security;
 use PHPUnit\Framework\TestCase;
 
 /**
- * @covers elementor_mcp_after_uninstall
+ * @coversNothing
  */
 class F015UninstallTest extends TestCase {
 
-	/** @var string Absolute path to the main plugin file (hosts the cleanup callback). */
+	/** @var string Absolute path to the native uninstall handler. */
 	private string $cleanup_file;
 
-	/** @var string Source of the main plugin file. */
+	/** @var string Source of the uninstall handler. */
 	private string $cleanup_src;
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->cleanup_file = dirname( __DIR__, 3 ) . '/elementor-mcp.php';
+		$this->cleanup_file = dirname( __DIR__, 3 ) . '/uninstall.php';
 		$this->cleanup_src  = file_exists( $this->cleanup_file )
 			? file_get_contents( $this->cleanup_file )
 			: '';
@@ -44,29 +46,34 @@ class F015UninstallTest extends TestCase {
 
 	/**
 	 * @test
-	 * uninstall.php must NOT exist — Freemius rejects builds containing it.
+	 * The native uninstall.php must exist — it is how cleanup runs now that the
+	 * Freemius SDK (and its after_uninstall hook) has been removed.
 	 *
 	 * @group security
 	 * @group f-015
 	 */
-	public function test_uninstall_php_is_absent(): void {
-		$this->assertFileDoesNotExist(
-			dirname( __DIR__, 3 ) . '/uninstall.php',
-			'uninstall.php must NOT exist — Freemius rejects it (removed in v1.6.1). ' .
-			'Cleanup runs via elementor_mcp_after_uninstall() on the Freemius after_uninstall hook.'
+	public function test_uninstall_php_exists(): void {
+		$this->assertFileExists(
+			$this->cleanup_file,
+			'uninstall.php must exist at the plugin root — it runs the cleanup that the ' .
+			'Freemius after_uninstall hook used to run before the SDK was removed.'
 		);
 	}
 
 	/**
 	 * @test
-	 * The uninstall cleanup callback must exist.
+	 * uninstall.php must guard on WP_UNINSTALL_PLUGIN so it can never run outside
+	 * a genuine WordPress uninstall.
 	 *
 	 * @group security
 	 * @group f-015
 	 */
-	public function test_uninstall_cleanup_callback_exists(): void {
-		$this->assertFileExists( $this->cleanup_file, 'elementor-mcp.php must exist at the plugin root.' );
-		$this->assertStringContainsString( 'function elementor_mcp_after_uninstall', $this->cleanup_src );
+	public function test_uninstall_guards_on_wp_constant(): void {
+		$this->assertStringContainsString(
+			"defined( 'WP_UNINSTALL_PLUGIN' )",
+			$this->cleanup_src,
+			'uninstall.php must bail unless WP_UNINSTALL_PLUGIN is defined.'
+		);
 	}
 
 	/**

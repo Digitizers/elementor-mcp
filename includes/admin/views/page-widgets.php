@@ -6,7 +6,7 @@
  * last-error, view spec/PHP, activate/deactivate, and delete. The widgets are
  * created by AI agents through the MCP tools and live in an isolated uploads
  * sandbox — this screen is the human management / kill-switch surface.
- * Free users: upgrade CTA.
+ * Without access (no admin caps or pack disabled): an unavailable notice.
  *
  * @package Elementor_MCP
  * @since   1.9.0
@@ -17,7 +17,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $elementor_mcp_wb_pro = class_exists( 'Elementor_MCP_Widget_Store' ) && Elementor_MCP_Widget_Store::user_has_access();
-$elementor_mcp_wb_url = function_exists( 'elementor_mcp_upgrade_url' ) ? elementor_mcp_upgrade_url() : '#';
 ?>
 
 <div class="elementor-mcp-widget-builder">
@@ -39,11 +38,8 @@ $elementor_mcp_wb_url = function_exists( 'elementor_mcp_upgrade_url' ) ? element
 
 			<div class="elementor-mcp-pro-cta">
 				<p>
-					<?php esc_html_e( 'The Widget Builder is a Pro feature. Upgrade to let AI agents design and ship custom Elementor widgets.', 'elementor-mcp' ); ?>
+					<?php esc_html_e( 'The Widget Builder is unavailable. It requires administrator access and the premium tool pack to be enabled.', 'elementor-mcp' ); ?>
 				</p>
-				<a class="button button-primary" href="<?php echo esc_url( $elementor_mcp_wb_url ); ?>" target="_blank" rel="noopener">
-					<?php esc_html_e( 'Upgrade to Pro', 'elementor-mcp' ); ?>
-				</a>
 			</div>
 
 		<?php else : ?>

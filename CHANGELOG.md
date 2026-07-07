@@ -2,7 +2,7 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
-## 1.16.0 — {{DATE}}
+## 1.16.0 — 2026-07-07
 
 - New: **Interactions (per-element animations) CRUD** (Elementor 4.0+) — four tools that let an agent author Elementor 4's Interactions: the per-element scroll / hover / click animations attached to an atomic element. An interaction pairs a trigger (when it fires) with an animation preset (a fade/slide/scale in/out, with timing + easing). Each element in `_elementor_data` carries a top-level `interactions` field (sibling to `id`/`elType`/`settings`/`elements`), stored as a JSON-encoded string of `{ version:1, items:[…] }` where each item is a nested atomic `$$type` tree (`interaction-item` → `animation-preset-props` → `timing-config` / `config-v2`). Because the field is top-level — not inside `settings` — the tools walk the page tree and mutate `$element['interactions']` directly, then save the page. Registers only when BOTH the `e_interactions` and Atomic Widgets experiments are active (class/feature existence alone would let writes land while the runtime feature is off); writes are gated on `manage_options`, the read tool on `edit_posts`. Pro triggers / effects / easing are gated on Elementor Pro (permissive only when unresolvable).
   - New: `list-interactions` — lists the Interactions on an atomic element in ergonomic shape `{ interaction_id, trigger, effect, type, direction, duration_ms, delay_ms, easing }`, decoded/unwrapped from the element's `interactions` field.

@@ -301,8 +301,9 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		Repository::__reset( array(
 			'e-gv-ghost' => array( 'type' => 'global-color-variable', 'label' => 'Ghost', 'value' => '#111111', 'order' => 1, 'deleted_at' => '2025-01-01 00:00:00' ),
 		) );
+		// Label of a deleted_at-only token is reusable.
 		$res = $this->ability->execute_create( array( 'label' => 'Ghost', 'type' => 'color', 'value' => '#222222' ) );
-		$this->assertNotWPError( $res, 'label of a deleted_at-only token is reusable' );
+		$this->assertNotWPError( $res );
 		// The legacy tombstone was normalized to carry `deleted` too.
 		$this->assertTrue( ! empty( Repository::$store['e-gv-ghost']['deleted'] ) );
 	}
@@ -340,6 +341,26 @@ class VariablesWriteFunctionalTest extends Ability_Test_Case {
 		$this->assertNotWPError( $res );
 		$this->assertTrue( $res['restored'] );
 		$this->assertTrue( $res['already_active'] );
+	}
+
+	public function test_restore_non_pro_size_is_blocked(): void {
+		Repository::__reset( array(
+			'e-gv-sz' => array( 'type' => 'global-size-variable', 'label' => 'Sz', 'value' => '24px', 'order' => 1, 'deleted' => true, 'deleted_at' => '2025-01-01 00:00:00' ),
+		) );
+		$GLOBALS['_has_pro'] = false;
+		$res = $this->ability->execute_restore( array( 'variable_id' => 'e-gv-sz' ) );
+		$this->assertWPError( $res, 'requires_pro' );
+	}
+
+	public function test_edit_reuses_label_of_deleted_at_only_tombstone(): void {
+		Repository::__reset( array(
+			'e-gv-ghost'  => array( 'type' => 'global-color-variable', 'label' => 'Ghost', 'value' => '#111111', 'order' => 1, 'deleted_at' => '2025-01-01 00:00:00' ),
+			'e-gv-active' => array( 'type' => 'global-color-variable', 'label' => 'Active', 'value' => '#222222', 'order' => 2 ),
+		) );
+		// Rename the active token to the hidden ghost's label — must succeed.
+		$res = $this->ability->execute_edit( array( 'variable_id' => 'e-gv-active', 'label' => 'Ghost' ) );
+		$this->assertNotWPError( $res );
+		$this->assertSame( 'Ghost', Repository::$store['e-gv-active']['label'] );
 	}
 
 	public function test_restore_missing_is_not_found(): void {

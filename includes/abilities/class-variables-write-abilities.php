@@ -580,6 +580,11 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return $repo;
 		}
 
+		// Complete legacy `deleted_at`-only tombstones so Repository::update's own
+		// label-uniqueness check (which skips only `deleted === true`) doesn't
+		// collide a rename with a token this class hides everywhere else.
+		$this->normalize_tombstones( $repo );
+
 		try {
 			$records = (array) $repo->variables();
 		} catch ( \Throwable $e ) {
@@ -710,6 +715,14 @@ class Elementor_MCP_Variables_Write_Abilities {
 		}
 		if ( ! isset( $records[ $variable_id ] ) ) {
 			return $this->not_found( $variable_id );
+		}
+
+		// Don't restore a size token on a non-Pro site — create rejects size and
+		// list/get/edit hide it, so restoring would only leave an invisible,
+		// unusable active token. Match the create-time error.
+		$restore_type = isset( $records[ $variable_id ]['type'] ) ? (string) $records[ $variable_id ]['type'] : '';
+		if ( ( self::TYPE_SIZE === $restore_type || self::TYPE_CUSTOM_SIZE === $restore_type ) && ! $this->pro_active() ) {
+			return new \WP_Error( 'requires_pro', __( 'Size Variables require Elementor Pro, so this size token cannot be restored on this site.', 'elementor-mcp' ) );
 		}
 
 		// Idempotent: restoring an already-active token is a no-op. Return BEFORE

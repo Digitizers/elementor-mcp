@@ -40,11 +40,11 @@ class PremiumTierUnlockedTest extends Ability_Test_Case {
 	// The 19 tools register by default
 	// -------------------------------------------------------------------------
 
-	public function test_local_system_kit_writers_register_but_hosted_tools_stay_gated(): void {
-		// The two LOCAL writers act on this site's own kit and unlock; the two
-		// HOSTED-library tools (list/apply-brand-kits) fetch upstream licensed
-		// content the fork does not unlock, so they stay gated (no emcp_pro_fs
-		// in the test env => Pro_Brand_Kits::user_has_access() is false).
+	public function test_local_system_kit_writers_register(): void {
+		// The two LOCAL system-kit writers act on this site's own kit and ship
+		// enabled. (The old HOSTED brand-kit library tools — list/apply-brand-kits
+		// — were removed with the upstream marketplace and the Freemius SDK; they
+		// fetched licensed content this fork never carried and never registered.)
 		$abilities = new Elementor_MCP_System_Kit_Abilities();
 		$this->assertSame(
 			array(
@@ -53,13 +53,6 @@ class PremiumTierUnlockedTest extends Ability_Test_Case {
 			),
 			$abilities->get_ability_names()
 		);
-	}
-
-	public function test_hosted_brand_kit_tools_fail_closed_without_license(): void {
-		$abilities = new Elementor_MCP_System_Kit_Abilities();
-		$list = $abilities->execute_list_brand_kits( array() );
-		$this->assertInstanceOf( \WP_Error::class, $list );
-		$this->assertSame( 'no_license', $list->get_error_code() );
 	}
 
 	public function test_seo_tools_register_by_default(): void {

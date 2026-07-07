@@ -2,6 +2,13 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.22.0 — 2026-07-07
+
+- Removed: **the vendored Freemius SDK** (`includes/vendors/fremius/`, ~198 files) and the upstream **Pro marketplace** admin features it gated — the Templates / Prompts / Brand-Kits / Skills tabs and their fetchers, which pulled upstream's licensed hosted content from `emcp.msrbuilds.com` (and phoned home the site URL). Those features were permanently dormant in this fork (no paid plans, no license path) and are not ours to serve, so they are gone rather than left dead. This severs the last runtime tie to upstream's monetization account (Freemius product `30577`).
+  - **No change to the MCP tool surface.** The fork's 19 GPL tools (brand kits, SEO, a11y, Widget Builder) already register via `emcp_fork_premium_tools_enabled()` with no Freemius dependency (since 1.13.0); that is untouched. The two **hosted** brand-kit tools (`list-brand-kits` / `apply-brand-kit`) fetched the licensed upstream library and never registered without a license — they are removed with it. The **free**, bundled brand kits and the two local system-kit writers are unchanged.
+  - Restored: a native **`uninstall.php`**. Cleanup previously ran through Freemius's `after_uninstall` hook (the standalone `uninstall.php` was dropped in 1.6.1 because Freemius rejects builds containing it). The native handler deletes the same plugin-owned options/transients/user-meta, runs the generated-executable-PHP cleanup (`Widget_Store::uninstall_cleanup()` — this must never survive uninstall), and best-effort clears leftover legacy `fs_*` options for sites upgrading from a Freemius build. User page content and brand-kit backups are still preserved.
+  - Admin: the "Upgrade to Pro" header CTA and the marketplace dashboard counters are removed; the EMCP Tools admin keeps the Connection, Tools, Widget Builder, and Changelog tabs. Distribution is unchanged (GitHub releases; the Freemius updater was not the fork's update channel).
+
 ## 1.21.0 — 2026-07-07
 
 - New: **Atomic schema-in-error** (P1.1, second slice) — when Elementor rejects invalid **atomic** widget settings (an Elementor 4 atomic widget throws on bad settings, which the write path surfaces as `save_rejected`), the error now carries the target atomic type's **compact prop schema** inline, so an agent can correct the settings in a single round trip instead of guessing.

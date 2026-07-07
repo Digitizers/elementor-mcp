@@ -2,15 +2,14 @@
 /**
  * Free Brand Kits — the 10 bundled, no-license-required brand kits.
  *
- * This is the free-tier counterpart to Elementor_MCP_Pro_Brand_Kits. Where the
- * Pro service fetches 50+ kits from emcp.msrbuilds.com behind a license, this
- * one reads a small curated set shipped inside the plugin
+ * This reads a small curated set of brand kits shipped inside the plugin
  * (`assets/brand-kits/free-brand-kits.json`) and is available to everyone — the
- * same model as the 5 bundled sample prompts.
+ * same model as the 5 bundled sample prompts. No hosted service or license is
+ * involved; the kits live entirely in the plugin package.
  *
  * It only PROVIDES the kit data; applying still routes through the shared
  * Elementor_MCP_System_Kit_Writer (and backups through
- * Elementor_MCP_Kit_Backup_Store), exactly like the Pro path.
+ * Elementor_MCP_Kit_Backup_Store).
  *
  * Previews use the pre-rendered, font-outlined SVGs shipped alongside the JSON
  * in `assets/brand-kits/{slug}.svg`; their URLs are injected at read time since

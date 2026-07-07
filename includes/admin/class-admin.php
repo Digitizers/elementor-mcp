@@ -88,10 +88,6 @@ class Elementor_MCP_Admin {
 			$this->submenus = array(
 				self::PAGE_SLUG                 => __( 'Tools', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-connection' => __( 'Connection', 'elementor-mcp' ),
-				self::PAGE_SLUG . '-prompts'    => __( 'Prompts', 'elementor-mcp' ),
-				self::PAGE_SLUG . '-templates'  => __( 'Templates', 'elementor-mcp' ),
-				self::PAGE_SLUG . '-brand-kits' => __( 'Brand Kits', 'elementor-mcp' ),
-				self::PAGE_SLUG . '-skills'     => __( 'Skills', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-widgets'    => __( 'Widget Builder', 'elementor-mcp' ),
 				self::PAGE_SLUG . '-changelog'  => __( 'Changelog', 'elementor-mcp' ),
 			);
@@ -102,7 +98,7 @@ class Elementor_MCP_Admin {
 	/**
 	 * Determine which sub-screen is active from $_GET['page'].
 	 *
-	 * @return string One of 'tools', 'connection', 'prompts', 'changelog'.
+	 * @return string One of 'tools', 'connection', 'widgets', 'changelog'.
 	 */
 	private function get_active_tab(): string {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -111,14 +107,6 @@ class Elementor_MCP_Admin {
 		switch ( $page ) {
 			case self::PAGE_SLUG . '-connection':
 				return 'connection';
-			case self::PAGE_SLUG . '-prompts':
-				return 'prompts';
-			case self::PAGE_SLUG . '-templates':
-				return 'templates';
-			case self::PAGE_SLUG . '-brand-kits':
-				return 'brand-kits';
-			case self::PAGE_SLUG . '-skills':
-				return 'skills';
 			case self::PAGE_SLUG . '-widgets':
 				return 'widgets';
 			case self::PAGE_SLUG . '-changelog':
@@ -542,37 +530,15 @@ class Elementor_MCP_Admin {
 			}
 		}
 
-		// Count prompts. For Pro sites with a synced bundle, use the actual
-		// premium-library count (matches what the Prompts tab shows). For
-		// everyone else, count the bundled sample files in prompts/.
-		$prompt_count = 0;
-		if (
-			class_exists( 'Elementor_MCP_Pro_Prompts' )
-			&& Elementor_MCP_Pro_Prompts::user_has_access()
-		) {
-			$bundle = get_transient( Elementor_MCP_Pro_Prompts::CACHE_KEY );
-			if ( is_array( $bundle ) && ! empty( $bundle['categories'] ) ) {
-				foreach ( $bundle['categories'] as $category ) {
-					if ( ! empty( $category['prompts'] ) && is_array( $category['prompts'] ) ) {
-						$prompt_count += count( $category['prompts'] );
-					}
-				}
-			}
-		}
-		if ( 0 === $prompt_count ) {
-			$prompts_dir  = ELEMENTOR_MCP_DIR . 'prompts/';
-			$prompt_files = is_dir( $prompts_dir ) ? glob( $prompts_dir . '*.md' ) : array();
-			$prompt_count = count( $prompt_files );
-		}
+		// Count prompts — the bundled sample files in prompts/.
+		$prompts_dir  = ELEMENTOR_MCP_DIR . 'prompts/';
+		$prompt_files = is_dir( $prompts_dir ) ? glob( $prompts_dir . '*.md' ) : array();
+		$prompt_count = count( $prompt_files );
 
-		// Brand kits: Pro shows the cached remote library count; everyone else
-		// shows the bundled free-kit count (applying is a free feature).
+		// Brand kits: show the bundled free-kit count (applying is a free feature).
 		$brand_kit_count = 0;
 		$show_brand_kits = false;
-		if ( class_exists( 'Elementor_MCP_Pro_Brand_Kits' ) && Elementor_MCP_Pro_Brand_Kits::user_has_access() ) {
-			$brand_kit_count = Elementor_MCP_Pro_Brand_Kits::count_cached_kits();
-			$show_brand_kits = true;
-		} elseif ( class_exists( 'Elementor_MCP_Free_Brand_Kits' ) ) {
+		if ( class_exists( 'Elementor_MCP_Free_Brand_Kits' ) ) {
 			$brand_kit_count = Elementor_MCP_Free_Brand_Kits::count_kits();
 			$show_brand_kits = $brand_kit_count > 0;
 		}
@@ -606,18 +572,6 @@ class Elementor_MCP_Admin {
 						<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a1.5 1.5 0 012.45 1.16c0 .5-.25.78-.86 1.2-.66.45-1.03 1-1.03 1.7v.25a.75.75 0 001.5 0c0-.4.13-.55.7-.94.7-.48 1.19-1.06 1.19-2.06A3 3 0 006.6 7.34a.75.75 0 101.4.52c.1-.27.26-.66.94-.92zM10 14.5a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
 						<?php esc_html_e( 'Get Support', 'elementor-mcp' ); ?>
 					</a>
-					<?php
-					// Only show the upgrade CTA to sites without a valid Pro license.
-					// Freemius adds its own Contact / Account / Upgrade items to the
-					// EMCP Tools menu, so we don't need a redundant header link.
-					$elementor_mcp_show_upgrade = ! function_exists( 'emcp_pro_fs' )
-						|| ! emcp_pro_fs()->can_use_premium_code();
-					if ( $elementor_mcp_show_upgrade ) : ?>
-						<a href="<?php echo esc_url( elementor_mcp_upgrade_url() ); ?>" class="elementor-mcp-header-btn elementor-mcp-header-btn--primary" target="_blank" rel="noopener noreferrer">
-							<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
-							<?php esc_html_e( 'Upgrade to Pro', 'elementor-mcp' ); ?>
-						</a>
-					<?php endif; ?>
 				</div>
 			</div>
 
@@ -677,14 +631,6 @@ class Elementor_MCP_Admin {
 				<?php
 				if ( 'connection' === $active_tab ) {
 					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-connection.php';
-				} elseif ( 'prompts' === $active_tab ) {
-					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-prompts.php';
-				} elseif ( 'templates' === $active_tab ) {
-					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-templates.php';
-				} elseif ( 'brand-kits' === $active_tab ) {
-					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-brand-kits.php';
-				} elseif ( 'skills' === $active_tab ) {
-					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-skills.php';
 				} elseif ( 'widgets' === $active_tab ) {
 					include ELEMENTOR_MCP_DIR . 'includes/admin/views/page-widgets.php';
 				} elseif ( 'changelog' === $active_tab ) {
@@ -1500,34 +1446,6 @@ class Elementor_MCP_Admin {
 					'elementor-mcp/replace-system-typography' => array(
 						'label'       => __( 'Replace System Typography', 'elementor-mcp' ),
 						'description' => __( 'Replaces the four Elementor system typography slots atomically.', 'elementor-mcp' ),
-						'badges'      => array( 'destructive' ),
-					),
-				),
-			);
-		}
-
-		// Brand Kits (hosted). list/apply pull from upstream's licensed content
-		// service, which the fork does not unlock, so these two register only on
-		// a site that actually carries a license AND has the pack enabled —
-		// matching Elementor_MCP_System_Kit_Abilities::has_hosted_kit_access(),
-		// so the Tools tab never lists toggles for abilities that won't register.
-		if (
-			function_exists( 'emcp_fork_premium_tools_enabled' )
-			&& emcp_fork_premium_tools_enabled()
-			&& class_exists( 'Elementor_MCP_Pro_Brand_Kits' )
-			&& Elementor_MCP_Pro_Brand_Kits::user_has_access()
-		) {
-			$tools['brand_kits'] = array(
-				'label' => __( 'Brand Kits', 'elementor-mcp' ),
-				'tools' => array(
-					'elementor-mcp/list-brand-kits' => array(
-						'label'       => __( 'List Brand Kits', 'elementor-mcp' ),
-						'description' => __( 'Lists available premium brand kits from the cached library.', 'elementor-mcp' ),
-						'badges'      => array( 'read-only' ),
-					),
-					'elementor-mcp/apply-brand-kit' => array(
-						'label'       => __( 'Apply Brand Kit', 'elementor-mcp' ),
-						'description' => __( 'Applies a brand kit: replaces system colors + typography site-wide.', 'elementor-mcp' ),
 						'badges'      => array( 'destructive' ),
 					),
 				),

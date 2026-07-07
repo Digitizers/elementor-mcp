@@ -285,7 +285,13 @@ namespace {
 
 	if ( ! function_exists( 'get_permalink' ) ) {
 		function get_permalink( $post = 0 ) {
-			return 'http://example.com/test-page/';
+			return $GLOBALS['_permalink'] ?? 'http://example.com/test-page/';
+		}
+	}
+
+	if ( ! function_exists( 'home_url' ) ) {
+		function home_url( string $path = '', $scheme = null ) {
+			return 'http://example.com' . $path;
 		}
 	}
 
@@ -319,7 +325,50 @@ namespace {
 
 	if ( ! function_exists( 'wp_remote_get' ) ) {
 		function wp_remote_get( string $url, array $args = [] ) {
+			// Controllable for the governance render check. Tests set either
+			//   $GLOBALS['_http_response']       — one response for every call, or
+			//   $GLOBALS['_http_response_queue'] — a sequence (baseline, then post-
+			//                                      write) consumed one per call.
+			// Default: HTTP disabled (WP_Error).
+			$GLOBALS['_http_last_url']  = $url; // let tests assert cache-busting
+			$GLOBALS['_http_last_args'] = $args; // let tests assert size-capping
+			if ( ! empty( $GLOBALS['_http_response_queue'] ) ) {
+				return array_shift( $GLOBALS['_http_response_queue'] );
+			}
+			if ( array_key_exists( '_http_response', $GLOBALS ) ) {
+				return $GLOBALS['_http_response'];
+			}
 			return new \WP_Error( 'http_request_failed', 'HTTP requests are disabled in unit tests.' );
+		}
+	}
+
+	if ( ! function_exists( 'get_post_status' ) ) {
+		function get_post_status( $post = null ) {
+			$id = (int) ( is_object( $post ) ? ( $post->ID ?? 0 ) : $post );
+			return $GLOBALS['_posts'][ $id ]->post_status ?? false;
+		}
+	}
+
+	if ( ! function_exists( 'get_post_type' ) ) {
+		function get_post_type( $post = null ) {
+			$id = (int) ( is_object( $post ) ? ( $post->ID ?? 0 ) : $post );
+			return $GLOBALS['_posts'][ $id ]->post_type ?? 'page';
+		}
+	}
+
+	if ( ! function_exists( 'is_post_type_viewable' ) ) {
+		// Default: every type viewable; tests can mark types non-viewable via
+		// $GLOBALS['_non_viewable'].
+		function is_post_type_viewable( $post_type ) {
+			return ! in_array( $post_type, (array) ( $GLOBALS['_non_viewable'] ?? array() ), true );
+		}
+	}
+
+	if ( ! function_exists( 'emcp_governance_render_check' ) ) {
+		// Mirrors the production helper (default false, opt-in). Tests toggle via
+		// the global.
+		function emcp_governance_render_check(): bool {
+			return (bool) ( $GLOBALS['_emcp_render_check'] ?? false );
 		}
 	}
 

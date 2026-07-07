@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.18.0
+Stable tag: 1.19.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,12 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.19.0 =
+New: Post-write render check for governed page writes (P0.2 plank 3, final).
+* When enabled, after a successful governed write the edited page's front end is fetched; if it comes back definitively broken (HTTP 5xx, empty body / white screen, or WordPress's "There has been a critical error on this website" fatal page), the write is reverted to its pre-write snapshot and the tool returns governance_render_failed.
+* Fail-safe: a transient loopback failure (any WP_Error), a page that isn't published/publicly-viewable (drafts + elementor_library templates/popups are skipped), or a page already broken before the write (maintenance/unrelated 5xx — the page is baselined first) is inconclusive and never reverts a good write. Only a breakage the write introduced rolls back. The probe is cache-busted so a warm cache can't mask a fresh fatal.
+* Opt-in (default OFF): adds a loopback request per write, so enable via the elementor_mcp_render_check option / filter. Fires elementor_mcp_governance_render_reverted on revert; opt-in cleared on uninstall.
 
 = 1.18.0 =
 New: Server-enforced approval grants for governed Elementor page writes (P0.2 plank 2).

@@ -34,6 +34,12 @@
  * so it cannot deny Elementor edits before the gateway is minting grants for this
  * plugin's tool names.
  *
+ * Post-write render check (1.19.0, opt-in — emcp_governance_render_check()): after
+ * a successful governed write, the edited page's front end is fetched and, if it
+ * comes back DEFINITELY broken (HTTP 5xx, empty body / WSOD, or WordPress's fatal
+ * page), the write is reverted to its pre-write snapshot. Fail-safe: a transient
+ * or ambiguous response never reverts a good write.
+ *
  * Soft dependency: when SiteAgent's snapshot engine (\Aura_Worker_Snapshots) is
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
  * plugin. The plugin never hard-requires SiteAgent.
@@ -150,12 +156,20 @@ class Elementor_MCP_Governance {
 		// Arm the run. The snapshot fires from the page-write site
 		// (before_page_write), which learns the actual post id there — so
 		// create-style writes with no input post_id are still snapshotted.
+		// An input post_id means we're EDITING an existing page; no post_id means a
+		// create-style tool will insert a new post. The render check only applies to
+		// edits — reverting a create would restore "absent" meta yet leave the newly
+		// inserted post behind, so creates are not render-checked.
+		$is_edit = is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
+
 		self::$run = array(
 			'name'            => $name,
 			'input'           => $input,
 			'post_id'         => 0, // set lazily on the first real page write
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
+			'is_edit'         => $is_edit,
+			'baseline'        => 'inconclusive', // pre-write render state (edits only)
 		);
 
 		try {
@@ -172,10 +186,46 @@ class Elementor_MCP_Governance {
 			return $out;
 		}
 
-		// Success. If the tool captured a snapshot (i.e. it actually wrote page
-		// data), expose the rollback point so the gateway can offer an undo.
+		// Success — the tool captured a snapshot, i.e. it actually wrote page data.
 		if ( null !== self::$run['snapshot_id'] ) {
-			do_action( 'elementor_mcp_governance_write', $name, self::$run['post_id'], self::$run['snapshot_id'], $result );
+			$post_id     = self::$run['post_id'];
+			$snapshot_id = self::$run['snapshot_id'];
+
+			// Optional post-write render check: revert only when a CONFIRMED-healthy
+			// pre-write baseline turned 'broken' — i.e. the write actually broke the
+			// page. If the baseline was merely inconclusive (flaky loopback, WAF,
+			// already-broken), we never proved the write was the cause, so keep it.
+			$baseline = self::$run['baseline'] ?? 'inconclusive';
+			if ( self::render_check_enabled() && ! empty( self::$run['is_edit'] ) && 'healthy' === $baseline && 'broken' === self::probe_render( $post_id ) ) {
+				$restore   = self::snapshots()->restore( $snapshot_id );
+				self::$run = null;
+				if ( empty( $restore['success'] ) ) {
+					return self::rollback_failed_error( $name, $post_id, $snapshot_id, 'page did not render after the write', $restore );
+				}
+
+				/**
+				 * Fires after a governed write was reverted because the page failed
+				 * its post-write render check.
+				 *
+				 * @param string $name        Ability name.
+				 * @param int    $post_id     Reverted post id.
+				 * @param string $snapshot_id Snapshot restored.
+				 * @param array  $restore     Restore result.
+				 */
+				do_action( 'elementor_mcp_governance_render_reverted', $name, $post_id, $snapshot_id, $restore );
+				return new \WP_Error(
+					'governance_render_failed',
+					sprintf(
+						/* translators: 1: tool name, 2: post id */
+						__( '%1$s left page %2$d not rendering; the change was reverted.', 'elementor-mcp' ),
+						$name,
+						$post_id
+					)
+				);
+			}
+
+			// Expose the rollback point so the gateway can offer an undo.
+			do_action( 'elementor_mcp_governance_write', $name, $post_id, $snapshot_id, $result );
 		}
 		self::$run = null;
 		return $result;
@@ -220,6 +270,15 @@ class Elementor_MCP_Governance {
 			);
 		}
 		self::$run['snapshot_id'] = $snap['snapshot']['id'];
+
+		// Baseline the page's render BEFORE the write (the old data is still in
+		// place at this point) so the post-write check can tell a breakage the edit
+		// caused from one that was already there. Only a CONFIRMED-healthy baseline
+		// permits a later revert (see the tri-state in probe_render()). Edits only —
+		// a create-style run has no meaningful pre-write page to baseline.
+		if ( self::render_check_enabled() && ! empty( self::$run['is_edit'] ) ) {
+			self::$run['baseline'] = self::probe_render( $post_id );
+		}
 		return null;
 	}
 
@@ -255,21 +314,7 @@ class Elementor_MCP_Governance {
 
 		$restore = self::snapshots()->restore( $snapshot_id );
 		if ( empty( $restore['success'] ) ) {
-			// The rollback ITSELF failed: the page may be left partially written.
-			// That is more severe than the original write error — surface it.
-			do_action( 'elementor_mcp_governance_rollback_failed', $name, $post_id, $snapshot_id, $write_error, $restore );
-			return new \WP_Error(
-				'governance_rollback_failed',
-				sprintf(
-					/* translators: 1: tool name, 2: write error, 3: restore error, 4: post id, 5: snapshot id */
-					__( '%1$s failed (%2$s) AND rollback failed (%3$s); page %4$d may be partially written. Snapshot %5$s must be restored manually.', 'elementor-mcp' ),
-					$name,
-					$write_error,
-					isset( $restore['error'] ) ? $restore['error'] : 'unknown error',
-					$post_id,
-					$snapshot_id
-				)
-			);
+			return self::rollback_failed_error( $name, $post_id, $snapshot_id, $write_error, $restore );
 		}
 
 		/**
@@ -294,6 +339,34 @@ class Elementor_MCP_Governance {
 					$write_error
 				)
 			);
+	}
+
+	/**
+	 * The error returned when a rollback ITSELF failed — the page may be left in a
+	 * partially written state, so the caller/gateway must be told the restore did
+	 * not succeed. Shared by the write-failure and render-check revert paths.
+	 *
+	 * @param string $name        Ability name.
+	 * @param int    $post_id     Target post id.
+	 * @param string $snapshot_id Snapshot that could not be restored.
+	 * @param string $write_error What the write did (error message or context).
+	 * @param array  $restore     The failed restore result.
+	 * @return \WP_Error
+	 */
+	private static function rollback_failed_error( string $name, int $post_id, string $snapshot_id, string $write_error, array $restore ): \WP_Error {
+		do_action( 'elementor_mcp_governance_rollback_failed', $name, $post_id, $snapshot_id, $write_error, $restore );
+		return new \WP_Error(
+			'governance_rollback_failed',
+			sprintf(
+				/* translators: 1: tool name, 2: write error/context, 3: restore error, 4: post id, 5: snapshot id */
+				__( '%1$s failed (%2$s) AND rollback failed (%3$s); page %4$d may be partially written. Snapshot %5$s must be restored manually.', 'elementor-mcp' ),
+				$name,
+				$write_error,
+				isset( $restore['error'] ) ? $restore['error'] : 'unknown error',
+				$post_id,
+				$snapshot_id
+			)
+		);
 	}
 
 	/**
@@ -325,6 +398,157 @@ class Elementor_MCP_Governance {
 	 */
 	private static function is_preview_call( bool $preview_capable, $input ): bool {
 		return $preview_capable && ( ! is_array( $input ) || empty( $input['apply'] ) );
+	}
+
+	/**
+	 * Whether governed page writes run a post-write render check (opt-in — see
+	 * emcp_governance_require_grants()'s sibling emcp_governance_render_check()).
+	 *
+	 * @return bool
+	 */
+	public static function render_check_enabled(): bool {
+		return self::is_active()
+			&& function_exists( 'emcp_governance_render_check' )
+			&& emcp_governance_render_check();
+	}
+
+	/**
+	 * Fetch the page's front end and classify its render as one of three states —
+	 * 'healthy', 'broken', or 'inconclusive'. The tri-state matters: a write is
+	 * only reverted when a CONFIRMED-healthy baseline turns 'broken', so a baseline
+	 * that was merely inconclusive (never proved healthy) can never trigger a revert.
+	 *
+	 *   - 'broken'       = HTTP 5xx (a real PHP fatal is served by WordPress's fatal
+	 *                      handler with a 500 status), or an empty 2xx body (white
+	 *                      screen). We do NOT scan a 200 body for a fatal string —
+	 *                      that would false-positive on legitimate page copy.
+	 *   - 'inconclusive' = a transient loopback failure (timeout/DNS — WP_Error), a
+	 *                      3xx/4xx (auth redirect, WAF 401/403, protected 404), or a
+	 *                      page that is not a published, publicly-viewable page
+	 *                      (drafts, elementor_library templates/popups, non-viewable
+	 *                      post types). Never causes a revert.
+	 *   - 'healthy'      = a non-empty 2xx with no fatal marker.
+	 *
+	 * @param int $post_id The page to probe.
+	 * @return string 'healthy' | 'broken' | 'inconclusive'
+	 */
+	private static function probe_render( int $post_id ): string {
+		if ( 'publish' !== get_post_status( $post_id ) ) {
+			return 'inconclusive'; // drafts/private pages aren't served anonymously
+		}
+		// Elementor library items (templates / popups / theme parts) and any
+		// non-viewable post type have no meaningful public page render.
+		$post_type = get_post_type( $post_id );
+		if ( 'elementor_library' === $post_type || ! is_post_type_viewable( $post_type ) ) {
+			return 'inconclusive';
+		}
+		$url = get_permalink( $post_id );
+		// A get_permalink filter (e.g. a permalink-rewriting plugin) can point a
+		// post at an EXTERNAL url. redirection=0 only stops later hops, not the
+		// initial request, so validate the permalink is on this site's own origin
+		// before fetching — otherwise the probe becomes an SSRF to an arbitrary host.
+		if ( ! $url || ! self::is_same_origin( $url ) ) {
+			return 'inconclusive';
+		}
+
+		// Cache-bust the probe: a warm full-page cache / CDN could otherwise serve
+		// a cached page and hide a fatal. A unique query arg makes common WP page
+		// caches (Super Cache, W3TC) skip the cache, and the no-cache headers ask
+		// intermediaries not to serve a hit. Best-effort — a cache that ignores
+		// query strings for anonymous hits can still mask breakage.
+		$probe_url = add_query_arg( array( 'emcp_render_check' => uniqid() ), $url );
+		$response  = wp_remote_get(
+			$probe_url,
+			array(
+				'timeout'     => 15,
+				// Leave TLS verification ON (WP default). Forcing sslverify off would
+				// let a spoofed cert / on-path attacker control the probe response and
+				// defeat the check; a real cert error just fails safe (WP_Error →
+				// inconclusive → keep the write).
+				// Do NOT follow redirects: an edited page that issues an off-origin
+				// (open) redirect would otherwise make wp_remote_get fetch an
+				// attacker-controlled URL server-side — an SSRF. The initial URL is
+				// always this site's own permalink; a redirect response is a 3xx,
+				// which probe_render() already treats as inconclusive.
+				'redirection' => 0,
+				// The check only needs to tell empty from non-empty and scan for the
+				// fatal marker (which a WordPress fatal page emits near the top), so
+				// bound the buffered body — a huge healthy page must not make the
+				// write request download megabytes twice or exhaust PHP memory.
+				'limit_response_size' => 256 * 1024,
+				'headers'             => array(
+					'Cache-Control' => 'no-cache',
+					'Pragma'        => 'no-cache',
+					'Range'         => 'bytes=0-262143',
+				),
+			)
+		);
+		if ( is_wp_error( $response ) ) {
+			return 'inconclusive'; // transient failure — proves nothing
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $code >= 500 ) {
+			return 'broken';
+		}
+		// Only a SUCCESSFUL (2xx) response is evidence of what Elementor rendered. A
+		// 3xx/4xx (auth redirect, WAF 401/403, protected 404) is ambiguous — an
+		// empty 403 body is NOT a WSOD.
+		if ( $code < 200 || $code >= 300 ) {
+			return 'inconclusive';
+		}
+		$body = (string) wp_remote_retrieve_body( $response );
+		if ( '' === trim( $body ) ) {
+			return 'broken'; // white screen of death on a 200
+		}
+		// NB: we deliberately do NOT scan a 200 body for WordPress's "critical
+		// error" sentence. A real PHP fatal is served by the fatal handler with a
+		// 500 status (caught above); matching the sentence in a 200 body would
+		// false-positive on legitimate page copy (e.g. docs about WP errors).
+		return 'healthy';
+	}
+
+	/**
+	 * Whether a URL is on this site's own front-end origin — scheme, host AND port
+	 * must match (default ports normalized). Host-only would let a same-host but
+	 * different-scheme/port permalink (e.g. http://host:8080 vs https://host) slip
+	 * past the SSRF guard. Used to refuse probing an off-origin permalink.
+	 *
+	 * @param string $url The URL to check.
+	 * @return bool
+	 */
+	private static function is_same_origin( string $url ): bool {
+		$site   = wp_parse_url( home_url( '/' ) );
+		$target = wp_parse_url( $url );
+		if ( ! is_array( $site ) || ! is_array( $target ) ) {
+			return false;
+		}
+		return self::origin_tuple( $site ) === self::origin_tuple( $target );
+	}
+
+	/**
+	 * Normalize parsed-URL parts into a "scheme://host:port" origin string, filling
+	 * the default port for http/https so an explicit :80 / :443 compares equal.
+	 *
+	 * @param array $parts Output of wp_parse_url().
+	 * @return string
+	 */
+	private static function origin_tuple( array $parts ): string {
+		$scheme = strtolower( (string) ( $parts['scheme'] ?? '' ) );
+		$host   = strtolower( (string) ( $parts['host'] ?? '' ) );
+		if ( '' === $host ) {
+			return ''; // no host → cannot be same-origin
+		}
+		if ( isset( $parts['port'] ) ) {
+			$port = (int) $parts['port'];
+		} elseif ( 'https' === $scheme ) {
+			$port = 443;
+		} elseif ( 'http' === $scheme ) {
+			$port = 80;
+		} else {
+			$port = 0;
+		}
+		return $scheme . '://' . $host . ':' . $port;
 	}
 
 	/**

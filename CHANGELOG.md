@@ -2,7 +2,7 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
-## 1.15.0 — {{DATE}}
+## 1.15.0 — 2026-07-07
 
 - New: **Variables (design tokens) CRUD** (Elementor 4.0+) — six tools that let an agent author Elementor 4's Variables: the global color / font / size tokens that Global Classes and atomic styles reference. Writes go through Elementor's canonical Variables `Repository` (the REST backend) on the active kit (`_elementor_global_variables`), so token records, uniqueness/count-limit enforcement and the tombstone shape match the editor exactly. Registers only when the Variables repository is present **and** the `e_variables` + Atomic Widgets experiments are active (class-existence alone would let writes land while the runtime feature is off); writes are gated on `manage_options`, reads on `edit_posts`.
   - New: `list-variables` — lists all Variables (colors, fonts, sizes) in public shape `{ id, type, label, value, order }`, excluding soft-deleted.

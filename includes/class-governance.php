@@ -162,7 +162,7 @@ class Elementor_MCP_Governance {
 			'post_id'         => 0, // set lazily on the first real page write
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
-			'pre_broken'      => false, // was the page already broken before the write?
+			'baseline'        => 'inconclusive', // pre-write render state
 		);
 
 		try {
@@ -184,12 +184,12 @@ class Elementor_MCP_Governance {
 			$post_id     = self::$run['post_id'];
 			$snapshot_id = self::$run['snapshot_id'];
 
-			// Optional post-write render check: if the edited page now renders
-			// definitively broken AND it wasn't already broken before the write
-			// (maintenance mode / unrelated 5xx are not the edit's fault), revert
-			// to the pre-write snapshot.
-			$pre_broken = ! empty( self::$run['pre_broken'] );
-			if ( self::render_check_enabled() && ! $pre_broken && self::page_render_broken( $post_id ) ) {
+			// Optional post-write render check: revert only when a CONFIRMED-healthy
+			// pre-write baseline turned 'broken' — i.e. the write actually broke the
+			// page. If the baseline was merely inconclusive (flaky loopback, WAF,
+			// already-broken), we never proved the write was the cause, so keep it.
+			$baseline = self::$run['baseline'] ?? 'inconclusive';
+			if ( self::render_check_enabled() && 'healthy' === $baseline && 'broken' === self::probe_render( $post_id ) ) {
 				$restore   = self::snapshots()->restore( $snapshot_id );
 				self::$run = null;
 				if ( empty( $restore['success'] ) ) {
@@ -266,9 +266,10 @@ class Elementor_MCP_Governance {
 
 		// Baseline the page's render BEFORE the write (the old data is still in
 		// place at this point) so the post-write check can tell a breakage the edit
-		// caused from one that was already there (maintenance mode, unrelated 5xx).
+		// caused from one that was already there. Only a CONFIRMED-healthy baseline
+		// permits a later revert (see the tri-state in probe_render()).
 		if ( self::render_check_enabled() ) {
-			self::$run['pre_broken'] = self::page_render_broken( $post_id );
+			self::$run['baseline'] = self::probe_render( $post_id );
 		}
 		return null;
 	}
@@ -404,44 +405,45 @@ class Elementor_MCP_Governance {
 	}
 
 	/**
-	 * Fetch the edited page's front end and decide whether it is DEFINITELY broken.
+	 * Fetch the page's front end and classify its render as one of three states —
+	 * 'healthy', 'broken', or 'inconclusive'. The tri-state matters: a write is
+	 * only reverted when a CONFIRMED-healthy baseline turns 'broken', so a baseline
+	 * that was merely inconclusive (never proved healthy) can never trigger a revert.
 	 *
-	 * Fail-safe by design: only an unambiguous breakage rolls a write back. A
-	 * transient loopback failure (timeout, DNS, connection reset), or a page that
-	 * is not a published, publicly-served page, is treated as inconclusive and
-	 * returns false — a good write is never reverted on a flaky check.
+	 *   - 'broken'       = HTTP 5xx, an empty 2xx body (white screen), or WordPress's
+	 *                      front-end fatal-handler message. (The "critical error"
+	 *                      string is specific enough not to false-positive on
+	 *                      ordinary page copy the way a bare "Fatal error:" scan would.)
+	 *   - 'inconclusive' = a transient loopback failure (timeout/DNS — WP_Error), a
+	 *                      3xx/4xx (auth redirect, WAF 401/403, protected 404), or a
+	 *                      page that is not a published, publicly-viewable page
+	 *                      (drafts, elementor_library templates/popups, non-viewable
+	 *                      post types). Never causes a revert.
+	 *   - 'healthy'      = a non-empty 2xx with no fatal marker.
 	 *
-	 * Broken = HTTP 5xx, an empty body (white screen), or WordPress's front-end
-	 * fatal-handler message. (The "critical error" string is specific enough not to
-	 * false-positive on ordinary page copy the way a bare "Fatal error:" scan would.)
-	 *
-	 * @param int $post_id The page just written.
-	 * @return bool
+	 * @param int $post_id The page to probe.
+	 * @return string 'healthy' | 'broken' | 'inconclusive'
 	 */
-	private static function page_render_broken( int $post_id ): bool {
+	private static function probe_render( int $post_id ): string {
 		if ( 'publish' !== get_post_status( $post_id ) ) {
-			return false; // drafts/private pages aren't served anonymously — skip
+			return 'inconclusive'; // drafts/private pages aren't served anonymously
 		}
-		// Only validate a real, publicly-viewable page render. Elementor library
-		// items (post type elementor_library — templates / popups / theme parts)
-		// are building blocks whose standalone permalink is not a page a visitor
-		// browses, and non-viewable post types have no meaningful front end. A
-		// governed write to those must not be reverted on their endpoint's render.
+		// Elementor library items (templates / popups / theme parts) and any
+		// non-viewable post type have no meaningful public page render.
 		$post_type = get_post_type( $post_id );
 		if ( 'elementor_library' === $post_type || ! is_post_type_viewable( $post_type ) ) {
-			return false;
+			return 'inconclusive';
 		}
 		$url = get_permalink( $post_id );
 		if ( ! $url ) {
-			return false;
+			return 'inconclusive';
 		}
 
 		// Cache-bust the probe: a warm full-page cache / CDN could otherwise serve
-		// the PRE-write cached page and hide a fatal the new data would cause. A
-		// unique query arg makes common WP page caches (Super Cache, W3TC) skip the
-		// cache, and the no-cache headers ask intermediaries not to serve a hit.
-		// Best-effort — a cache that ignores query strings for anonymous hits can
-		// still mask breakage, but this bypasses the common setups.
+		// a cached page and hide a fatal. A unique query arg makes common WP page
+		// caches (Super Cache, W3TC) skip the cache, and the no-cache headers ask
+		// intermediaries not to serve a hit. Best-effort — a cache that ignores
+		// query strings for anonymous hits can still mask breakage.
 		$probe_url = add_query_arg( array( 'emcp_render_check' => uniqid() ), $url );
 		$response  = wp_remote_get(
 			$probe_url,
@@ -456,28 +458,27 @@ class Elementor_MCP_Governance {
 			)
 		);
 		if ( is_wp_error( $response ) ) {
-			return false; // inconclusive — never revert on a transient failure
+			return 'inconclusive'; // transient failure — proves nothing
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( $code >= 500 ) {
-			return true; // server error
+			return 'broken';
 		}
-		// Only a SUCCESSFUL (2xx) response is evidence of what Elementor actually
-		// rendered. A 3xx redirect or a 4xx (auth redirect, WAF 401/403, a
-		// protected/non-public 404) is ambiguous — an empty 403 body is NOT a WSOD
-		// — so treat it as inconclusive and keep the write.
+		// Only a SUCCESSFUL (2xx) response is evidence of what Elementor rendered. A
+		// 3xx/4xx (auth redirect, WAF 401/403, protected 404) is ambiguous — an
+		// empty 403 body is NOT a WSOD.
 		if ( $code < 200 || $code >= 300 ) {
-			return false;
+			return 'inconclusive';
 		}
 		$body = (string) wp_remote_retrieve_body( $response );
 		if ( '' === trim( $body ) ) {
-			return true; // white screen of death on a 200
+			return 'broken'; // white screen of death on a 200
 		}
 		if ( false !== stripos( $body, 'There has been a critical error on this' ) ) {
-			return true; // WordPress front-end fatal handler
+			return 'broken'; // WordPress front-end fatal handler
 		}
-		return false;
+		return 'healthy';
 	}
 
 	/**

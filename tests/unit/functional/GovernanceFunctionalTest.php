@@ -639,6 +639,27 @@ class GovernanceFunctionalTest extends TestCase {
 		unset( $GLOBALS['_non_viewable'] );
 	}
 
+	public function test_inconclusive_baseline_never_reverts_even_if_post_write_5xx(): void {
+		// Baseline probe is inconclusive (transient WP_Error / WAF), so the page was
+		// never proven healthy. Even if the post-write probe returns 5xx, we can't
+		// attribute it to the write → keep it (Codex R5 P2).
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http_seq( array(
+			new \WP_Error( 'http_request_failed', 'baseline timeout' ), // inconclusive baseline
+			$this->resp( 500, 'now 500' ),                              // broken after
+		) );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result, 'No confirmed-healthy baseline → never revert.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
 	public function test_render_probe_is_cache_busted(): void {
 		// The probe must carry a cache-buster so a warm page cache can't serve the
 		// pre-write page and hide a fatal (Codex R2 P2).

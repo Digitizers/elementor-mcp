@@ -416,9 +416,24 @@ class Elementor_MCP_Governance {
 			return false;
 		}
 
-		$response = wp_remote_get(
-			$url,
-			array( 'timeout' => 15, 'sslverify' => false, 'redirection' => 3 )
+		// Cache-bust the probe: a warm full-page cache / CDN could otherwise serve
+		// the PRE-write cached page and hide a fatal the new data would cause. A
+		// unique query arg makes common WP page caches (Super Cache, W3TC) skip the
+		// cache, and the no-cache headers ask intermediaries not to serve a hit.
+		// Best-effort — a cache that ignores query strings for anonymous hits can
+		// still mask breakage, but this bypasses the common setups.
+		$probe_url = add_query_arg( array( 'emcp_render_check' => uniqid() ), $url );
+		$response  = wp_remote_get(
+			$probe_url,
+			array(
+				'timeout'     => 15,
+				'sslverify'   => false,
+				'redirection' => 3,
+				'headers'     => array(
+					'Cache-Control' => 'no-cache',
+					'Pragma'        => 'no-cache',
+				),
+			)
 		);
 		if ( is_wp_error( $response ) ) {
 			return false; // inconclusive — never revert on a transient failure

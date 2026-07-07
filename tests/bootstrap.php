@@ -322,6 +322,7 @@ namespace {
 			// Controllable for the governance render check: tests set
 			// $GLOBALS['_http_response'] to a fake response array
 			// (['response'=>['code'=>500],'body'=>'…']). Default: HTTP disabled.
+			$GLOBALS['_http_last_url'] = $url; // let tests assert cache-busting
 			if ( array_key_exists( '_http_response', $GLOBALS ) ) {
 				return $GLOBALS['_http_response'];
 			}

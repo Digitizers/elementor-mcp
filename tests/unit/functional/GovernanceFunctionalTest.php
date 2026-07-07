@@ -572,6 +572,22 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
+	public function test_render_probe_is_cache_busted(): void {
+		// The probe must carry a cache-buster so a warm page cache can't serve the
+		// pre-write page and hide a fatal (Codex R2 P2).
+		$this->publish( 55 );
+		$this->enable_render_check();
+		$this->fake_http( 200, 'healthy' );
+
+		\Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertStringContainsString( 'emcp_render_check=', $GLOBALS['_http_last_url'] ?? '' );
+	}
+
 	public function test_transient_loopback_failure_never_reverts(): void {
 		// wp_remote_get returns a WP_Error (timeout/DNS) → inconclusive, keep write.
 		$this->publish( 55 );

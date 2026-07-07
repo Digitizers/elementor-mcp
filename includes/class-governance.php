@@ -411,6 +411,15 @@ class Elementor_MCP_Governance {
 		if ( 'publish' !== get_post_status( $post_id ) ) {
 			return false; // drafts/private pages aren't served anonymously — skip
 		}
+		// Only validate a real, publicly-viewable page render. Elementor library
+		// items (post type elementor_library — templates / popups / theme parts)
+		// are building blocks whose standalone permalink is not a page a visitor
+		// browses, and non-viewable post types have no meaningful front end. A
+		// governed write to those must not be reverted on their endpoint's render.
+		$post_type = get_post_type( $post_id );
+		if ( 'elementor_library' === $post_type || ! is_post_type_viewable( $post_type ) ) {
+			return false;
+		}
 		$url = get_permalink( $post_id );
 		if ( ! $url ) {
 			return false;

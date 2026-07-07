@@ -572,6 +572,41 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
+	public function test_elementor_library_template_is_not_render_checked(): void {
+		// save-as-template / create-theme-template / create-popup publish
+		// elementor_library posts; their standalone permalink is not a page a
+		// visitor browses, so a 5xx there must not revert a valid write (R3 P2).
+		$GLOBALS['_posts'][55] = (object) array( 'ID' => 55, 'post_status' => 'publish', 'post_type' => 'elementor_library' );
+		$this->enable_render_check();
+		$this->fake_http( 500, '' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/save-as-template',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_non_viewable_post_type_is_not_render_checked(): void {
+		$GLOBALS['_posts'][55]     = (object) array( 'ID' => 55, 'post_status' => 'publish', 'post_type' => 'secret_cpt' );
+		$GLOBALS['_non_viewable']  = array( 'secret_cpt' );
+		$this->enable_render_check();
+		$this->fake_http( 500, '' );
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/update-element',
+			$this->page_writer( array( 'ok' => true ) ),
+			array( 'post_id' => 55 )
+		);
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+		unset( $GLOBALS['_non_viewable'] );
+	}
+
 	public function test_render_probe_is_cache_busted(): void {
 		// The probe must carry a cache-buster so a warm page cache can't serve the
 		// pre-write page and hide a fatal (Codex R2 P2).

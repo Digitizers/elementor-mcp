@@ -337,6 +337,21 @@ namespace {
 		}
 	}
 
+	if ( ! function_exists( 'get_post_type' ) ) {
+		function get_post_type( $post = null ) {
+			$id = (int) ( is_object( $post ) ? ( $post->ID ?? 0 ) : $post );
+			return $GLOBALS['_posts'][ $id ]->post_type ?? 'page';
+		}
+	}
+
+	if ( ! function_exists( 'is_post_type_viewable' ) ) {
+		// Default: every type viewable; tests can mark types non-viewable via
+		// $GLOBALS['_non_viewable'].
+		function is_post_type_viewable( $post_type ) {
+			return ! in_array( $post_type, (array) ( $GLOBALS['_non_viewable'] ?? array() ), true );
+		}
+	}
+
 	if ( ! function_exists( 'emcp_governance_render_check' ) ) {
 		// Mirrors the production helper (default false, opt-in). Tests toggle via
 		// the global.

@@ -93,8 +93,21 @@ class Elementor_MCP_Governance {
 	 *
 	 *   Kit post   — id-map / order / labels, published + preview.
 	 *   Class post — the per-class style data + identity meta (recreated verbatim
-	 *                when a delete is rolled back, via snapshot_posts import_id).
-	 *   Page       — `_elementor_data`, rewritten by the delete cleanup cascade.
+	 *                when a delete is rolled back, via snapshot_posts import_id) plus
+	 *                its reverse usage index (`_elementor_global_class_using_documents`),
+	 *                which `$post->delete()` drops and `get_posts_by_style()` reads
+	 *                first — so restoring it keeps a later cascade lookup correct.
+	 *   Page       — `_elementor_data`, rewritten by the delete cleanup cascade, plus
+	 *                the single-valued usage-indexed flag.
+	 *
+	 * NOTE on the pages' `_elementor_used_global_class` index: a delete's
+	 * clear_class_relations() edits it, but it is MULTI-VALUED (one add_post_meta row
+	 * per class id) and SiteAgent's snapshot_posts round-trips only single-valued
+	 * meta — capturing it would restore just the first row and clobber a page's other
+	 * classes. It is therefore deliberately EXCLUDED: it self-heals on the page's next
+	 * document save (set_styles_for_post rebuilds it from live `_elementor_data`), and
+	 * get_posts_by_style() prefers the reverse index we DO restore, so cascade lookups
+	 * stay correct in the meantime.
 	 *
 	 * @var string[]
 	 */
@@ -113,8 +126,14 @@ class Elementor_MCP_Governance {
 		'_elementor_global_class_data_preview',
 		'_elementor_version',
 		'_elementor_global_class_edited',
-		// Pages the delete cascade rewrites.
+		// Per-class reverse usage index (single-valued; dropped by $post->delete(),
+		// read first by get_posts_by_style()).
+		'_elementor_global_class_using_documents',
+		'_elementor_global_class_using_documents_preview',
+		// Pages the delete cascade rewrites + the single-valued usage-indexed flag.
 		'_elementor_data',
+		'_elementor_global_class_usage_indexed',
+		'_elementor_global_class_usage_indexed_preview',
 	);
 
 	/**

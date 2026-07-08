@@ -1035,6 +1035,20 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
+	public function test_gc_snapshot_keys_include_reverse_usage_index(): void {
+		// A delete drops the class post's reverse usage index
+		// (`_elementor_global_class_using_documents`, which get_posts_by_style reads
+		// first) and edits the pages' usage-indexed flag; both must be in the snapshot
+		// so a rollback restores them (Codex round-1 P2). The multi-valued
+		// `_elementor_used_global_class` is deliberately NOT captured (snapshot_posts
+		// is single-valued; it self-heals on next save).
+		$keys = \Elementor_MCP_Governance::GC_SNAPSHOT_META_KEYS;
+		$this->assertContains( '_elementor_global_class_using_documents', $keys );
+		$this->assertContains( '_elementor_global_class_using_documents_preview', $keys );
+		$this->assertContains( '_elementor_global_class_usage_indexed', $keys );
+		$this->assertNotContains( '_elementor_used_global_class', $keys, 'Multi-valued index must be excluded to avoid a clobbering half-restore.' );
+	}
+
 	public function test_global_classes_write_dedupes_overlapping_post_ids(): void {
 		// The kit id also appearing among class/page ids must not double-snapshot it.
 		$this->run_gc_tool(

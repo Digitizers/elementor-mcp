@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.24.0
+Stable tag: 1.25.1
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,14 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.25.1 =
+Changed: De-branded the leftover upstream links. The admin header's "Read the Docs" and "Get Support" buttons pointed at the original author's commercial site (emcp.msrbuilds.com/docs, support.msrbuilds.com), content this fork does not serve; they now point at the fork's own GitHub (README and Issues), as does the bin/ proxy README link. Attribution to the original author @msrbuilds (GPL-3.0) is unchanged.
+
+= 1.25.0 =
+New: Global-classes governance (plank 2) — the Class Manager writers (create/update/delete-global-class) now get snapshot-before-write + rollback, closing the last design-token reversal gap.
+* In Elementor 4.x a global class is its own CPT post (e_global_class), indexed by kit meta, and a delete cascades (rewrites every page whose _elementor_data referenced it). Reversing that is a multi-post transaction — kit index + sync-to-v3 map + class CPT posts + reverse usage index + cascade pages — captured in one snapshot_posts() call (SiteAgent's multi-post primitive) for a single-restore rollback. Each writer declares a global-classes governance scope; a lazy before_global_classes_write() at the repository write site snapshots the whole transaction. apply-global-class is unchanged (writes page data, already page-governed).
+* Fail-closed on every un-reversible edge: no active kit, unresolvable cascade, a SiteAgent too old to have snapshot_posts, or an in-use class whose reverse index is empty (its pages found only via the multi-valued used_classes fallback the single-valued snapshot cannot restore). Also corrected the delete-global-class description (Elementor does cascade page rewrites — verified against 4.1.4). Soft dependency on SiteAgent's snapshot engine.
 
 = 1.24.0 =
 New: Kit-scoped governance (design-token writes get snapshot-before-write + rollback).

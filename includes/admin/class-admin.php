@@ -570,11 +570,11 @@ class Elementor_MCP_Admin {
 						<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
 						<?php esc_html_e( 'Watch Tutorial', 'elementor-mcp' ); ?>
 					</a>
-					<a href="https://emcp.msrbuilds.com/docs" class="elementor-mcp-header-btn elementor-mcp-header-btn--secondary" target="_blank" rel="noopener noreferrer">
+					<a href="https://github.com/Digitizers/elementor-mcp#readme" class="elementor-mcp-header-btn elementor-mcp-header-btn--secondary" target="_blank" rel="noopener noreferrer">
 						<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/></svg>
 						<?php esc_html_e( 'Read the Docs', 'elementor-mcp' ); ?>
 					</a>
-					<a href="https://support.msrbuilds.com/" class="elementor-mcp-header-btn elementor-mcp-header-btn--secondary" target="_blank" rel="noopener noreferrer">
+					<a href="https://github.com/Digitizers/elementor-mcp/issues" class="elementor-mcp-header-btn elementor-mcp-header-btn--secondary" target="_blank" rel="noopener noreferrer">
 						<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a1.5 1.5 0 012.45 1.16c0 .5-.25.78-.86 1.2-.66.45-1.03 1-1.03 1.7v.25a.75.75 0 001.5 0c0-.4.13-.55.7-.94.7-.48 1.19-1.06 1.19-2.06A3 3 0 006.6 7.34a.75.75 0 101.4.52c.1-.27.26-.66.94-.92zM10 14.5a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
 						<?php esc_html_e( 'Get Support', 'elementor-mcp' ); ?>
 					</a>

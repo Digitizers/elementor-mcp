@@ -1,6 +1,6 @@
 # @msrbuilds/emcp-proxy
 
-stdio↔HTTP proxy that connects MCP clients (Claude Desktop, Claude Code, Cursor, etc.) to a **remote** WordPress site running the [MCP Tools for Elementor (EMCP)](https://emcp.msrbuilds.com) plugin.
+stdio↔HTTP proxy that connects MCP clients (Claude Desktop, Claude Code, Cursor, etc.) to a **remote** WordPress site running the [MCP Tools for Elementor (EMCP)](https://github.com/Digitizers/elementor-mcp) plugin.
 
 MCP clients like Claude Desktop only speak the **stdio** transport and launch their servers as a local subprocess. This proxy runs locally, accepts JSON-RPC over stdio, and forwards it to your WordPress site's MCP HTTP endpoint — handling authentication, the `Mcp-Session-Id` session lifecycle, and pretty/plain permalink detection for you.
 

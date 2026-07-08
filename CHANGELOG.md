@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.25.1 — 2026-07-08
+
+- De-brand the leftover upstream links: the admin header's **Read the Docs** and **Get Support** buttons pointed at the original author's commercial site (`emcp.msrbuilds.com/docs`, `support.msrbuilds.com`) — content this fork does not serve. They now point at the fork's own GitHub (README and Issues). The proxy `bin/README.md` plugin link is repointed the same way. (Historical CHANGELOG/readme entries are left as-is — they record what shipped at the time.) Attribution to the original author `@msrbuilds` (GPL-3.0) stays.
+
 ## 1.25.0 — 2026-07-08
 
 - New: **Global-classes governance** (winning-plan P2, plank 2) — the Class Manager writers (`create` / `update` / `delete-global-class`) now get snapshot-before-write + rollback, closing the last design-token reversal gap. In Elementor 4.x a global class is **not** kit meta but its own CPT post (`e_global_class`), indexed by kit meta, and a **delete cascades**: it removes the class post AND rewrites every page whose `_elementor_data` referenced the class. Reversing that is a multi-post transaction, so a meta-only snapshot could not do it.

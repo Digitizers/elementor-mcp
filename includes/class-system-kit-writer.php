@@ -606,15 +606,11 @@ class Elementor_MCP_System_Kit_Writer {
 	 * @return bool
 	 */
 	private static function persist( $kit, array $settings ): bool {
-		// Governance chokepoint: snapshot the kit before we mutate design tokens so
-		// a failed governed run can roll back. A no-op outside a governed run (e.g.
-		// the brand-kit admin flow, which has its own backup store) — it only
-		// snapshots when a governed MCP write is in flight. Refuses the write if the
-		// snapshot/grant cannot be established.
-		if ( class_exists( '\\Elementor_MCP_Governance' ) && is_wp_error( \Elementor_MCP_Governance::before_kit_write() ) ) {
-			return false;
-		}
-
+		// NOTE: governance is applied by the CALLERS (the system-kit ability
+		// executors call before_kit_write() before invoking this writer, so the
+		// exact governance error propagates). This low-level writer is deliberately
+		// ungoverned — it is also used by the brand-kit admin flow, which has its
+		// own backup store.
 		$kit_id = $kit->get_id();
 
 		// Primary path: the Kit settings API.

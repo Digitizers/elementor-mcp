@@ -748,21 +748,6 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return $repo;
 		}
 
-		// Governance chokepoint: snapshot the kit before ANY kit mutation in this
-		// run — including the tombstone normalization just below (which itself
-		// deletes legacy rows) and the restore. Restore looks up tombstoned rows,
-		// so normalize must stay ahead of the lookup; the snapshot brackets both.
-		// No-op outside a governed run; refuses the write on a snapshot/grant fail.
-		$gate = \Elementor_MCP_Governance::before_kit_write();
-		if ( is_wp_error( $gate ) ) {
-			return $gate;
-		}
-
-		// Complete any legacy `deleted_at`-only tombstones so Repository::restore's
-		// label/limit re-checks (which skip only `deleted === true`) stay consistent
-		// with how this class treats those rows everywhere else.
-		$this->normalize_tombstones( $repo );
-
 		try {
 			$records = (array) $repo->variables();
 		} catch ( \Throwable $e ) {
@@ -792,9 +777,22 @@ class Elementor_MCP_Variables_Write_Abilities {
 			);
 		}
 
+		// All validation passed and this is a real restore — snapshot the kit now
+		// (after validation, before any kit mutation), then complete legacy
+		// tombstones and restore, both under the snapshot. No-op outside a governed
+		// run; refuses the write on a snapshot/grant fail.
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
+		}
+
+		// Complete any legacy `deleted_at`-only tombstones so Repository::restore's
+		// label/limit re-checks (which skip only `deleted === true`) stay consistent
+		// with how this class treats those rows everywhere else.
+		$this->normalize_tombstones( $repo );
+
 		// Repository::restore clears the tombstone (drops `deleted`/`deleted_at`)
 		// and re-asserts label uniqueness + the count cap against the active set.
-		// (The kit was already snapshotted above, before tombstone normalization.)
 		try {
 			$repo->restore( $variable_id );
 		} catch ( \Throwable $e ) {

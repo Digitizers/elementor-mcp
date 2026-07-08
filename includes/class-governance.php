@@ -201,8 +201,24 @@ class Elementor_MCP_Governance {
 		// snapshot eagerly here, before the tool runs. Fail closed: if the kit
 		// cannot be snapshotted we refuse the write rather than mutate design
 		// tokens with no rollback point. (Grants were already checked above.)
+		// This runs OUTSIDE the write try/catch below, so guard it here — a throw
+		// from Elementor's kit resolution or the snapshot engine must fail closed
+		// (refuse the write), never escape as an uncaught exception.
 		if ( $is_kit && ! $is_preview ) {
-			$err = self::before_kit_write();
+			try {
+				$err = self::before_kit_write();
+			} catch ( \Throwable $e ) {
+				self::$run = null;
+				return new \WP_Error(
+					'governance_snapshot_failed',
+					sprintf(
+						/* translators: 1: tool name, 2: error message */
+						__( 'Refusing %1$s: snapshotting the kit before the write threw (%2$s).', 'elementor-mcp' ),
+						$name,
+						$e->getMessage()
+					)
+				);
+			}
 			if ( is_wp_error( $err ) ) {
 				self::$run = null;
 				return $err;

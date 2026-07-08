@@ -919,6 +919,26 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertFalse( $ran, 'A snapshot failure must refuse the write, not mutate design tokens.' );
 	}
 
+	public function test_kit_write_fails_closed_when_snapshot_throws(): void {
+		// A kit resolution / snapshot that THROWS must fail closed, not escape.
+		$GLOBALS['_active_kit'] = new class() {
+			public function get_id() {
+				throw new \RuntimeException( 'kit blew up' ); }
+		};
+		$ran    = false;
+		$result = $this->run_kit_tool(
+			'elementor-mcp/create-variable',
+			static function ( $input ) use ( &$ran ) {
+				$ran = true;
+				return array( 'created' => true );
+			}
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
+		$this->assertFalse( $ran, 'A throw during the kit snapshot must refuse the write.' );
+	}
+
 	public function test_kit_write_requires_grant_when_enforced(): void {
 		$this->set_active_kit( 7 );
 		$this->require_grants(); // enforced, no grant header

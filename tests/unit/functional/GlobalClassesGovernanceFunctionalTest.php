@@ -62,8 +62,13 @@ class GlobalClassesGovernanceFunctionalTest extends Ability_Test_Case {
 		};
 	}
 
-	/** Seed one existing class in the repo store + its kit id-map + relations. */
-	private function seed_class( string $class_id, int $kit_id, int $post_id, array $pages ): void {
+	/**
+	 * Seed one existing class in the repo store + its kit id-map + relations. By
+	 * default the class post carries a non-empty reverse usage index (an indexed
+	 * site) so a governed delete is fully reversible; pass $indexed=false to
+	 * simulate the un-restorable used_classes-fallback case.
+	 */
+	private function seed_class( string $class_id, int $kit_id, int $post_id, array $pages, bool $indexed = true ): void {
 		Global_Classes_Repository::__reset(
 			array( $class_id => array( 'id' => $class_id, 'type' => 'class', 'label' => 'card', 'variants' => array() ) ),
 			array( $class_id )
@@ -71,6 +76,10 @@ class GlobalClassesGovernanceFunctionalTest extends Ability_Test_Case {
 		$this->set_active_kit( $kit_id );
 		$GLOBALS['_post_meta'][ $kit_id ]['_elementor_global_classes_post_ids'] = array( $class_id => $post_id );
 		$GLOBALS['_gc_relations'][ $class_id ]                                  = $pages;
+		// Reverse usage index on the class CPT post (get_posts_by_style prefers it).
+		if ( $indexed && ! empty( $pages ) ) {
+			$GLOBALS['_post_meta'][ $post_id ]['_elementor_global_class_using_documents'] = $pages;
+		}
 	}
 
 	/** Run an ability's execute callback under a governed (design-token) run. */
@@ -135,6 +144,35 @@ class GlobalClassesGovernanceFunctionalTest extends Ability_Test_Case {
 		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
 		$this->assertArrayHasKey( 'g-aaaaaa1', Global_Classes_Repository::$store_items, 'The delete was refused before the repo write.' );
+	}
+
+	public function test_delete_fails_closed_when_class_used_only_via_fallback_index(): void {
+		// The class is used by pages BUT its reverse usage index is empty — the pages
+		// were found only via the multi-valued `_elementor_used_global_class` fallback,
+		// which the single-valued snapshot cannot restore. A rollback would leave those
+		// pages unfindable by get_posts_by_style(), so the delete is refused up front
+		// (Codex round-3 P2). No snapshot, no repo mutation.
+		$this->seed_class( 'g-aaaaaa1', 7, 333, array( 501, 502 ), false );
+
+		$result = $this->run_governed( 'elementor-mcp/delete-global-class', 'execute_delete', array( 'class_id' => 'g-aaaaaa1' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
+		$this->assertStringContainsString( 'usage index is not yet built', $result->get_error_message() );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertArrayHasKey( 'g-aaaaaa1', Global_Classes_Repository::$store_items, 'Refused before the repo write.' );
+	}
+
+	public function test_delete_of_unused_class_proceeds_without_reverse_index(): void {
+		// A class used by NO page has no reverse index and no cascade — the guard must
+		// not fire (nothing to reverse), so the delete proceeds and snapshots kit+class.
+		$this->seed_class( 'g-aaaaaa1', 7, 333, array(), true );
+
+		$result = $this->run_governed( 'elementor-mcp/delete-global-class', 'execute_delete', array( 'class_id' => 'g-aaaaaa1' ) );
+
+		$this->assertNotWPError( $result );
+		$this->assertTrue( $result['deleted'] );
+		$this->assertSame( array( 7, 333 ), $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_ids'] );
 	}
 
 	public function test_ungoverned_write_proceeds_without_snapshot(): void {

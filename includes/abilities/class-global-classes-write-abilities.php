@@ -788,7 +788,7 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 		// Pages a delete cascade will rewrite (Elementor's cleanup strips the
 		// deleted class from their _elementor_data). Resolved the same way and at
 		// the same point Elementor itself does — before the write.
-		$affected_page_ids = $this->posts_affected_by_deletion( $deleted );
+		$affected_page_ids = $this->posts_affected_by_deletion( $kit_id, $deleted );
 		if ( is_wp_error( $affected_page_ids ) ) {
 			return $affected_page_ids;
 		}
@@ -839,17 +839,34 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	}
 
 	/**
+	 * Elementor's per-class reverse usage index meta key (on the class CPT post):
+	 * class_post -> [document post ids that use the class]. `get_posts_by_style()`
+	 * reads it first; it is single-valued (a serialized array) so the governance
+	 * snapshot can restore it, unlike the multi-valued per-page `used_classes` rows.
+	 */
+	const REVERSE_USAGE_INDEX_META = '_elementor_global_class_using_documents';
+
+	/**
 	 * The page ids a delete will cascade-rewrite, via Elementor's own relations
 	 * index (the same source `Global_Classes_Repository` uses to build its
 	 * `affected_post_ids` before deleting). Returns [] when nothing is being
-	 * deleted. Fail-closed: a \WP_Error when a delete is requested but the relations
-	 * API is unavailable / throws — we cannot snapshot pages we cannot identify, and
-	 * an un-snapshotted cascade is unreversible.
+	 * deleted. Fail-closed (\WP_Error) when:
+	 *  - the relations API is unavailable / throws (we cannot identify the pages), or
+	 *  - a deleted class is in use but its **reverse usage index is empty**, i.e.
+	 *    `get_posts_by_style()` found the pages only via the MULTI-VALUED per-page
+	 *    `_elementor_used_global_class` fallback rows. The delete cascade strips those
+	 *    rows, and the single-valued snapshot cannot restore them; with an empty
+	 *    reverse index there is nothing for a rollback to restore that keeps a later
+	 *    `get_posts_by_style()` correct, so those pages would silently go unfindable
+	 *    until re-saved. We refuse rather than do a half-reversible delete. (On the
+	 *    normal indexed path the reverse index is populated → snapshotted/restored →
+	 *    the delete is fully reversible and proceeds.)
 	 *
+	 * @param int      $kit_id            Active kit post id (to resolve class posts).
 	 * @param string[] $deleted_class_ids Class ids being deleted.
 	 * @return int[]|\WP_Error
 	 */
-	private function posts_affected_by_deletion( array $deleted_class_ids ) {
+	private function posts_affected_by_deletion( int $kit_id, array $deleted_class_ids ) {
 		if ( empty( $deleted_class_ids ) ) {
 			return array();
 		}
@@ -862,21 +879,48 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 		}
 		try {
 			$relations = new $relations_class();
-			$ids       = array();
+			$out       = array();
 			foreach ( $deleted_class_ids as $class_id ) {
-				$ids = array_merge( $ids, (array) $relations->get_posts_by_style( $class_id ) );
+				$pages = array();
+				foreach ( (array) $relations->get_posts_by_style( $class_id ) as $pid ) {
+					$pid = absint( $pid );
+					if ( $pid > 0 ) {
+						$pages[ $pid ] = $pid;
+					}
+				}
+				if ( empty( $pages ) ) {
+					continue; // class used nowhere → no cascade to snapshot
+				}
+				// Reversibility guard (see method docblock): an in-use class whose
+				// reverse index is empty was found via the un-restorable fallback.
+				$class_post_ids = $this->resolve_class_post_ids( $kit_id, array( $class_id ) );
+				$class_post_id  = $class_post_ids[0] ?? 0;
+				if ( $class_post_id <= 0 || ! $this->has_reverse_usage_index( $class_post_id ) ) {
+					return new \WP_Error(
+						'governance_snapshot_failed',
+						__( 'Refusing to delete this Global Class under governance: it is used by pages whose Elementor usage index is not yet built, so the delete could not be fully rolled back. Re-save the affected pages (or let Elementor rebuild its usage index) and retry.', 'elementor-mcp' )
+					);
+				}
+				$out += $pages;
 			}
 		} catch ( \Throwable $e ) {
 			return new \WP_Error( 'governance_snapshot_failed', $e->getMessage() );
 		}
-		$out = array();
-		foreach ( $ids as $pid ) {
-			$pid = absint( $pid );
-			if ( $pid > 0 ) {
-				$out[ $pid ] = $pid;
-			}
-		}
 		return array_values( $out );
+	}
+
+	/**
+	 * Whether a class CPT post has a non-empty reverse usage index (the single-
+	 * valued, snapshot-restorable index `get_posts_by_style()` prefers). An empty
+	 * index means any affected pages were found only via the un-restorable
+	 * multi-valued fallback — see posts_affected_by_deletion().
+	 *
+	 * @param int $class_post_id Class CPT post id.
+	 * @return bool
+	 */
+	private function has_reverse_usage_index( int $class_post_id ): bool {
+		$reverse = get_post_meta( $class_post_id, self::REVERSE_USAGE_INDEX_META, true );
+		return is_array( $reverse ) && ! empty( $reverse );
 	}
 
 	/**

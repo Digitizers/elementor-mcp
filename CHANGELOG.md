@@ -2,6 +2,15 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.25.0 — 2026-07-08
+
+- New: **Global-classes governance** (winning-plan P2, plank 2) — the Class Manager writers (`create` / `update` / `delete-global-class`) now get snapshot-before-write + rollback, closing the last design-token reversal gap. In Elementor 4.x a global class is **not** kit meta but its own CPT post (`e_global_class`), indexed by kit meta, and a **delete cascades**: it removes the class post AND rewrites every page whose `_elementor_data` referenced the class. Reversing that is a multi-post transaction, so a meta-only snapshot could not do it.
+  - Each of the three writers declares `meta.governance.scope = 'global-classes'`. At the repository write site (`apply_change`), a lazy `Governance::before_global_classes_write()` captures the **active kit + the touched class CPT posts + the pages a delete cascades to** in ONE `snapshot_posts()` call (SiteAgent's plank-2a multi-post primitive), so a single restore rolls the whole transaction back on failure. The affected pages are resolved the same way, and at the same point, Elementor itself does (`Global_Classes_Relations`). Lazy-at-write-site means a tool rejected during input validation never snapshots — no false rollback of a concurrent change.
+  - **Fail-closed:** refused (`governance_snapshot_failed`) when there's no active kit or the affected pages can't be resolved; refused (`governance_snapshot_unavailable`) when the installed SiteAgent lacks `snapshot_posts` (a meta-only rollback would half-restore the kit's id-map to a deleted class post). Grants (opt-in) are checked first; no render check (site-wide, not one page).
+  - `apply-global-class` is unchanged — it writes **page** `_elementor_data`, already covered by the page write-site governance since v1.17.
+  - Known limit: a create that fails *mid-write* can leave one orphaned (unreferenced, inert) class CPT post — its post id isn't known at snapshot time; the kit id-map reverts so Elementor never surfaces it.
+  - Also corrected the `delete-global-class` description, which wrongly claimed Elementor does not cascade page rewrites (it does — verified against Elementor 4.1.4).
+
 ## 1.24.0 — 2026-07-08
 
 - New: **Kit-scoped governance** (winning-plan P2, plank 1) — design-token writes now get the same snapshot-before-write + rollback safety that page writes have had since v1.17. The **system-kit** writers (`replace-system-colors` / `replace-system-typography`) and the v4 **Variables** writers (`create` / `edit` / `delete` / `restore-variable`) act on the active **kit** post, not a page, so they never reached the page write-site (`before_page_write`) and were previously ungoverned for reversal.

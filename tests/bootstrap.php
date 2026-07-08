@@ -184,6 +184,12 @@ namespace {
 
 	if ( ! function_exists( 'get_post_meta' ) ) {
 		function get_post_meta( int $post_id, string $key = '', bool $single = false ) {
+			// Settable per-post map for tests that need real meta (e.g. the global-
+			// classes id-map `_elementor_global_classes_post_ids` the governance gate
+			// reads). Falls back to WP's empty-string / empty-array default.
+			if ( isset( $GLOBALS['_post_meta'][ $post_id ][ $key ] ) ) {
+				return $GLOBALS['_post_meta'][ $post_id ][ $key ];
+			}
 			return $single ? '' : [];
 		}
 	}
@@ -726,6 +732,8 @@ namespace Elementor\Modules\GlobalClasses {
 			public static $store_items = array();
 			/** @var string[] */
 			public static $store_order = array();
+			/** @var bool When true, apply_changes()/put() throw — drives rollback tests. */
+			public static $fail_write = false;
 
 			public static function make(): self {
 				return new self();
@@ -736,6 +744,9 @@ namespace Elementor\Modules\GlobalClasses {
 			}
 
 			public function put( array $items, array $order ): void {
+				if ( self::$fail_write ) {
+					throw new \RuntimeException( 'stub forced put() failure' );
+				}
 				self::$store_items = $items;
 				self::$store_order = array_values( $order );
 			}
@@ -750,6 +761,9 @@ namespace Elementor\Modules\GlobalClasses {
 			 * classes (and, on real Elementor, their preview drafts) untouched.
 			 */
 			public function apply_changes( array $touched, array $changes, array $order ): void {
+				if ( self::$fail_write ) {
+					throw new \RuntimeException( 'stub forced apply_changes() failure' );
+				}
 				self::$last_changes = $changes;
 				self::$last_touched = $touched;
 				foreach ( array_merge( $changes['added'] ?? array(), $changes['modified'] ?? array() ) as $id ) {
@@ -769,6 +783,22 @@ namespace Elementor\Modules\GlobalClasses {
 				self::$store_order = $order;
 				self::$last_changes = array();
 				self::$last_touched = array();
+				self::$fail_write   = false;
+			}
+		}
+	}
+
+	// Elementor's class→post relations index. The governance gate uses it to find
+	// the pages a delete will cascade-rewrite. Driven by tests via globals:
+	//   $GLOBALS['_gc_relations']       => [ class_id => int[] page ids ]
+	//   $GLOBALS['_gc_relations_throw'] => bool  make get_posts_by_style() throw
+	if ( ! class_exists( 'Elementor\\Modules\\GlobalClasses\\Global_Classes_Relations' ) ) {
+		class Global_Classes_Relations {
+			public function get_posts_by_style( $class_id ): array {
+				if ( ! empty( $GLOBALS['_gc_relations_throw'] ) ) {
+					throw new \RuntimeException( 'stub forced relations failure' );
+				}
+				return (array) ( $GLOBALS['_gc_relations'][ $class_id ] ?? array() );
 			}
 		}
 	}
@@ -1039,6 +1069,21 @@ namespace {
 					return array( 'success' => false, 'error' => 'stub forced snapshot failure' );
 				}
 				$seq = (int) ( $GLOBALS['_aura_snap']['seq'] ?? 0 ) + 1;
+				$GLOBALS['_aura_snap']['seq'] = $seq;
+				return array( 'success' => true, 'snapshot' => array( 'id' => 'snap_stub_' . $seq ) );
+			}
+			// Plank 2a multi-post primitive — records [post_ids, keys] into the same
+			// snapshot_calls log (differently shaped than snapshot_meta entries, so
+			// GC governance tests assert on 'post_ids'). Honors fail_snapshot.
+			public function snapshot_posts( $post_ids, $keys ) {
+				$GLOBALS['_aura_snap']['snapshot_calls'][] = array(
+					'post_ids' => array_map( 'intval', (array) $post_ids ),
+					'keys'     => $keys,
+				);
+				if ( ! empty( $GLOBALS['_aura_snap']['fail_snapshot'] ) ) {
+					return array( 'success' => false, 'error' => 'stub forced snapshot failure' );
+				}
+				$seq                          = (int) ( $GLOBALS['_aura_snap']['seq'] ?? 0 ) + 1;
 				$GLOBALS['_aura_snap']['seq'] = $seq;
 				return array( 'success' => true, 'snapshot' => array( 'id' => 'snap_stub_' . $seq ) );
 			}

@@ -214,6 +214,9 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 				'meta'                => array(
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
 					'show_in_rest' => true,
+					// Site-wide design-system write (not a single page) → governed
+					// via before_global_classes_write(), no page render check.
+					'governance'   => array( 'scope' => 'global-classes' ),
 				),
 			)
 		);
@@ -248,6 +251,9 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 				'meta'                => array(
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
 					'show_in_rest' => true,
+					// Site-wide design-system write (not a single page) → governed
+					// via before_global_classes_write(), no page render check.
+					'governance'   => array( 'scope' => 'global-classes' ),
 				),
 			)
 		);
@@ -258,7 +264,7 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 			'elementor-mcp/delete-global-class',
 			array(
 				'label'               => __( 'Delete Global Class', 'elementor-mcp' ),
-				'description'         => __( 'Deletes an Elementor 4.0+ Global Class by its g- id. Elementor ignores dangling class references left on elements (no cascade / no re-write of pages), so existing elements that referenced it simply lose that styling. Requires manage_options.', 'elementor-mcp' ),
+				'description'         => __( 'Deletes an Elementor 4.0+ Global Class by its g- id. Elementor cascades the delete: it removes the class post AND rewrites every page whose _elementor_data referenced the class (stripping the dangling reference), so those elements lose that styling. Under SiteAgent governance the whole cascade (kit index + class post + affected pages) is snapshotted first and rolled back if the write fails. Requires manage_options.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_delete' ),
 				'permission_callback' => array( $this, 'check_write_permission' ),
@@ -279,6 +285,9 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 				'meta'                => array(
 					'annotations'  => array( 'readonly' => false, 'destructive' => true, 'idempotent' => true ),
 					'show_in_rest' => true,
+					// Site-wide design-system write (not a single page) → governed
+					// via before_global_classes_write(), no page render check.
+					'governance'   => array( 'scope' => 'global-classes' ),
 				),
 			)
 		);
@@ -711,6 +720,14 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 	 * @return true|\WP_Error
 	 */
 	private function apply_change( array $touched, array $changes, array $order, array $items ) {
+		// Governance: snapshot the whole global-classes transaction (kit index +
+		// touched class posts + pages a delete cascades to) BEFORE the repo write,
+		// so a failed write rolls back. Lazy + fail-closed; a no-op when ungoverned.
+		$gate = $this->governance_gate( $changes );
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
+		}
+
 		$repo = self::REPOSITORY;
 		try {
 			$r = $repo::make();
@@ -723,6 +740,143 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 			return new \WP_Error( 'write_failed', $e->getMessage() );
 		}
 		return true;
+	}
+
+	/**
+	 * Snapshot the global-classes transaction before the repository write when a
+	 * governed run is armed (SiteAgent present + a wrapped tool in flight), so a
+	 * failed write can be rolled back. Resolves the Elementor-specific targets —
+	 * the active kit, the CPT posts of the classes being modified/deleted, and the
+	 * pages a delete will cascade-rewrite — then hands them to the storage-generic
+	 * Governance::before_global_classes_write().
+	 *
+	 * A no-op (returns null) when ungoverned/standalone or the run is not armed, so
+	 * the (potentially expensive) affected-pages query only runs when it matters.
+	 * Fail-closed: returns a \WP_Error when the kit or the delete's affected pages
+	 * cannot be resolved, so apply_change() refuses the write rather than mutate
+	 * the design system with no rollback point.
+	 *
+	 * @param array $changes { added:[], modified:[], deleted:[], order:bool }.
+	 * @return \WP_Error|null
+	 */
+	private function governance_gate( array $changes ) {
+		if ( ! class_exists( '\\Elementor_MCP_Governance' )
+			|| ! \Elementor_MCP_Governance::is_active()
+			|| ! \Elementor_MCP_Governance::is_armed() ) {
+			return null;
+		}
+
+		$kit_id = $this->active_kit_id();
+		if ( $kit_id <= 0 ) {
+			return new \WP_Error(
+				'governance_snapshot_failed',
+				__( 'No active Elementor kit to snapshot before the global-class write.', 'elementor-mcp' )
+			);
+		}
+
+		$deleted  = array_map( 'strval', array_values( (array) ( $changes['deleted'] ?? array() ) ) );
+		$modified = array_map( 'strval', array_values( (array) ( $changes['modified'] ?? array() ) ) );
+
+		// CPT post ids of the classes being modified or deleted (created classes
+		// have no post id yet). These are captured so an update reverts its style
+		// meta and a delete recreates the class post verbatim on rollback.
+		$class_post_ids = $this->resolve_class_post_ids(
+			$kit_id,
+			array_values( array_unique( array_merge( $modified, $deleted ) ) )
+		);
+
+		// Pages a delete cascade will rewrite (Elementor's cleanup strips the
+		// deleted class from their _elementor_data). Resolved the same way and at
+		// the same point Elementor itself does — before the write.
+		$affected_page_ids = $this->posts_affected_by_deletion( $deleted );
+		if ( is_wp_error( $affected_page_ids ) ) {
+			return $affected_page_ids;
+		}
+
+		return \Elementor_MCP_Governance::before_global_classes_write( $kit_id, $class_post_ids, $affected_page_ids );
+	}
+
+	/**
+	 * The active Elementor kit post id, or 0 when unavailable.
+	 *
+	 * @return int
+	 */
+	private function active_kit_id(): int {
+		if ( ! class_exists( '\\Elementor\\Plugin' ) || ! isset( \Elementor\Plugin::$instance->kits_manager ) ) {
+			return 0;
+		}
+		$kit = \Elementor\Plugin::$instance->kits_manager->get_active_kit();
+		return ( $kit && method_exists( $kit, 'get_id' ) ) ? absint( $kit->get_id() ) : 0;
+	}
+
+	/**
+	 * Resolve the CPT post ids for a set of class ids from the kit's id-map meta
+	 * (`_elementor_global_classes_post_ids`: class_id => post_id). Classes absent
+	 * from the map (e.g. a create whose post doesn't exist yet) are skipped.
+	 *
+	 * @param int      $kit_id    Active kit post id.
+	 * @param string[] $class_ids Class ids to resolve.
+	 * @return int[] Post ids (deduped, positive).
+	 */
+	private function resolve_class_post_ids( int $kit_id, array $class_ids ): array {
+		if ( empty( $class_ids ) ) {
+			return array();
+		}
+		$map = get_post_meta( $kit_id, '_elementor_global_classes_post_ids', true );
+		if ( ! is_array( $map ) ) {
+			return array();
+		}
+		$ids = array();
+		foreach ( $class_ids as $class_id ) {
+			if ( isset( $map[ $class_id ] ) ) {
+				$pid = absint( $map[ $class_id ] );
+				if ( $pid > 0 ) {
+					$ids[ $pid ] = $pid;
+				}
+			}
+		}
+		return array_values( $ids );
+	}
+
+	/**
+	 * The page ids a delete will cascade-rewrite, via Elementor's own relations
+	 * index (the same source `Global_Classes_Repository` uses to build its
+	 * `affected_post_ids` before deleting). Returns [] when nothing is being
+	 * deleted. Fail-closed: a \WP_Error when a delete is requested but the relations
+	 * API is unavailable / throws — we cannot snapshot pages we cannot identify, and
+	 * an un-snapshotted cascade is unreversible.
+	 *
+	 * @param string[] $deleted_class_ids Class ids being deleted.
+	 * @return int[]|\WP_Error
+	 */
+	private function posts_affected_by_deletion( array $deleted_class_ids ) {
+		if ( empty( $deleted_class_ids ) ) {
+			return array();
+		}
+		$relations_class = '\\Elementor\\Modules\\GlobalClasses\\Global_Classes_Relations';
+		if ( ! class_exists( $relations_class ) || ! method_exists( $relations_class, 'get_posts_by_style' ) ) {
+			return new \WP_Error(
+				'governance_snapshot_failed',
+				__( 'Cannot resolve the pages affected by deleting this Global Class (Elementor relations API unavailable); refusing the delete to avoid an unreversible cascade.', 'elementor-mcp' )
+			);
+		}
+		try {
+			$relations = new $relations_class();
+			$ids       = array();
+			foreach ( $deleted_class_ids as $class_id ) {
+				$ids = array_merge( $ids, (array) $relations->get_posts_by_style( $class_id ) );
+			}
+		} catch ( \Throwable $e ) {
+			return new \WP_Error( 'governance_snapshot_failed', $e->getMessage() );
+		}
+		$out = array();
+		foreach ( $ids as $pid ) {
+			$pid = absint( $pid );
+			if ( $pid > 0 ) {
+				$out[ $pid ] = $pid;
+			}
+		}
+		return array_values( $out );
 	}
 
 	/**

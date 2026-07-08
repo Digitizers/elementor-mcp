@@ -70,12 +70,52 @@ class Elementor_MCP_Governance {
 	 * and — because SiteAgent's restore DELETES a key that was absent at capture —
 	 * a create that first-writes one of these keys is fully rolled back.
 	 *
-	 * NOTE: global classes are a separate CPT (not kit meta) and interactions are
-	 * page-data (`_elementor_data`, already page-governed); neither is covered here.
+	 * NOTE: global classes are a separate CPT (not kit meta) and are governed by
+	 * their own multi-post path (before_global_classes_write / GC_SNAPSHOT_META_KEYS);
+	 * interactions are page-data (`_elementor_data`, already page-governed). Neither
+	 * is covered by THIS key set.
 	 *
 	 * @var string[]
 	 */
 	public const KIT_META_KEYS = array( '_elementor_page_settings', '_elementor_global_variables' );
+
+	/**
+	 * The meta keys captured for a global-classes ("Class Manager") write. A single
+	 * snapshot_posts() call over [active kit + touched class CPT posts + pages a
+	 * delete cascades to] captures all of these, so one restore reverses the whole
+	 * multi-post transaction (Elementor 4.x stores global classes as one CPT post
+	 * per class, indexed by kit meta, and a delete rewrites referencing pages).
+	 *
+	 * The union is applied to every snapshotted post; a key absent on a given post
+	 * is recorded absent and restores to absent (snapshot_posts' absent-flag
+	 * semantics), so passing kit keys to a class post — or `_elementor_data` to the
+	 * kit — is harmless (an untouched key restores to itself).
+	 *
+	 *   Kit post   — id-map / order / labels, published + preview.
+	 *   Class post — the per-class style data + identity meta (recreated verbatim
+	 *                when a delete is rolled back, via snapshot_posts import_id).
+	 *   Page       — `_elementor_data`, rewritten by the delete cleanup cascade.
+	 *
+	 * @var string[]
+	 */
+	public const GC_SNAPSHOT_META_KEYS = array(
+		// Active-kit index: id-map, order, labels (frontend + preview).
+		'_elementor_global_classes',
+		'_elementor_global_classes_preview',
+		'_elementor_global_classes_post_ids',
+		'_elementor_global_classes_order',
+		'_elementor_global_classes_order_preview',
+		'_elementor_global_classes_labels',
+		'_elementor_global_classes_labels_preview',
+		// Per-class CPT post (`e_global_class`) data + identity.
+		'_elementor_global_class_id',
+		'_elementor_global_class_data',
+		'_elementor_global_class_data_preview',
+		'_elementor_version',
+		'_elementor_global_class_edited',
+		// Pages the delete cascade rewrites.
+		'_elementor_data',
+	);
 
 	/**
 	 * The governed run currently in flight, or null. Shape:
@@ -138,12 +178,16 @@ class Elementor_MCP_Governance {
 		// write). We thread this to run_governed so a preview can skip the grant
 		// without a hardcoded tool list.
 		$preview_capable = isset( $args['input_schema']['properties']['apply'] );
-		// A "kit-scoped" write acts on the active kit's design tokens (system
-		// colors/typography, v4 Variables) rather than a page, so it never reaches
-		// the page write-site (before_page_write) — the tool declares the scope and
-		// we snapshot the kit eagerly instead. See KIT_META_KEYS.
-		$is_kit                   = isset( $args['meta']['governance']['scope'] )
-			&& 'kit' === $args['meta']['governance']['scope'];
+		// A site-wide design-token write acts on the active kit's design tokens
+		// ('kit' — system colors/typography, v4 Variables) or the global-classes
+		// index + class CPT posts ('global-classes') rather than a single page, so
+		// it never reaches the page write-site (before_page_write) and has no single
+		// front-end page to render-check. The tool declares its scope; the matching
+		// write site snapshots lazily (before_kit_write / before_global_classes_write).
+		$scope                    = isset( $args['meta']['governance']['scope'] )
+			? (string) $args['meta']['governance']['scope']
+			: '';
+		$is_kit                   = in_array( $scope, array( 'kit', 'global-classes' ), true );
 		$original                 = $args['execute_callback'];
 		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable, $is_kit ) {
 			return self::run_governed( $name, $original, $input, $preview_capable, $is_kit );
@@ -394,6 +438,131 @@ class Elementor_MCP_Governance {
 			return 0;
 		}
 		return absint( $kit->get_id() );
+	}
+
+	/**
+	 * Whether a governed run is armed and still awaiting its snapshot — i.e. a
+	 * lazy write-site callback (before_page_write / before_kit_write /
+	 * before_global_classes_write) would actually capture something. Lets a writer
+	 * skip the cost of resolving snapshot targets (e.g. querying the pages a
+	 * global-class delete affects) when there is nothing to snapshot: ungoverned /
+	 * standalone (no run), or the run already snapshotted / already failed closed.
+	 *
+	 * @return bool
+	 */
+	public static function is_armed(): bool {
+		return null !== self::$run
+			&& null === self::$run['snapshot_id']
+			&& empty( self::$run['snapshot_failed'] );
+	}
+
+	/**
+	 * Capture the global-classes state before a Class Manager write (create /
+	 * update / delete) so a failed write can be rolled back. LAZY, like
+	 * before_kit_write(): the global-classes writer calls it at its repository
+	 * write site (apply_change) right before mutating, so a tool rejected during
+	 * input validation never snapshots, and a failed run only rolls back a write
+	 * that actually happened (never a concurrent, unrelated change).
+	 *
+	 * Elementor 4.x stores each global class as its own CPT post (`e_global_class`)
+	 * indexed by kit meta, and a DELETE cascades — it rewrites every page whose
+	 * `_elementor_data` referenced the deleted class. Reversing any of this is a
+	 * multi-post transaction, so we snapshot [active kit + touched class posts +
+	 * affected pages] in ONE snapshot_posts() call (a single restore id that the
+	 * existing run_governed failure path rolls back). The caller (the Elementor-
+	 * domain writer) resolves WHICH posts; this method stays storage-generic.
+	 *
+	 * Fail-closed: returns a \WP_Error (and marks the run failed) when the kit
+	 * cannot be resolved, the snapshot engine is too old to do a multi-post
+	 * snapshot, or the snapshot itself fails/throws — so the writer refuses the
+	 * mutation rather than do an unreversible design-system write. Returns null
+	 * when ungoverned / already snapshotted (the writer then proceeds normally).
+	 *
+	 * @param int   $kit_id            Active kit post id (the transaction anchor).
+	 * @param int[] $class_post_ids    CPT post ids of the classes being modified /
+	 *                                 deleted (created classes have no id yet).
+	 * @param int[] $affected_page_ids Pages a delete will rewrite (empty otherwise).
+	 * @return \WP_Error|null
+	 */
+	public static function before_global_classes_write( int $kit_id, array $class_post_ids, array $affected_page_ids ) {
+		if ( null === self::$run || ! self::is_active() ) {
+			return null;
+		}
+		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
+			return null; // already snapshotted (or already failed) this run
+		}
+		if ( $kit_id <= 0 ) {
+			self::$run['snapshot_failed'] = true;
+			return new \WP_Error(
+				'governance_snapshot_failed',
+				sprintf(
+					/* translators: %s: tool name */
+					__( 'Refusing %s: no active Elementor kit to snapshot before the global-class write.', 'elementor-mcp' ),
+					self::$run['name']
+				)
+			);
+		}
+
+		$snapshots = self::snapshots();
+		if ( ! method_exists( $snapshots, 'snapshot_posts' ) ) {
+			// A global-class write mutates the class CPT posts (and, on delete,
+			// rewrites referencing pages). Reversing that needs the multi-post
+			// primitive; a meta-only rollback would restore the kit's id-map to
+			// point at a now-hard-deleted class post — a broken half-restore. Refuse
+			// rather than take an unreversible write under governance.
+			self::$run['snapshot_failed'] = true;
+			return new \WP_Error(
+				'governance_snapshot_unavailable',
+				sprintf(
+					/* translators: %s: tool name */
+					__( 'Refusing %s: the installed SiteAgent snapshot engine cannot safely roll back a global-class write (it lacks the multi-post snapshot_posts primitive). Update SiteAgent.', 'elementor-mcp' ),
+					self::$run['name']
+				)
+			);
+		}
+
+		// Dedupe + sanitize the transaction's posts: kit anchor, touched class
+		// posts, cascade pages. (A created class has no id yet — its rollback is the
+		// kit id-map reverting, which drops the new class_id; see PR notes.)
+		$post_ids = array();
+		foreach ( array_merge( array( $kit_id ), $class_post_ids, $affected_page_ids ) as $pid ) {
+			$pid = absint( $pid );
+			if ( $pid > 0 ) {
+				$post_ids[ $pid ] = $pid;
+			}
+		}
+		$post_ids = array_values( $post_ids );
+
+		try {
+			$snap = $snapshots->snapshot_posts( $post_ids, self::GC_SNAPSHOT_META_KEYS );
+		} catch ( \Throwable $e ) {
+			self::$run['snapshot_failed'] = true;
+			return new \WP_Error(
+				'governance_snapshot_failed',
+				sprintf(
+					/* translators: 1: tool name, 2: error message */
+					__( 'Refusing %1$s: snapshotting global classes before the write threw (%2$s).', 'elementor-mcp' ),
+					self::$run['name'],
+					$e->getMessage()
+				)
+			);
+		}
+
+		self::$run['post_id'] = $kit_id;
+		if ( empty( $snap['success'] ) ) {
+			self::$run['snapshot_failed'] = true;
+			return new \WP_Error(
+				'governance_snapshot_failed',
+				sprintf(
+					/* translators: 1: tool name, 2: reason */
+					__( 'Refusing %1$s: could not snapshot global classes before writing (%2$s).', 'elementor-mcp' ),
+					self::$run['name'],
+					isset( $snap['error'] ) ? $snap['error'] : 'unknown error'
+				)
+			);
+		}
+		self::$run['snapshot_id'] = $snap['snapshot']['id'];
+		return null;
 	}
 
 	/**
@@ -726,12 +895,15 @@ class Elementor_MCP_Governance {
 	}
 
 	/**
-	 * Clear all governed-run state. For test isolation.
+	 * Clear all governed-run state. For test isolation. An optional snapshot-engine
+	 * override lets a test inject a stand-in (e.g. an engine lacking snapshot_posts,
+	 * to exercise the fail-closed path) instead of the lazily-created default.
 	 *
+	 * @param object|null $snapshots_override Test-only engine to use, or null.
 	 * @return void
 	 */
-	public static function reset_state(): void {
+	public static function reset_state( $snapshots_override = null ): void {
 		self::$run       = null;
-		self::$snapshots = null;
+		self::$snapshots = $snapshots_override;
 	}
 }

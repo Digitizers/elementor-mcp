@@ -77,17 +77,6 @@ class Elementor_MCP_System_Kit_Abilities {
 	}
 
 	/**
-	 * Read permission (enumeration).
-	 *
-	 * @since 1.8.0
-	 *
-	 * @return bool
-	 */
-	public function check_read_permission(): bool {
-		return $this->has_access() && current_user_can( 'edit_posts' );
-	}
-
-	/**
 	 * Write permission (global styling changes).
 	 *
 	 * @since 1.8.0

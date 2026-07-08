@@ -535,6 +535,13 @@ class Elementor_MCP_Variables_Write_Abilities {
 
 		// Repository::create enforces label uniqueness + the count cap itself
 		// (skipping tombstoned rows) and mints the id + order.
+		// Governance chokepoint: snapshot the kit before the write (no-op outside a
+		// governed run; refuses the write on a snapshot/grant fail).
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
+		}
+
 		try {
 			$result = $repo->create(
 				array(
@@ -639,6 +646,13 @@ class Elementor_MCP_Variables_Write_Abilities {
 
 		// Repository::update enforces label uniqueness (skipping tombstones) and
 		// RecordNotFound.
+		// Governance chokepoint: snapshot the kit before the write (no-op outside a
+		// governed run; refuses the write on a snapshot/grant fail).
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
+		}
+
 		try {
 			$repo->update( $variable_id, $changes );
 		} catch ( \Throwable $e ) {
@@ -680,6 +694,13 @@ class Elementor_MCP_Variables_Write_Abilities {
 		// `deleted_at` — which is what every consumer (variables-service, the value
 		// transformer, the template-library snapshot builder) filters on. Throws
 		// RecordNotFound when the id is unknown.
+		// Governance chokepoint: snapshot the kit before the write (no-op outside a
+		// governed run; refuses the write on a snapshot/grant fail).
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
+		}
+
 		try {
 			$repo->delete( $variable_id );
 		} catch ( \Throwable $e ) {
@@ -749,6 +770,13 @@ class Elementor_MCP_Variables_Write_Abilities {
 
 		// Repository::restore clears the tombstone (drops `deleted`/`deleted_at`)
 		// and re-asserts label uniqueness + the count cap against the active set.
+		// Governance chokepoint: snapshot the kit before the write (no-op outside a
+		// governed run; refuses the write on a snapshot/grant fail).
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
+		}
+
 		try {
 			$repo->restore( $variable_id );
 		} catch ( \Throwable $e ) {

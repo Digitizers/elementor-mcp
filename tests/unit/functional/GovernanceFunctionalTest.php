@@ -857,12 +857,28 @@ class GovernanceFunctionalTest extends TestCase {
 		return call_user_func( $wrapped['execute_callback'], $input );
 	}
 
-	public function test_kit_write_snapshots_the_kit_before_success(): void {
+	/**
+	 * A callback that behaves like a design-token writer: it calls before_kit_write()
+	 * at its write site (as System_Kit_Writer::persist / the Variables writers do) and
+	 * fails closed if governance refuses.
+	 *
+	 * @param mixed $return Value to return after the (successful) snapshot.
+	 */
+	private function kit_writer( $return ): callable {
+		return static function ( $input ) use ( $return ) {
+			$gate = \Elementor_MCP_Governance::before_kit_write();
+			if ( is_wp_error( $gate ) ) {
+				return $gate; // mirrors a writer refusing on gate failure, before writing
+			}
+			return $return;
+		};
+	}
+
+	public function test_kit_write_snapshots_the_kit_at_the_write_site(): void {
 		$this->set_active_kit( 7 );
 		$result = $this->run_kit_tool(
 			'elementor-mcp/create-variable',
-			static function ( $input ) {
-				return array( 'created' => true ); }
+			$this->kit_writer( array( 'created' => true ) )
 		);
 
 		$this->assertSame( array( 'created' => true ), $result );
@@ -874,10 +890,15 @@ class GovernanceFunctionalTest extends TestCase {
 
 	public function test_kit_write_rolls_back_on_failure(): void {
 		$this->set_active_kit( 7 );
+		// Snapshots at the write site, then fails → rolled back.
 		$result = $this->run_kit_tool(
 			'elementor-mcp/replace-system-colors',
 			static function ( $input ) {
-				return new \WP_Error( 'boom', 'kit write failed' ); }
+				$gate = \Elementor_MCP_Governance::before_kit_write();
+				if ( is_wp_error( $gate ) ) {
+					return $gate; }
+				return new \WP_Error( 'boom', 'kit write failed after persisting' );
+			}
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -885,58 +906,62 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['_aura_snap']['restore_calls'], 'A failed kit write is rolled back.' );
 	}
 
-	public function test_kit_write_fails_closed_when_no_active_kit(): void {
-		$GLOBALS['_active_kit'] = null;
-		$ran                    = false;
-		$result                 = $this->run_kit_tool(
+	public function test_kit_validation_failure_before_write_does_not_snapshot_or_revert(): void {
+		// A tool that fails BEFORE reaching its write site (e.g. input validation)
+		// never calls before_kit_write(), so it neither snapshots nor rolls back —
+		// this is what prevents a failed run from reverting a concurrent, unrelated
+		// kit change (the eager-snapshot race).
+		$this->set_active_kit( 7 );
+		$result = $this->run_kit_tool(
 			'elementor-mcp/create-variable',
-			static function ( $input ) use ( &$ran ) {
-				$ran = true;
-				return array( 'created' => true );
+			static function ( $input ) {
+				return new \WP_Error( 'invalid_input', 'missing required field' );
 			}
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'A pre-write failure must not snapshot the kit.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'], 'and must not roll back — nothing was written.' );
+	}
+
+	public function test_kit_write_fails_closed_when_no_active_kit(): void {
+		$GLOBALS['_active_kit'] = null;
+		$result                 = $this->run_kit_tool(
+			'elementor-mcp/create-variable',
+			$this->kit_writer( array( 'created' => true ) )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
-		$this->assertFalse( $ran, 'The tool must not run when the kit cannot be snapshotted.' );
-		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'], 'No snapshot → nothing to roll back.' );
 	}
 
 	public function test_kit_write_fails_closed_when_snapshot_fails(): void {
 		$this->set_active_kit( 7 );
 		$GLOBALS['_aura_snap']['fail_snapshot'] = true;
-		$ran                                    = false;
 		$result                                 = $this->run_kit_tool(
 			'elementor-mcp/replace-system-typography',
-			static function ( $input ) use ( &$ran ) {
-				$ran = true;
-				return array( 'ok' => true );
-			}
+			$this->kit_writer( array( 'ok' => true ) )
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
-		$this->assertFalse( $ran, 'A snapshot failure must refuse the write, not mutate design tokens.' );
 	}
 
 	public function test_kit_write_fails_closed_when_snapshot_throws(): void {
-		// A kit resolution / snapshot that THROWS must fail closed, not escape.
+		// A kit resolution / snapshot that THROWS at the write site must fail closed,
+		// not escape as an uncaught exception.
 		$GLOBALS['_active_kit'] = new class() {
 			public function get_id() {
 				throw new \RuntimeException( 'kit blew up' ); }
 		};
-		$ran    = false;
 		$result = $this->run_kit_tool(
 			'elementor-mcp/create-variable',
-			static function ( $input ) use ( &$ran ) {
-				$ran = true;
-				return array( 'created' => true );
-			}
+			$this->kit_writer( array( 'created' => true ) )
 		);
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
-		$this->assertFalse( $ran, 'A throw during the kit snapshot must refuse the write.' );
 	}
 
 	public function test_kit_write_requires_grant_when_enforced(): void {
@@ -945,9 +970,10 @@ class GovernanceFunctionalTest extends TestCase {
 		$ran    = false;
 		$result = $this->run_kit_tool(
 			'elementor-mcp/create-variable',
-			static function ( $input ) use ( &$ran ) {
-				$ran = true;
-				return array( 'created' => true );
+			function ( $input ) use ( &$ran ) {
+				$ran  = true;
+				$gate = \Elementor_MCP_Governance::before_kit_write();
+				return is_wp_error( $gate ) ? $gate : array( 'created' => true );
 			}
 		);
 

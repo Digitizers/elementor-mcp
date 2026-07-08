@@ -197,33 +197,13 @@ class Elementor_MCP_Governance {
 			'baseline'        => 'inconclusive', // pre-write render state (edits only)
 		);
 
-		// Kit-scoped writes never reach before_page_write(), so capture the kit
-		// snapshot eagerly here, before the tool runs. Fail closed: if the kit
-		// cannot be snapshotted we refuse the write rather than mutate design
-		// tokens with no rollback point. (Grants were already checked above.)
-		// This runs OUTSIDE the write try/catch below, so guard it here — a throw
-		// from Elementor's kit resolution or the snapshot engine must fail closed
-		// (refuse the write), never escape as an uncaught exception.
-		if ( $is_kit && ! $is_preview ) {
-			try {
-				$err = self::before_kit_write();
-			} catch ( \Throwable $e ) {
-				self::$run = null;
-				return new \WP_Error(
-					'governance_snapshot_failed',
-					sprintf(
-						/* translators: 1: tool name, 2: error message */
-						__( 'Refusing %1$s: snapshotting the kit before the write threw (%2$s).', 'elementor-mcp' ),
-						$name,
-						$e->getMessage()
-					)
-				);
-			}
-			if ( is_wp_error( $err ) ) {
-				self::$run = null;
-				return $err;
-			}
-		}
+		// Kit-scoped writes are snapshotted LAZILY at the kit write site (the
+		// design-token writers call before_kit_write() right before they mutate the
+		// kit — mirroring how save_page_data() calls before_page_write()). So a tool
+		// that fails input validation before writing never snapshots, and a failed
+		// run only rolls back when a kit write actually happened — never reverting a
+		// concurrent, unrelated kit change. $is_kit only affects is_edit above (a
+		// kit write has no page to render-check — see is_edit above).
 
 		try {
 			$result = call_user_func( $original, $input );
@@ -336,13 +316,17 @@ class Elementor_MCP_Governance {
 	}
 
 	/**
-	 * Capture the active kit's design-token meta BEFORE a kit-scoped write so a
-	 * failed write can be rolled back. Unlike before_page_write() (lazy, driven by
-	 * the page write-site), this runs eagerly from run_governed() because kit
-	 * writes go through several repositories with no single write-site callback.
-	 * Fail-closed: returns a \WP_Error when the kit cannot be resolved or
-	 * snapshotted, so the caller refuses the write rather than mutate design tokens
-	 * with no rollback point.
+	 * Capture the active kit's design-token meta before a kit-scoped write so a
+	 * failed write can be rolled back. Like before_page_write() this is LAZY — the
+	 * design-token writers (System_Kit_Writer::persist, the global-palette writers,
+	 * the Variables repository writers) call it right before they mutate the kit,
+	 * so a tool rejected during input validation never snapshots and a failed run
+	 * only rolls back a write that actually happened (never a concurrent, unrelated
+	 * kit change). Fail-closed: returns a \WP_Error when the kit cannot be resolved
+	 * or snapshotted (including on a thrown exception), so the caller refuses the
+	 * write rather than mutate design tokens with no rollback point. Returns null
+	 * when there is no governed run in flight (ungoverned / standalone) or the
+	 * snapshot was already taken — the writer then proceeds normally.
 	 *
 	 * @return \WP_Error|null
 	 */
@@ -353,20 +337,33 @@ class Elementor_MCP_Governance {
 		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
 			return null; // already snapshotted (or already failed) this run
 		}
-		$kit_id = self::active_kit_id();
-		if ( $kit_id <= 0 ) {
+		try {
+			$kit_id = self::active_kit_id();
+			if ( $kit_id <= 0 ) {
+				self::$run['snapshot_failed'] = true;
+				return new \WP_Error(
+					'governance_snapshot_failed',
+					sprintf(
+						/* translators: %s: tool name */
+						__( 'Refusing %s: no active Elementor kit to snapshot before the design-token write.', 'elementor-mcp' ),
+						self::$run['name']
+					)
+				);
+			}
+			$snap = self::snapshots()->snapshot_meta( $kit_id, self::KIT_META_KEYS );
+		} catch ( \Throwable $e ) {
 			self::$run['snapshot_failed'] = true;
 			return new \WP_Error(
 				'governance_snapshot_failed',
 				sprintf(
-					/* translators: %s: tool name */
-					__( 'Refusing %s: no active Elementor kit to snapshot before the design-token write.', 'elementor-mcp' ),
-					self::$run['name']
+					/* translators: 1: tool name, 2: error message */
+					__( 'Refusing %1$s: snapshotting the kit before the write threw (%2$s).', 'elementor-mcp' ),
+					self::$run['name'],
+					$e->getMessage()
 				)
 			);
 		}
 		self::$run['post_id'] = $kit_id;
-		$snap                 = self::snapshots()->snapshot_meta( $kit_id, self::KIT_META_KEYS );
 		if ( empty( $snap['success'] ) ) {
 			self::$run['snapshot_failed'] = true;
 			return new \WP_Error(

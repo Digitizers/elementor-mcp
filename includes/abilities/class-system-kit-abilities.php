@@ -194,6 +194,7 @@ class Elementor_MCP_System_Kit_Abilities {
 						'destructive' => true,
 						'idempotent'  => true,
 					),
+					'governance'   => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)
@@ -254,6 +255,7 @@ class Elementor_MCP_System_Kit_Abilities {
 						'destructive' => true,
 						'idempotent'  => true,
 					),
+					'governance'   => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)

@@ -124,6 +124,7 @@ class Elementor_MCP_Global_Abilities {
 						'destructive' => false,
 						'idempotent'  => true,
 					),
+					'governance'   => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)
@@ -181,6 +182,13 @@ class Elementor_MCP_Global_Abilities {
 			} else {
 				$existing_colors[] = $color_entry;
 			}
+		}
+
+		// Governance chokepoint: snapshot the kit before mutating design tokens (a
+		// no-op outside a governed run; refuses the write on a snapshot/grant fail).
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
 		}
 
 		$kit->update_settings( array( 'custom_colors' => $existing_colors ) );
@@ -257,6 +265,7 @@ class Elementor_MCP_Global_Abilities {
 						'destructive' => false,
 						'idempotent'  => true,
 					),
+					'governance'   => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)
@@ -328,6 +337,13 @@ class Elementor_MCP_Global_Abilities {
 			} else {
 				$existing_typo[] = $typo_entry;
 			}
+		}
+
+		// Governance chokepoint: snapshot the kit before mutating design tokens (a
+		// no-op outside a governed run; refuses the write on a snapshot/grant fail).
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
 		}
 
 		$kit->update_settings( array( 'custom_typography' => $existing_typo ) );

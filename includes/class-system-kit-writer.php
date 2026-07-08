@@ -194,6 +194,13 @@ class Elementor_MCP_System_Kit_Writer {
 			);
 		}
 
+		// Governance chokepoint: snapshot the kit AFTER validation (above), before
+		// the write. No-op outside a governed run; refuses on snapshot/grant fail.
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
+		}
+
 		if ( ! self::persist( $kit, array( 'system_colors' => $entries ) ) ) {
 			return new WP_Error( 'persist_failed', __( 'Could not persist the new system colors to the Elementor kit.', 'elementor-mcp' ) );
 		}
@@ -232,6 +239,13 @@ class Elementor_MCP_System_Kit_Writer {
 			}
 
 			$entries[] = self::build_typography_entry( $slot, $typography[ $slot ] );
+		}
+
+		// Governance chokepoint: snapshot the kit AFTER validation (above), before
+		// the write. No-op outside a governed run; refuses on snapshot/grant fail.
+		$gate = \Elementor_MCP_Governance::before_kit_write();
+		if ( is_wp_error( $gate ) ) {
+			return $gate;
 		}
 
 		if ( ! self::persist( $kit, array( 'system_typography' => $entries ) ) ) {
@@ -606,6 +620,11 @@ class Elementor_MCP_System_Kit_Writer {
 	 * @return bool
 	 */
 	private static function persist( $kit, array $settings ): bool {
+		// NOTE: governance is applied by the CALLERS (the system-kit ability
+		// executors call before_kit_write() before invoking this writer, so the
+		// exact governance error propagates). This low-level writer is deliberately
+		// ungoverned — it is also used by the brand-kit admin flow, which has its
+		// own backup store.
 		$kit_id = $kit->get_id();
 
 		// Primary path: the Kit settings API.

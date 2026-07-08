@@ -63,6 +63,21 @@ class Elementor_MCP_Governance {
 	public const PAGE_META_KEYS = array( '_elementor_data', '_elementor_page_settings' );
 
 	/**
+	 * Kit-post meta keys captured for a kit-scoped ("design-token") write —
+	 * system colors/typography live in `_elementor_page_settings` and v4 Variables
+	 * in `_elementor_global_variables`, both on the active kit post. Passing both
+	 * for any kit-scoped tool is harmless (an untouched key restores to itself),
+	 * and — because SiteAgent's restore DELETES a key that was absent at capture —
+	 * a create that first-writes one of these keys is fully rolled back.
+	 *
+	 * NOTE: global classes are a separate CPT (not kit meta) and interactions are
+	 * page-data (`_elementor_data`, already page-governed); neither is covered here.
+	 *
+	 * @var string[]
+	 */
+	public const KIT_META_KEYS = array( '_elementor_page_settings', '_elementor_global_variables' );
+
+	/**
 	 * The governed run currently in flight, or null. Shape:
 	 *   array{ post_id:int, name:string, snapshot_id:?string, snapshot_failed:bool }
 	 * Request-scoped: only one MCP tool executes at a time, and page writes happen
@@ -122,10 +137,16 @@ class Elementor_MCP_Governance {
 		// (the a11y/SEO generators: apply falsy = dry-run preview, apply truthy =
 		// write). We thread this to run_governed so a preview can skip the grant
 		// without a hardcoded tool list.
-		$preview_capable          = isset( $args['input_schema']['properties']['apply'] );
+		$preview_capable = isset( $args['input_schema']['properties']['apply'] );
+		// A "kit-scoped" write acts on the active kit's design tokens (system
+		// colors/typography, v4 Variables) rather than a page, so it never reaches
+		// the page write-site (before_page_write) — the tool declares the scope and
+		// we snapshot the kit eagerly instead. See KIT_META_KEYS.
+		$is_kit                   = isset( $args['meta']['governance']['scope'] )
+			&& 'kit' === $args['meta']['governance']['scope'];
 		$original                 = $args['execute_callback'];
-		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable ) {
-			return self::run_governed( $name, $original, $input, $preview_capable );
+		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable, $is_kit ) {
+			return self::run_governed( $name, $original, $input, $preview_capable, $is_kit );
 		};
 		return $args;
 	}
@@ -141,12 +162,13 @@ class Elementor_MCP_Governance {
 	 * @return mixed The original result, or a \WP_Error when the grant was rejected
 	 *               or a failed write was rolled back.
 	 */
-	public static function run_governed( string $name, $original, $input, bool $preview_capable = false ) {
+	public static function run_governed( string $name, $original, $input, bool $preview_capable = false, bool $is_kit = false ) {
 		// Server-enforced approval, checked BEFORE the callback runs — so a
 		// create-style tool cannot wp_insert_post() an unauthorized draft before we
 		// verify the grant. Skipped only for a dry-run preview (a preview-capable
 		// tool invoked with apply falsy writes nothing), which never needs approval.
-		if ( self::grants_required() && ! self::is_preview_call( $preview_capable, $input ) ) {
+		$is_preview = self::is_preview_call( $preview_capable, $input );
+		if ( self::grants_required() && ! $is_preview ) {
 			$grant = self::verify_grant( $name, $input );
 			if ( is_wp_error( $grant ) ) {
 				return $grant;
@@ -160,17 +182,28 @@ class Elementor_MCP_Governance {
 		// create-style tool will insert a new post. The render check only applies to
 		// edits — reverting a create would restore "absent" meta yet leave the newly
 		// inserted post behind, so creates are not render-checked.
-		$is_edit = is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
+		// A kit-scoped write targets the kit post, not a page — so there is no
+		// front-end page to render-check (the kit affects the whole site), hence
+		// is_edit stays false and no baseline/probe runs for it.
+		$is_edit = ! $is_kit && is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
 
 		self::$run = array(
 			'name'            => $name,
 			'input'           => $input,
-			'post_id'         => 0, // set lazily on the first real page write
+			'post_id'         => 0, // set lazily on the first real page write (or eagerly for a kit write)
 			'snapshot_id'     => null,
 			'snapshot_failed' => false,
 			'is_edit'         => $is_edit,
 			'baseline'        => 'inconclusive', // pre-write render state (edits only)
 		);
+
+		// Kit-scoped writes are snapshotted LAZILY at the kit write site (the
+		// design-token writers call before_kit_write() right before they mutate the
+		// kit — mirroring how save_page_data() calls before_page_write()). So a tool
+		// that fails input validation before writing never snapshots, and a failed
+		// run only rolls back when a kit write actually happened — never reverting a
+		// concurrent, unrelated kit change. $is_kit only affects is_edit above (a
+		// kit write has no page to render-check — see is_edit above).
 
 		try {
 			$result = call_user_func( $original, $input );
@@ -280,6 +313,87 @@ class Elementor_MCP_Governance {
 			self::$run['baseline'] = self::probe_render( $post_id );
 		}
 		return null;
+	}
+
+	/**
+	 * Capture the active kit's design-token meta before a kit-scoped write so a
+	 * failed write can be rolled back. Like before_page_write() this is LAZY — the
+	 * design-token writers (System_Kit_Writer::persist, the global-palette writers,
+	 * the Variables repository writers) call it right before they mutate the kit,
+	 * so a tool rejected during input validation never snapshots and a failed run
+	 * only rolls back a write that actually happened (never a concurrent, unrelated
+	 * kit change). Fail-closed: returns a \WP_Error when the kit cannot be resolved
+	 * or snapshotted (including on a thrown exception), so the caller refuses the
+	 * write rather than mutate design tokens with no rollback point. Returns null
+	 * when there is no governed run in flight (ungoverned / standalone) or the
+	 * snapshot was already taken — the writer then proceeds normally.
+	 *
+	 * @return \WP_Error|null
+	 */
+	public static function before_kit_write() {
+		if ( null === self::$run || ! self::is_active() ) {
+			return null;
+		}
+		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
+			return null; // already snapshotted (or already failed) this run
+		}
+		try {
+			$kit_id = self::active_kit_id();
+			if ( $kit_id <= 0 ) {
+				self::$run['snapshot_failed'] = true;
+				return new \WP_Error(
+					'governance_snapshot_failed',
+					sprintf(
+						/* translators: %s: tool name */
+						__( 'Refusing %s: no active Elementor kit to snapshot before the design-token write.', 'elementor-mcp' ),
+						self::$run['name']
+					)
+				);
+			}
+			$snap = self::snapshots()->snapshot_meta( $kit_id, self::KIT_META_KEYS );
+		} catch ( \Throwable $e ) {
+			self::$run['snapshot_failed'] = true;
+			return new \WP_Error(
+				'governance_snapshot_failed',
+				sprintf(
+					/* translators: 1: tool name, 2: error message */
+					__( 'Refusing %1$s: snapshotting the kit before the write threw (%2$s).', 'elementor-mcp' ),
+					self::$run['name'],
+					$e->getMessage()
+				)
+			);
+		}
+		self::$run['post_id'] = $kit_id;
+		if ( empty( $snap['success'] ) ) {
+			self::$run['snapshot_failed'] = true;
+			return new \WP_Error(
+				'governance_snapshot_failed',
+				sprintf(
+					/* translators: 1: tool name, 2: reason */
+					__( 'Refusing %1$s: could not snapshot the kit before writing (%2$s).', 'elementor-mcp' ),
+					self::$run['name'],
+					isset( $snap['error'] ) ? $snap['error'] : 'unknown error'
+				)
+			);
+		}
+		self::$run['snapshot_id'] = $snap['snapshot']['id'];
+		return null;
+	}
+
+	/**
+	 * The active Elementor kit post id, or 0 when unavailable.
+	 *
+	 * @return int
+	 */
+	private static function active_kit_id(): int {
+		if ( ! class_exists( '\\Elementor\\Plugin' ) || ! isset( \Elementor\Plugin::$instance->kits_manager ) ) {
+			return 0;
+		}
+		$kit = \Elementor\Plugin::$instance->kits_manager->get_active_kit();
+		if ( ! $kit || ! method_exists( $kit, 'get_id' ) ) {
+			return 0;
+		}
+		return absint( $kit->get_id() );
 	}
 
 	/**

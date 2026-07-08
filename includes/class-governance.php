@@ -120,6 +120,9 @@ class Elementor_MCP_Governance {
 		'_elementor_global_classes_order_preview',
 		'_elementor_global_classes_labels',
 		'_elementor_global_classes_labels_preview',
+		// The design-system sync-to-v3 id map (Global_Classes_Sync_Map), also mutated
+		// by apply_changes() on the non-preview path — single-valued kit meta.
+		'_elementor_global_classes_sync_to_v3',
 		// Per-class CPT post (`e_global_class`) data + identity.
 		'_elementor_global_class_id',
 		'_elementor_global_class_data',

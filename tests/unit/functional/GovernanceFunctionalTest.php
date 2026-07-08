@@ -1046,6 +1046,7 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertContains( '_elementor_global_class_using_documents', $keys );
 		$this->assertContains( '_elementor_global_class_using_documents_preview', $keys );
 		$this->assertContains( '_elementor_global_class_usage_indexed', $keys );
+		$this->assertContains( '_elementor_global_classes_sync_to_v3', $keys, 'Sync-to-v3 kit map is mutated by apply_changes and must be reversible.' );
 		$this->assertNotContains( '_elementor_used_global_class', $keys, 'Multi-valued index must be excluded to avoid a clobbering half-restore.' );
 	}
 

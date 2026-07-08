@@ -210,15 +210,6 @@ class Elementor_MCP_System_Kit_Abilities {
 			return new \WP_Error( 'no_license', __( 'A valid EMCP Tools Pro license is required.', 'elementor-mcp' ) );
 		}
 		$colors = isset( $input['colors'] ) && is_array( $input['colors'] ) ? $input['colors'] : array();
-
-		// Governance chokepoint: snapshot the kit before the write (no-op outside a
-		// governed run). Done here (not inside the writer) so the exact
-		// governance_snapshot_failed error reaches the caller.
-		$gate = \Elementor_MCP_Governance::before_kit_write();
-		if ( is_wp_error( $gate ) ) {
-			return $gate;
-		}
-
 		return Elementor_MCP_System_Kit_Writer::replace_system_colors( $colors );
 	}
 
@@ -280,15 +271,6 @@ class Elementor_MCP_System_Kit_Abilities {
 			return new \WP_Error( 'no_license', __( 'A valid EMCP Tools Pro license is required.', 'elementor-mcp' ) );
 		}
 		$typography = isset( $input['typography'] ) && is_array( $input['typography'] ) ? $input['typography'] : array();
-
-		// Governance chokepoint: snapshot the kit before the write (no-op outside a
-		// governed run). Done here (not inside the writer) so the exact
-		// governance_snapshot_failed error reaches the caller.
-		$gate = \Elementor_MCP_Governance::before_kit_write();
-		if ( is_wp_error( $gate ) ) {
-			return $gate;
-		}
-
 		return Elementor_MCP_System_Kit_Writer::replace_system_typography( $typography );
 	}
 }

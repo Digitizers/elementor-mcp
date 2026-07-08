@@ -124,6 +124,7 @@ class Elementor_MCP_Global_Abilities {
 						'destructive' => false,
 						'idempotent'  => true,
 					),
+					'governance'   => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)
@@ -257,6 +258,7 @@ class Elementor_MCP_Global_Abilities {
 						'destructive' => false,
 						'idempotent'  => true,
 					),
+					'governance'   => array( 'scope' => 'kit' ),
 					'show_in_rest' => true,
 				),
 			)

@@ -982,4 +982,188 @@ class GovernanceFunctionalTest extends TestCase {
 		$this->assertFalse( $ran, 'No grant → the kit write never runs.' );
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'Grant is checked before the kit snapshot.' );
 	}
+
+	// --- global-classes (Class Manager) governance -------------------------
+
+	/** Write-capable args tagged as a global-classes (site-wide) design-system write. */
+	private function gc_write_args( $callback ): array {
+		$args                       = $this->write_args( $callback );
+		$args['meta']['governance'] = array( 'scope' => 'global-classes' );
+		return $args;
+	}
+
+	/** Run a global-classes tool through the real wrap → execute path. */
+	private function run_gc_tool( string $name, $callback, $input = array() ) {
+		$wrapped = \Elementor_MCP_Governance::wrap_ability( $name, $this->gc_write_args( $callback ) );
+		return call_user_func( $wrapped['execute_callback'], $input );
+	}
+
+	/**
+	 * A callback that behaves like the global-classes writer: at its repository
+	 * write site (apply_change) it snapshots the transaction — the active kit, the
+	 * touched class CPT posts, and the pages a delete cascades to — and fails closed
+	 * if governance refuses.
+	 *
+	 * @param mixed $return          Value to return after a successful snapshot.
+	 * @param int   $kit_id          Active kit id.
+	 * @param int[] $class_post_ids  Touched class CPT post ids.
+	 * @param int[] $affected_pages  Pages a delete cascades to.
+	 */
+	private function gc_writer( $return, int $kit_id = 7, array $class_post_ids = array( 333 ), array $affected_pages = array() ): callable {
+		return static function ( $input ) use ( $return, $kit_id, $class_post_ids, $affected_pages ) {
+			$gate = \Elementor_MCP_Governance::before_global_classes_write( $kit_id, $class_post_ids, $affected_pages );
+			if ( is_wp_error( $gate ) ) {
+				return $gate; // mirrors apply_change() returning the gate error
+			}
+			return $return;
+		};
+	}
+
+	public function test_global_classes_write_snapshots_kit_class_posts_and_pages(): void {
+		// A delete transaction: snapshot the kit anchor + the class CPT post + the
+		// pages the cascade will rewrite, in ONE snapshot_posts() call.
+		$result = $this->run_gc_tool(
+			'elementor-mcp/delete-global-class',
+			$this->gc_writer( array( 'deleted' => true ), 7, array( 333 ), array( 501, 502 ) )
+		);
+
+		$this->assertSame( array( 'deleted' => true ), $result );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$call = $GLOBALS['_aura_snap']['snapshot_calls'][0];
+		$this->assertSame( array( 7, 333, 501, 502 ), $call['post_ids'], 'kit + class post + cascade pages, deduped.' );
+		$this->assertSame( \Elementor_MCP_Governance::GC_SNAPSHOT_META_KEYS, $call['keys'] );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_gc_snapshot_keys_include_reverse_usage_index(): void {
+		// A delete drops the class post's reverse usage index
+		// (`_elementor_global_class_using_documents`, which get_posts_by_style reads
+		// first) and edits the pages' usage-indexed flag; both must be in the snapshot
+		// so a rollback restores them (Codex round-1 P2). The multi-valued
+		// `_elementor_used_global_class` is deliberately NOT captured (snapshot_posts
+		// is single-valued; it self-heals on next save).
+		$keys = \Elementor_MCP_Governance::GC_SNAPSHOT_META_KEYS;
+		$this->assertContains( '_elementor_global_class_using_documents', $keys );
+		$this->assertContains( '_elementor_global_class_using_documents_preview', $keys );
+		$this->assertContains( '_elementor_global_class_usage_indexed', $keys );
+		$this->assertContains( '_elementor_global_classes_sync_to_v3', $keys, 'Sync-to-v3 kit map is mutated by apply_changes and must be reversible.' );
+		$this->assertNotContains( '_elementor_used_global_class', $keys, 'Multi-valued index must be excluded to avoid a clobbering half-restore.' );
+	}
+
+	public function test_global_classes_write_dedupes_overlapping_post_ids(): void {
+		// The kit id also appearing among class/page ids must not double-snapshot it.
+		$this->run_gc_tool(
+			'elementor-mcp/update-global-class',
+			$this->gc_writer( array( 'updated' => true ), 7, array( 7, 333 ), array( 333 ) )
+		);
+
+		$this->assertSame( array( 7, 333 ), $GLOBALS['_aura_snap']['snapshot_calls'][0]['post_ids'] );
+	}
+
+	public function test_global_classes_write_rolls_back_on_failure(): void {
+		// Snapshots at the write site, then the repo write fails → rolled back.
+		$result = $this->run_gc_tool(
+			'elementor-mcp/delete-global-class',
+			$this->gc_writer( new \WP_Error( 'write_failed', 'repo rejected the delete' ), 7, array( 333 ), array( 501 ) )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'], 'A failed GC write is rolled back.' );
+	}
+
+	public function test_global_classes_validation_failure_before_write_does_not_snapshot(): void {
+		// A tool that fails BEFORE reaching apply_change (input validation) never
+		// calls before_global_classes_write(), so it neither snapshots nor reverts —
+		// preventing a failed run from reverting a concurrent, unrelated change.
+		$result = $this->run_gc_tool(
+			'elementor-mcp/create-global-class',
+			static function ( $input ) {
+				return new \WP_Error( 'missing_label', 'label is required' );
+			}
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_global_classes_write_fails_closed_when_no_active_kit(): void {
+		$result = $this->run_gc_tool(
+			'elementor-mcp/create-global-class',
+			$this->gc_writer( array( 'created' => true ), 0 ) // no active kit
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_global_classes_write_fails_closed_when_snapshot_fails(): void {
+		$GLOBALS['_aura_snap']['fail_snapshot'] = true;
+		$result                                 = $this->run_gc_tool(
+			'elementor-mcp/delete-global-class',
+			$this->gc_writer( array( 'deleted' => true ), 7, array( 333 ), array( 501 ) )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_snapshot_failed', $result->get_error_code() );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'], 'No snapshot → nothing to roll back.' );
+	}
+
+	public function test_global_classes_write_fails_closed_when_engine_lacks_snapshot_posts(): void {
+		// SiteAgent present but too old to have the multi-post primitive: a meta-only
+		// rollback would half-restore (kit id-map → a deleted class post), so refuse.
+		$engine_without_posts = new class() {
+			public function snapshot_meta( $post_id, $keys ) {
+				return array( 'success' => true, 'snapshot' => array( 'id' => 'x' ) ); }
+			public function restore( $id ) {
+				return array( 'success' => true ); }
+		};
+		\Elementor_MCP_Governance::reset_state( $engine_without_posts );
+
+		$result = $this->run_gc_tool(
+			'elementor-mcp/delete-global-class',
+			$this->gc_writer( array( 'deleted' => true ), 7, array( 333 ), array( 501 ) )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_snapshot_unavailable', $result->get_error_code() );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_global_classes_write_requires_grant_when_enforced(): void {
+		$this->require_grants(); // enforced + opted in, no header
+		$ran    = false;
+		$result = $this->run_gc_tool(
+			'elementor-mcp/delete-global-class',
+			function ( $input ) use ( &$ran ) {
+				$ran  = true;
+				$gate = \Elementor_MCP_Governance::before_global_classes_write( 7, array( 333 ), array( 501 ) );
+				return is_wp_error( $gate ) ? $gate : array( 'deleted' => true );
+			}
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_grant_required', $result->get_error_code() );
+		$this->assertFalse( $ran, 'No grant → the GC write never runs.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['snapshot_calls'], 'Grant is checked before the GC snapshot.' );
+	}
+
+	public function test_global_classes_write_is_not_render_checked(): void {
+		// A site-wide design-system write has no single front-end page to probe; even
+		// with the render check on and a 5xx fake, a successful write must stand.
+		$this->publish( 501 );
+		$this->enable_render_check();
+		$this->fake_http( 500, '' );
+
+		$result = $this->run_gc_tool(
+			'elementor-mcp/delete-global-class',
+			$this->gc_writer( array( 'deleted' => true ), 7, array( 333 ), array( 501 ) )
+		);
+
+		$this->assertSame( array( 'deleted' => true ), $result );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+		$this->assertArrayNotHasKey( '_http_last_url', $GLOBALS, 'A GC write must not probe a render.' );
+	}
 }

@@ -287,6 +287,20 @@ class Elementor_MCP_Admin {
 			)
 		);
 
+		// Angie browser-MCP bridge (Connection tab). Off by default — read-only
+		// surface, but it still exposes site structure to an in-admin agent.
+		register_setting(
+			self::SETTINGS_GROUP_SERVER,
+			Elementor_MCP_Angie_Bridge::OPTION_ENABLED,
+			array(
+				'type'              => 'string',
+				'default'           => '0',
+				'sanitize_callback' => static function ( $value ) {
+					return '1' === (string) $value ? '1' : '0';
+				},
+			)
+		);
+
 		// "Activate Abilities API for EMCP" server gate (Connection tab). On by
 		// default; an absent checkbox on submit sanitizes to '0' (off).
 		register_setting(

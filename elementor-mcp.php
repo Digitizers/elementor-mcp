@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor (Digitizers fork)
  * Plugin URI:        https://github.com/Digitizers/elementor-mcp
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
- * Version:           1.25.1
+ * Version:           1.26.0
  * Requires at least: 6.9
  * Tested up to:      6.9
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.25.1' );
+define( 'ELEMENTOR_MCP_VERSION', '1.26.0' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -440,6 +440,7 @@ function elementor_mcp_init(): void {
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-system-kit-writer.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-kit-backup-store.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-free-brand-kits.php';
+	require_once ELEMENTOR_MCP_DIR . 'includes/class-angie-bridge.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-system-kit-abilities.php';
 	add_action( 'init', array( 'Elementor_MCP_Kit_Backup_Store', 'register_post_type' ) );
 	// Widget Builder (Pro) — sandboxed AI-generated Elementor widgets. The

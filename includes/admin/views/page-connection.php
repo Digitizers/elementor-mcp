@@ -77,6 +77,21 @@ $elementor_mcp_server_enabled = class_exists( 'Elementor_MCP_Plugin' )
 			?>
 		</p>
 
+		<?php $elementor_mcp_angie_bridge_enabled = class_exists( 'Elementor_MCP_Angie_Bridge' ) && Elementor_MCP_Angie_Bridge::is_enabled(); ?>
+		<label class="elementor-mcp-activate-toggle">
+			<input
+				type="checkbox"
+				name="<?php echo esc_attr( Elementor_MCP_Angie_Bridge::OPTION_ENABLED ); ?>"
+				value="1"
+				<?php checked( $elementor_mcp_angie_bridge_enabled ); ?>
+			/>
+			<strong><?php esc_html_e( 'Angie bridge (read-only): expose 6 inspection tools to Elementor\'s Angie assistant', 'elementor-mcp' ); ?></strong>
+		</label>
+
+		<p class="elementor-mcp-activate-note">
+			<?php esc_html_e( 'Registers "Aura Design Engine" inside Angie (when the Angie plugin is active) with read-only tools: list widgets, widget schema, page structure, pages, global classes, and variables. No write tools are exposed — mutations require the governed MCP connection. Off by default.', 'elementor-mcp' ); ?>
+		</p>
+
 		<?php submit_button( __( 'Save Settings', 'elementor-mcp' ), 'primary', 'submit', false ); ?>
 	</form>
 	</div>

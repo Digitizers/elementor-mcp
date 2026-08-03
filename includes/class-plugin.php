@@ -134,6 +134,12 @@ class Elementor_MCP_Plugin {
 		// disabled-tools option. Guarded by its own flag, so it's a cheap no-op
 		// after the first run.
 		add_action( 'init', array( $this, 'ensure_premium_unlock_applied' ), 20 );
+
+		// Angie browser-MCP bridge (read-only, off by default). Registers its
+		// REST routes on every request path; the script enqueue is admin-only.
+		if ( class_exists( 'Elementor_MCP_Angie_Bridge' ) ) {
+			( new Elementor_MCP_Angie_Bridge() )->init();
+		}
 	}
 
 	/**

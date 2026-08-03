@@ -432,7 +432,16 @@ namespace {
 	}
 
 	if ( ! function_exists( 'get_option' ) ) {
+		/**
+		 * Configurable get_option stub.
+		 *
+		 * $GLOBALS['_options'][ $option ] wins when set; otherwise the default
+		 * is returned (previous behaviour — existing tests are unaffected).
+		 */
 		function get_option( string $option, $default = false ) {
+			if ( isset( $GLOBALS['_options'] ) && array_key_exists( $option, (array) $GLOBALS['_options'] ) ) {
+				return $GLOBALS['_options'][ $option ];
+			}
 			return $default;
 		}
 	}
@@ -1117,6 +1126,83 @@ namespace {
 					'params' => $params,
 				);
 				return $GLOBALS['_aura_grant']['verify_result'] ?? true;
+			}
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Angie-bridge stubs (AngieBridge* tests).
+	//
+	//   $GLOBALS['_abilities'][ $name ] => object   wp_get_ability() registry
+	//   $GLOBALS['_logged_in']          => bool     is_user_logged_in() (default true)
+	//   $GLOBALS['_rest_routes']        => array    register_rest_route() recorder
+	// -----------------------------------------------------------------------
+	if ( ! function_exists( 'wp_get_ability' ) ) {
+		function wp_get_ability( string $name ) {
+			return $GLOBALS['_abilities'][ $name ] ?? null;
+		}
+	}
+
+	if ( ! function_exists( 'is_user_logged_in' ) ) {
+		function is_user_logged_in(): bool {
+			return $GLOBALS['_logged_in'] ?? true;
+		}
+	}
+
+	if ( ! function_exists( 'register_rest_route' ) ) {
+		function register_rest_route( string $ns, string $route, array $args = array() ): bool {
+			$GLOBALS['_rest_routes'][] = array(
+				'namespace' => $ns,
+				'route'     => $route,
+				'args'      => $args,
+			);
+			return true;
+		}
+	}
+
+	if ( ! function_exists( 'is_admin' ) ) {
+		function is_admin(): bool {
+			return $GLOBALS['_is_admin'] ?? false;
+		}
+	}
+
+	if ( ! class_exists( 'WP_REST_Server' ) ) {
+		class WP_REST_Server {
+			const READABLE  = 'GET';
+			const CREATABLE = 'POST';
+		}
+	}
+
+	if ( ! class_exists( 'WP_REST_Response' ) ) {
+		class WP_REST_Response {
+			private $data;
+			private $status;
+			public function __construct( $data = null, int $status = 200 ) {
+				$this->data   = $data;
+				$this->status = $status;
+			}
+			public function get_data() {
+				return $this->data;
+			}
+			public function get_status(): int {
+				return $this->status;
+			}
+		}
+	}
+
+	if ( ! class_exists( 'WP_REST_Request' ) ) {
+		class WP_REST_Request {
+			private $params;
+			private $json;
+			public function __construct( array $params = array(), $json = null ) {
+				$this->params = $params;
+				$this->json   = $json;
+			}
+			public function get_param( string $key ) {
+				return $this->params[ $key ] ?? null;
+			}
+			public function get_json_params() {
+				return $this->json;
 			}
 		}
 	}

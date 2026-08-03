@@ -77,6 +77,7 @@ async function executeTool(
 		return {
 			content: [ { type: 'text', text: message } ],
 			isError: true,
+			_meta: { source: 'angie-bridge' },
 		};
 	}
 }

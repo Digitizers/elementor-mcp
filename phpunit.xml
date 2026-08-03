@@ -38,6 +38,7 @@
         <testsuite name="Unit">
             <file>tests/unit/WidgetGeneratorTest.php</file>
             <file>tests/unit/PremiumTierUnlockedTest.php</file>
+            <file>tests/unit/AngieBridgeTest.php</file>
         </testsuite>
     </testsuites>
 

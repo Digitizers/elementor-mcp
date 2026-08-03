@@ -155,6 +155,11 @@ class Elementor_MCP_Angie_Bridge {
 	/**
 	 * Shared permission check for both routes.
 	 *
+	 * Nonce note: cookie-authenticated REST requests are already nonce-gated by
+	 * WordPress core (rest_cookie_check_errors) — a missing or invalid
+	 * X-WP-Nonce leaves the request unauthenticated, so is_user_logged_in()
+	 * fails here with 401. No separate wp_verify_nonce() call is needed.
+	 *
 	 * @since 1.26.0
 	 *
 	 * @return true|WP_Error
@@ -222,7 +227,7 @@ class Elementor_MCP_Angie_Bridge {
 	 *
 	 * @since 1.26.0
 	 *
-	 * @param object $ability A WP_Ability instance.
+	 * @param object|mixed $ability A WP_Ability instance (anything else fails closed).
 	 * @return bool
 	 */
 	public static function ability_is_read_only( $ability ): bool {
@@ -325,8 +330,27 @@ class Elementor_MCP_Angie_Bridge {
 			$params = array();
 		}
 
-		// WP_Ability::execute() validates the input schema and runs the
-		// ability's own permission callback before executing.
+		// Enforce the ability's own permission callback explicitly BEFORE
+		// executing. Core WP_Ability::execute() also checks permissions
+		// internally, but the bridge must not depend on that implementation
+		// detail: a filter-added read ability with a stronger requirement
+		// (e.g. manage_options) must refuse an editor here regardless of which
+		// Abilities implementation is loaded.
+		if ( method_exists( $ability, 'check_permissions' ) ) {
+			$permitted = $ability->check_permissions( $params );
+			if ( true !== $permitted ) {
+				return new WP_REST_Response(
+					array(
+						'code'    => 'emcp_angie_tool_forbidden',
+						'message' => __( 'You do not have permission to run this tool.', 'elementor-mcp' ),
+					),
+					403
+				);
+			}
+		}
+
+		// WP_Ability::execute() additionally validates the input schema (and
+		// re-checks permissions on core implementations).
 		$result = $ability->execute( $params );
 
 		if ( is_wp_error( $result ) ) {
@@ -367,6 +391,13 @@ class Elementor_MCP_Angie_Bridge {
 	 */
 	public function maybe_enqueue_bridge(): void {
 		if ( ! is_admin() || ! self::is_enabled() || ! $this->current_user_can_access_bridge() ) {
+			return;
+		}
+
+		// Angie's assistant is available across wp-admin, so the bridge must be
+		// present wherever Angie is — but there is no point shipping the bundle
+		// when the Angie plugin is not installed at all.
+		if ( ! defined( 'ANGIE_VERSION' ) && ! class_exists( 'Angie', false ) ) {
 			return;
 		}
 

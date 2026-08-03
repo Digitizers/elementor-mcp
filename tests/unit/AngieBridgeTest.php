@@ -48,6 +48,12 @@ class Fake_Bridge_Ability {
 		return $this->description;
 	}
 
+	public $permission_result = true;
+
+	public function check_permissions( $input = null ) {
+		return $this->permission_result;
+	}
+
 	public function execute( $input = null ) {
 		$this->executed_with = $input;
 		return $this->execute_result;
@@ -263,6 +269,23 @@ class AngieBridgeTest extends Ability_Test_Case {
 
 		$this->assertSame( 403, $response->get_status() );
 		$this->assertSame( 'bridge_writes_phase_b', $response->get_data()['code'] );
+	}
+
+	public function test_execute_refuses_when_the_ability_denies_permission(): void {
+		$this->enable_bridge();
+		// A filter-added read ability with a stronger requirement (e.g.
+		// manage_options) must refuse before execute — the bridge checks the
+		// ability's own permission callback explicitly, not just the route gate.
+		$ability                    = new Fake_Bridge_Ability( $this->read_meta() );
+		$ability->permission_result = new \WP_Error( 'forbidden', 'Admins only.' );
+		$this->register_fake( 'elementor-mcp/list-widgets', $ability );
+
+		$request  = new WP_REST_Request( array( 'tool' => 'list-widgets' ), array() );
+		$response = $this->bridge->execute_tool( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( 'emcp_angie_tool_forbidden', $response->get_data()['code'] );
+		$this->assertNull( $ability->executed_with, 'The ability must not execute after a permission denial.' );
 	}
 
 	public function test_execute_returns_404_for_unknown_or_unlisted_tools(): void {

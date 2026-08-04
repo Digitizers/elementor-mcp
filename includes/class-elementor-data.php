@@ -210,6 +210,15 @@ class Elementor_MCP_Data {
 			return $document;
 		}
 
+		// Capture the PRE-save tree: pre-existence of unavailable elements must
+		// be judged against what the page held BEFORE this save — the post-save
+		// re-read can't distinguish "never existed" from "just sanitized away",
+		// and a widget from a temporarily inactive plugin that lived on the
+		// page is data an unrelated edit must not destroy.
+		$pre_raw = get_post_meta( $post_id, '_elementor_data', true );
+		$pre_tree = ( is_string( $pre_raw ) && '' !== $pre_raw ) ? json_decode( $pre_raw, true ) : null;
+		$pre_seq  = is_array( $pre_tree ) ? $this->element_id_sequence( $pre_tree ) : array();
+
 		// Attempt native Elementor save (handles CSS regen, cache busting).
 		// Elementor 4.0 atomic widgets THROW on invalid settings instead of
 		// returning false, so catch it and return a clean error rather than
@@ -230,9 +239,87 @@ class Elementor_MCP_Data {
 			);
 		}
 
-		if ( ! $result ) {
-			// Fallback: direct meta write for non-browser contexts (CLI, REST proxy).
-			$json = wp_json_encode( $data );
+		// Verify the native save actually persisted our elements. Elementor's
+		// Document::save() can return a truthy value in some 4.x / atomic / REST
+		// contexts yet drop the elements — leaving `_elementor_data` empty, or
+		// (on an already-populated page) leaving the STALE pre-save content in
+		// place — a silent write failure the caller never sees (upstream #98).
+		// Re-read and compare the RECURSIVE, ORDERED element-id sequence: ids
+		// survive Elementor's save-time settings normalization, so any
+		// structural difference (nested add/delete/duplicate/reorder, not just
+		// top-level) means our tree did not land. Known limitation, stated
+		// plainly: a mutation that changes ONLY settings on an unchanged tree
+		// shape is indistinguishable from stale content by structure, and a
+		// deep settings comparison would false-positive against Elementor's own
+		// normalization (and the fallback would then clobber it) — so
+		// settings-only silent drops remain undetectable here.
+		$needs_fallback = ! $result;
+		$silent_drop    = false;
+		if ( ! $needs_fallback ) {
+			$persisted_raw = get_post_meta( $post_id, '_elementor_data', true );
+			$persisted     = ( is_string( $persisted_raw ) && '' !== $persisted_raw )
+				? json_decode( $persisted_raw, true )
+				: null;
+
+			if ( empty( $data ) ) {
+				// Empty requested tree (e.g. delete-page-content): a silent drop
+				// leaves the OLD elements in place — verify the page really is
+				// empty now, else force the direct meta write of the empty tree.
+				if ( is_array( $persisted ) && ! empty( $persisted ) ) {
+					$needs_fallback = true;
+					$silent_drop    = true;
+				}
+			} else {
+				// Empty/invalid persisted content flows through the SAME
+				// projection compare with an empty persisted sequence: a
+				// requested tree that consists ENTIRELY of unavailable elements
+				// projects to [] == [] and is pure sanitization (upstream
+				// documents exactly this for unknown atomic elements) — the
+				// old dedicated empty-persisted branch wrongly fell back and
+				// wrote the raw unsanitized tree.
+				if ( ! is_array( $persisted ) ) {
+					$persisted = array();
+				}
+				// Distinguish a context-related silent drop from Elementor's own
+				// DELIBERATE sanitization: a save can succeed while removing
+				// elements whose type is unavailable on this site (unknown atomic
+				// widgets etc.). Project the requested tree the way a native save
+				// would sanitize it — drop unavailable elements EXCEPT ones whose
+				// ids already exist on the page (pre-existing data) — and compare
+				// that projection's parent-aware id sequence against the re-read.
+				// Any difference is a real silent drop (covers nested edits,
+				// reorders, and the mixed case of a structural edit arriving
+				// together with an unavailable element); a pure-sanitization save
+				// matches exactly and is left alone.
+				$persisted_seq = $this->element_id_sequence( $persisted );
+				// Preserve unavailable elements that existed either AFTER the
+				// save (still persisted) or BEFORE it (pre-save capture): a
+				// native save that sanitized away a pre-existing inactive-plugin
+				// widget is destruction of page data, not acceptable
+				// sanitization — the mismatch below restores it via the
+				// projection.
+				$keep_ids      = array_values( array_unique( array_merge( $persisted_seq, $pre_seq ) ) );
+				$expected_tree = $this->strip_unavailable_elements( $data, $keep_ids );
+				if ( $this->element_id_sequence( $expected_tree ) !== $persisted_seq ) {
+					$needs_fallback = true;
+					$silent_drop    = true;
+				}
+			}
+		}
+
+		if ( $needs_fallback ) {
+			// Fallback: direct meta write for non-browser contexts (CLI, REST proxy)
+			// and for the silent-drop case above. On the SILENT-DROP path only,
+			// strip unavailable-type elements first — a native save deliberately
+			// sanitizes those, and the raw write must not resurrect them (covers
+			// the mixed case too). On the classic falsy-return path (CLI/REST —
+			// no native save happened at all) the tree is written as-is: a widget
+			// from a temporarily inactive plugin is DATA, not sanitization, and
+			// stripping it there would destroy it on an unrelated edit.
+			$fallback_tree = ( $silent_drop && isset( $expected_tree ) )
+				? $expected_tree
+				: $data;
+			$json          = wp_json_encode( $fallback_tree );
 
 			if ( false === $json ) {
 				return new \WP_Error(
@@ -393,9 +480,137 @@ class Elementor_MCP_Data {
 	 * @param array $elements The element tree.
 	 * @return array The tree with new IDs.
 	 */
+	/**
+	 * Recursively removes elements whose type is unavailable on this site.
+	 *
+	 * Used by the silent-drop fallback so it writes only what Elementor's own
+	 * save would accept — never resurrecting deliberately sanitized elements —
+	 * while preserving unavailable elements that already exist on the page
+	 * (their ids appear in $keep_ids, the persisted tree's id sequence).
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $elements The element tree.
+	 * @param array $keep_ids Ids present in the persisted tree — always kept.
+	 * @return array Filtered tree.
+	 */
+	private function strip_unavailable_elements( array $elements, array $keep_ids = array() ): array {
+		$out = array();
+		foreach ( $elements as $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			// Strip only what Elementor removed in THIS save: an unavailable
+			// element whose id survived in the persisted tree is pre-existing
+			// page data (e.g. a widget from a temporarily inactive plugin) and
+			// must be preserved, not destroyed by an unrelated edit's fallback.
+			$el_id = isset( $el['id'] ) ? (string) $el['id'] : '';
+			$kept  = false;
+			if ( '' !== $el_id ) {
+				foreach ( $keep_ids as $entry ) {
+					if ( substr( (string) $entry, strpos( (string) $entry, '>' ) + 1 ) === $el_id ) {
+						$kept = true;
+						break;
+					}
+				}
+			}
+			if ( ! $this->element_type_available( $el ) && ! $kept ) {
+				continue;
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				$el['elements'] = $this->strip_unavailable_elements( $el['elements'], $keep_ids );
+			}
+			$out[] = $el;
+		}
+		return $out;
+	}
+
+	/**
+	 * Whether an element's type is available on this site.
+	 *
+	 * A widget whose type is not registered (and, for atomic elements, not an
+	 * available atomic type) is one Elementor may DELIBERATELY strip on save —
+	 * that is sanitization, not a silent write failure, and the fallback must
+	 * not resurrect it. Non-widget elements (containers, sections) are always
+	 * treated as available.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $element The element array.
+	 * @return bool
+	 */
+	private function element_type_available( array $element ): bool {
+		$widget_type = isset( $element['widgetType'] ) ? (string) $element['widgetType'] : '';
+		if ( '' !== $widget_type ) {
+			$manager = \Elementor\Plugin::$instance->widgets_manager ?? null;
+			if ( $manager && method_exists( $manager, 'get_widget_types' ) ) {
+				return null !== $manager->get_widget_types( $widget_type );
+			}
+			return true;
+		}
+
+		// Atomic containers (e-flexbox, e-div-block, ...) carry no widgetType —
+		// their availability lives in the elements manager. Classic structural
+		// types are always available.
+		$el_type = isset( $element['elType'] ) ? (string) $element['elType'] : '';
+		if ( in_array( $el_type, array( '', 'widget', 'section', 'column', 'container' ), true ) ) {
+			return true;
+		}
+		$em = \Elementor\Plugin::$instance->elements_manager ?? null;
+		if ( $em && method_exists( $em, 'get_element_types' ) ) {
+			$types = $em->get_element_types();
+			if ( is_array( $types ) ) {
+				return array_key_exists( $el_type, $types );
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Depth-first, ordered sequence of every element id in a tree.
+	 *
+	 * Used by the silent-save verification: comparing full sequences catches
+	 * nested adds/deletes/duplicates and reorders, not just top-level drops.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $elements The element tree.
+	 * @return string[] Ordered id list.
+	 */
+	private function element_id_sequence( array $elements, string $parent_id = '' ): array {
+		$ids = array();
+		foreach ( $elements as $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			$el_id = isset( $el['id'] ) ? (string) $el['id'] : '';
+			if ( '' !== $el_id ) {
+				// Encode parentage, not just order: moving an element to a
+				// different parent can leave the flat depth-first order intact
+				// ([A[B]] -> [A],[B] both flatten to A,B), so each entry carries
+				// its parent id.
+				$ids[] = $parent_id . '>' . $el_id;
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				foreach ( $this->element_id_sequence( $el['elements'], $el_id ) as $child_entry ) {
+					$ids[] = $child_entry;
+				}
+			}
+		}
+		return $ids;
+	}
+
 	public function reassign_ids( array $elements ): array {
 		foreach ( $elements as &$element ) {
 			$element['id'] = Elementor_MCP_Id_Generator::generate();
+
+			// Re-mint v4 local style classes against the new id — here, not only
+			// in reassign_element_ids(), so children of a duplicated container
+			// AND the template-import paths (which call reassign_ids directly)
+			// get fresh classes too (upstream #97).
+			if ( class_exists( 'Elementor_MCP_Atomic_Styles' ) ) {
+				Elementor_MCP_Atomic_Styles::remap_local_classes( $element );
+			}
 
 			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
 				$element['elements'] = $this->reassign_ids( $element['elements'] );
@@ -415,6 +630,14 @@ class Elementor_MCP_Data {
 	 */
 	public function reassign_element_ids( array $element ): array {
 		$element['id'] = Elementor_MCP_Id_Generator::generate();
+
+		// v4 atomic elements: local style classes are named `e-<id>-<hash>` and
+		// belong to a single element. A fresh element id must get fresh local
+		// classes, or the duplicate shares the source's local classes — causing
+		// cross-element style bleed and Style Origin doubling (upstream #97).
+		if ( class_exists( 'Elementor_MCP_Atomic_Styles' ) ) {
+			Elementor_MCP_Atomic_Styles::remap_local_classes( $element );
+		}
 
 		if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
 			$element['elements'] = $this->reassign_ids( $element['elements'] );

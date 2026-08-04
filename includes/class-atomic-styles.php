@@ -36,7 +36,7 @@ class Elementor_MCP_Atomic_Styles {
 		string $breakpoint = 'desktop',
 		?string $state = null
 	): array {
-		$class_id = 'e-' . $element_id . '-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );
+		$class_id = self::mint_class_id( $element_id );
 
 		$style_def = array(
 			'id'       => $class_id,
@@ -58,6 +58,70 @@ class Elementor_MCP_Atomic_Styles {
 			'class_id'  => $class_id,
 			'style_def' => $style_def,
 		);
+	}
+
+	/**
+	 * Mints a fresh local style class id for an element.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param string $element_id The element's ID.
+	 * @return string Class id in the `e-<element-id>-<hash>` form Elementor uses.
+	 */
+	public static function mint_class_id( string $element_id ): string {
+		return 'e-' . $element_id . '-' . substr( bin2hex( random_bytes( 4 ) ), 0, 7 );
+	}
+
+	/**
+	 * Re-mints an element's local style classes in place.
+	 *
+	 * When an element is duplicated with a fresh `id`, its v4 local style classes
+	 * (`e-<oldid>-<hash>`) still embed the SOURCE id and remain shared with the
+	 * source — so a later styles-map write bleeds across both elements, and the
+	 * editor's Style Origin popover shows doubled entries (upstream issue #97).
+	 * This regenerates the `styles` map keys (and each style def's `id`) against
+	 * the element's current id, and repoints `settings.classes.value` from the
+	 * old IDs to the new ones. Only classes defined in this element's own
+	 * `styles` map are remapped; global classes (`g-…`) referenced in
+	 * `settings.classes` are left untouched.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $element The element array (modified in place).
+	 * @return void
+	 */
+	public static function remap_local_classes( array &$element ): void {
+		if ( empty( $element['styles'] ) || ! is_array( $element['styles'] ) ) {
+			return;
+		}
+
+		$new_id = isset( $element['id'] ) ? (string) $element['id'] : '';
+		if ( '' === $new_id ) {
+			return;
+		}
+
+		$map        = array();
+		$new_styles = array();
+		foreach ( $element['styles'] as $old_class_id => $style_def ) {
+			$new_class_id                  = self::mint_class_id( $new_id );
+			$map[ (string) $old_class_id ] = $new_class_id;
+
+			if ( is_array( $style_def ) ) {
+				$style_def['id'] = $new_class_id;
+			}
+			$new_styles[ $new_class_id ] = $style_def;
+		}
+		$element['styles'] = $new_styles;
+
+		// Repoint the element's own local-class references; leave globals alone.
+		if ( isset( $element['settings']['classes']['value'] ) && is_array( $element['settings']['classes']['value'] ) ) {
+			$element['settings']['classes']['value'] = array_values( array_map(
+				static function ( $cid ) use ( $map ) {
+					return $map[ (string) $cid ] ?? $cid;
+				},
+				$element['settings']['classes']['value']
+			) );
+		}
 	}
 
 	/**

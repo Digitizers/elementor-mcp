@@ -617,15 +617,29 @@ namespace Elementor {
 
 				$this->elements_manager = new class {
 					/**
-					 * Returns a map of registered element types keyed by slug,
-					 * driven by $GLOBALS['_registered_element_types'] (set per-test).
+					 * Mirrors real Elementor: with no arg returns the full map of
+					 * registered element types keyed by slug; with a name returns
+					 * that type's instance or null. Driven by
+					 * $GLOBALS['_registered_element_types'] (set per-test), which
+					 * accepts either a LIST of slugs (each becomes a bare
+					 * stdClass, enough for availability checks) or a MAP of
+					 * slug => instance (for tests that need a real stub, e.g. one
+					 * exposing get_props_schema()).
 					 *
-					 * @return array<string, object>
+					 * @param string|null $type Element type name, or null for all.
+					 * @return array<string, object>|object|null
 					 */
-					public function get_element_types(): array {
+					public function get_element_types( ?string $type = null ) {
 						$out = [];
-						foreach ( $GLOBALS['_registered_element_types'] ?? [] as $slug ) {
-							$out[ $slug ] = new \stdClass();
+						foreach ( $GLOBALS['_registered_element_types'] ?? [] as $key => $val ) {
+							if ( is_int( $key ) ) {
+								$out[ $val ] = new \stdClass();
+							} else {
+								$out[ $key ] = $val;
+							}
+						}
+						if ( null !== $type && '' !== $type ) {
+							return $out[ $type ] ?? null;
 						}
 						return $out;
 					}

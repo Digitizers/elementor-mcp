@@ -1,0 +1,911 @@
+<?php
+/**
+ * Unit tests — P3.3 harvest round 2 (upstream 3.x atomic-correctness core).
+ *
+ * Covers the two mechanisms ported from upstream in this round:
+ *  - Whole-tree atomic prop coercion (upstream #101/#102): raw scalar values
+ *    written into typed v4 props are wrapped into the $$type envelope their
+ *    prop type accepts, using Elementor's own validate() as the oracle. The
+ *    sweep runs over the WHOLE tree on save, so any write repairs a page a
+ *    previous raw write poisoned.
+ *  - Alias prop mapping (upstream #102): alias keys Elementor's widgets
+ *    advertise (e-heading `title` accepts `text`/`content`/...) are renamed
+ *    onto the canonical prop before Elementor's Props_Parser would silently
+ *    delete them; a canonical value always wins.
+ *
+ * Plus the save_page_data() integration: coercion runs before the native
+ * save (and before the governance snapshot / pre-save capture), and never
+ * changes element ids or structure — so the round-1 projection verification
+ * compares like against like.
+ *
+ * @group unit
+ * @group regression
+ * @package Elementor_MCP\Tests
+ */
+
+namespace Elementor_MCP\Tests\Regression;
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Prop-type stub accepting exactly one envelope key with a scalar value of a
+ * given PHP type. Mirrors the surface coercion relies on: validate() + get_key().
+ */
+class R2_Envelope_Prop {
+	private $key;
+	private $php_type;
+
+	public function __construct( string $key, string $php_type = 'string' ) {
+		$this->key      = $key;
+		$this->php_type = $php_type;
+	}
+
+	public function get_key(): string {
+		return $this->key;
+	}
+
+	public function validate( $value ): bool {
+		if ( ! is_array( $value ) || ( $value['$$type'] ?? '' ) !== $this->key ) {
+			return false;
+		}
+		$inner = $value['value'] ?? null;
+		switch ( $this->php_type ) {
+			case 'string':
+				return is_string( $inner );
+			case 'number':
+				return is_int( $inner ) || is_float( $inner );
+			case 'boolean':
+				return is_bool( $inner );
+			default:
+				return null !== $inner;
+		}
+	}
+}
+
+/** Envelope prop that also advertises aliases via get_meta_item(). */
+class R2_Aliased_Prop extends R2_Envelope_Prop {
+	private $aliases;
+
+	public function __construct( string $key, array $aliases, string $php_type = 'string' ) {
+		parent::__construct( $key, $php_type );
+		$this->aliases = $aliases;
+	}
+
+	public function get_meta_item( string $item ) {
+		return 'aliases' === $item ? $this->aliases : null;
+	}
+}
+
+/** Union prop: exposes members via get_prop_types(); accepts what any member accepts. */
+class R2_Union_Prop {
+	private $members;
+
+	public function __construct( array $members ) {
+		$this->members = $members;
+	}
+
+	public function get_prop_types(): array {
+		return $this->members;
+	}
+
+	public function validate( $value ): bool {
+		foreach ( $this->members as $member ) {
+			if ( $member->validate( $value ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+}
+
+/** Object-shaped prop (e.g. link): get_key() + get_shape() of sub-props. */
+class R2_Shape_Prop {
+	private $key;
+	private $shape;
+
+	public function __construct( string $key, array $shape ) {
+		$this->key   = $key;
+		$this->shape = $shape;
+	}
+
+	public function get_key(): string {
+		return $this->key;
+	}
+
+	public function get_shape(): array {
+		return $this->shape;
+	}
+
+	public function validate( $value ): bool {
+		if ( ! is_array( $value ) || ( $value['$$type'] ?? '' ) !== $this->key ) {
+			return false;
+		}
+		$inner = $value['value'] ?? null;
+		if ( ! is_array( $inner ) ) {
+			return false;
+		}
+		foreach ( $inner as $field => $sub_value ) {
+			if ( ! isset( $this->shape[ $field ] ) ) {
+				return false;
+			}
+			if ( ! $this->shape[ $field ]->validate( $sub_value ) ) {
+				return false;
+			}
+		}
+		return ! empty( $inner );
+	}
+}
+
+/** Prop that rejects everything — the nothing-fits case. */
+class R2_Reject_All_Prop {
+	public function get_key(): string {
+		return 'never';
+	}
+
+	public function validate( $value ): bool {
+		return false;
+	}
+}
+
+class P33HarvestRound2Test extends TestCase {
+
+	protected function setUp(): void {
+		parent::setUp();
+		$GLOBALS['_wp_meta_calls']            = [];
+		$GLOBALS['_post_meta']                = [];
+		$GLOBALS['_registered_element_types'] = [];
+		$GLOBALS['_widget_types']             = [];
+	}
+
+	protected function tearDown(): void {
+		unset( $GLOBALS['_widget_types'] );
+		parent::tearDown();
+	}
+
+	// -------------------------------------------------------------------------
+	// coerce_with_schema — the coercion core (#101/#102)
+	// -------------------------------------------------------------------------
+
+	public function test_raw_string_is_wrapped_into_the_envelope_the_prop_accepts(): void {
+		$schema = [ 'tag' => new R2_Envelope_Prop( 'string' ) ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'tag' => 'h2' ] );
+
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'h2' ],
+			$out['tag'],
+			'A raw scalar on a typed prop must be wrapped into the envelope validate() accepts (upstream #101).'
+		);
+	}
+
+	public function test_already_valid_envelope_is_returned_untouched(): void {
+		$schema  = [ 'tag' => new R2_Envelope_Prop( 'string' ) ];
+		$wrapped = [ '$$type' => 'string', 'value' => 'h3' ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'tag' => $wrapped ] );
+
+		$this->assertSame( $wrapped, $out['tag'], 'Anything Elementor already accepts must pass through unchanged.' );
+	}
+
+	public function test_value_nothing_fits_is_left_alone(): void {
+		$schema = [ 'weird' => new R2_Reject_All_Prop() ];
+		$value  = [ 'unrecognised' => 'shape' ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'weird' => $value ] );
+
+		$this->assertSame(
+			$value,
+			$out['weird'],
+			'When no candidate envelope validates, the original value must be left alone so Elementor reports a precise error.'
+		);
+	}
+
+	public function test_keys_not_in_schema_pass_through_untouched(): void {
+		$schema = [ 'tag' => new R2_Envelope_Prop( 'string' ) ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ '_custom' => 'x' ] );
+
+		$this->assertSame( 'x', $out['_custom'] );
+	}
+
+	public function test_empty_schema_returns_settings_unchanged(): void {
+		$settings = [ 'title' => 'raw' ];
+
+		$this->assertSame(
+			$settings,
+			\Elementor_MCP_Atomic_Props::coerce_with_schema( [], $settings ),
+			'No schema means no atomic widget — settings must not be touched.'
+		);
+	}
+
+	public function test_union_prop_coerces_via_first_accepting_member(): void {
+		$schema = [
+			'level' => new R2_Union_Prop(
+				[
+					new R2_Envelope_Prop( 'number', 'number' ),
+					new R2_Envelope_Prop( 'string' ),
+				]
+			),
+		];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'level' => 2 ] );
+
+		$this->assertSame(
+			[ '$$type' => 'number', 'value' => 2 ],
+			$out['level'],
+			'A union prop must be coerced through its own members (get_prop_types), first accepted envelope wins.'
+		);
+	}
+
+	public function test_prop_without_get_key_still_coerced_via_common_fallbacks(): void {
+		// A prop exposing only validate(): candidates_for() has no member keys,
+		// so the common-envelope fallbacks must still produce a match.
+		$prop = new class() {
+			public function validate( $value ): bool {
+				return is_array( $value )
+					&& 'string' === ( $value['$$type'] ?? '' )
+					&& is_string( $value['value'] ?? null );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'txt' => $prop ], [ 'txt' => 'hello' ] );
+
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'hello' ],
+			$out['txt'],
+			'A prop type that does not describe itself must still be coverable by the common-envelope fallbacks.'
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// Object-shaped props (link) — legacy keys and bare scalars (#102)
+	// -------------------------------------------------------------------------
+
+	private function make_link_prop(): R2_Shape_Prop {
+		return new R2_Shape_Prop(
+			'link',
+			[
+				'destination'   => new R2_Envelope_Prop( 'url' ),
+				'isTargetBlank' => new R2_Envelope_Prop( 'boolean', 'boolean' ),
+				'tag'           => new R2_Envelope_Prop( 'string' ),
+			]
+		);
+	}
+
+	public function test_legacy_v3_link_keys_are_mapped_onto_the_atomic_shape(): void {
+		$schema = [ 'link' => $this->make_link_prop() ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			$schema,
+			[
+				'link' => [
+					'url'         => 'https://example.com',
+					'is_external' => true,
+				],
+			]
+		);
+
+		$this->assertSame(
+			[
+				'$$type' => 'link',
+				'value'  => [
+					'destination'   => [ '$$type' => 'url', 'value' => 'https://example.com' ],
+					'isTargetBlank' => [ '$$type' => 'boolean', 'value' => true ],
+				],
+			],
+			$out['link'],
+			'Legacy v3 link keys (url / is_external) must be renamed onto the atomic shape (destination / isTargetBlank) and their values coerced (upstream #102).'
+		);
+	}
+
+	public function test_partially_wrapped_envelope_is_unwrapped_before_the_shape_scan(): void {
+		// Correct outer envelope, raw/legacy inner keys: the documented shape
+		// a caller reasonably sends. Must repair exactly like the bare form —
+		// scanning the envelope dict instead of the payload left it invalid
+		// (Codex round-6).
+		$schema = [ 'link' => $this->make_link_prop() ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			$schema,
+			[
+				'link' => [
+					'$$type' => 'link',
+					'value'  => [
+						'url'         => 'https://example.com',
+						'is_external' => true,
+					],
+				],
+			]
+		);
+
+		$this->assertSame(
+			[
+				'$$type' => 'link',
+				'value'  => [
+					'destination'   => [ '$$type' => 'url', 'value' => 'https://example.com' ],
+					'isTargetBlank' => [ '$$type' => 'boolean', 'value' => true ],
+				],
+			],
+			$out['link'],
+			'A partially wrapped object prop must be unwrapped to its value before the shape scan (Codex round-6).'
+		);
+	}
+
+	public function test_bare_scalar_lands_in_the_shapes_principal_field(): void {
+		$schema = [ 'link' => $this->make_link_prop() ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'link' => 'https://example.com' ] );
+
+		$this->assertSame(
+			[
+				'$$type' => 'link',
+				'value'  => [
+					'destination' => [ '$$type' => 'url', 'value' => 'https://example.com' ],
+				],
+			],
+			$out['link'],
+			'A bare scalar offered to an object-shaped prop must land in the shape\'s principal field.'
+		);
+	}
+
+	public function test_raw_array_is_wrapped_for_a_described_shapeless_member(): void {
+		// `classes` arrives as a plain list from generic update-element input
+		// but Elementor stores {'$$type':'classes','value':[...]}. A described
+		// member without a shape must still offer its own-key envelope for
+		// array values — the scalar branch skips arrays and the common
+		// fallbacks are off for described props (Codex round-7).
+		$classes_prop = new class() {
+			public function get_key(): string {
+				return 'classes';
+			}
+			public function validate( $value ): bool {
+				return \is_array( $value )
+					&& 'classes' === ( $value['$$type'] ?? '' )
+					&& \is_array( $value['value'] ?? null );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			[ 'classes' => $classes_prop ],
+			[ 'classes' => [ 'e-abc-123' ] ]
+		);
+
+		$this->assertSame(
+			[ '$$type' => 'classes', 'value' => [ 'e-abc-123' ] ],
+			$out['classes'],
+			'A raw class list must be wrapped into the member\'s own envelope (Codex round-7).'
+		);
+	}
+
+	public function test_typed_array_items_are_coerced_through_get_item_type(): void {
+		// Elementor's atomic `attributes` prop is an array of key-value
+		// envelopes. Wrapping only the outer array leaves each raw item
+		// invalid — items must be coerced through the member's
+		// get_item_type() first (Codex round-8).
+		$key_value_item = new R2_Shape_Prop(
+			'key-value',
+			[
+				'key'   => new R2_Envelope_Prop( 'string' ),
+				'value' => new R2_Envelope_Prop( 'string' ),
+			]
+		);
+
+		$attributes_prop = new class( $key_value_item ) {
+			private $item_type;
+			public function __construct( $item_type ) {
+				$this->item_type = $item_type;
+			}
+			public function get_key(): string {
+				return 'attributes';
+			}
+			public function get_item_type() {
+				return $this->item_type;
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || 'attributes' !== ( $value['$$type'] ?? '' ) ) {
+					return false;
+				}
+				$items = $value['value'] ?? null;
+				if ( ! \is_array( $items ) ) {
+					return false;
+				}
+				foreach ( $items as $item ) {
+					if ( ! $this->item_type->validate( $item ) ) {
+						return false;
+					}
+				}
+				return true;
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			[ 'attributes' => $attributes_prop ],
+			[ 'attributes' => [ [ 'key' => 'data-x', 'value' => '1' ] ] ]
+		);
+
+		$this->assertSame(
+			[
+				'$$type' => 'attributes',
+				'value'  => [
+					[
+						'$$type' => 'key-value',
+						'value'  => [
+							'key'   => [ '$$type' => 'string', 'value' => 'data-x' ],
+							'value' => [ '$$type' => 'string', 'value' => '1' ],
+						],
+					],
+				],
+			],
+			$out['attributes'],
+			'Raw typed-array items must be coerced through get_item_type() before the outer envelope validates (Codex round-8).'
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// Alias prop mapping (#102)
+	// -------------------------------------------------------------------------
+
+	public function test_alias_key_is_renamed_onto_the_canonical_prop_and_coerced(): void {
+		$schema = [ 'title' => new R2_Aliased_Prop( 'string', [ 'text', 'content' ] ) ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'content' => 'Hello' ] );
+
+		$this->assertArrayNotHasKey(
+			'content',
+			$out,
+			'The alias key must be consumed — left in place, Elementor\'s Props_Parser silently deletes it (upstream #102).'
+		);
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'Hello' ],
+			$out['title'],
+			'The alias value must be recovered under the canonical prop name and then coerced.'
+		);
+	}
+
+	public function test_canonical_value_always_wins_over_an_alias(): void {
+		$schema = [ 'title' => new R2_Aliased_Prop( 'string', [ 'content' ] ) ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			$schema,
+			[
+				'title'   => 'Real',
+				'content' => 'Impostor',
+			]
+		);
+
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'Real' ],
+			$out['title'],
+			'A canonical value already present must never be overwritten by an alias.'
+		);
+	}
+
+	public function test_alias_that_is_itself_a_real_prop_is_not_consumed(): void {
+		$schema = [
+			'title'   => new R2_Aliased_Prop( 'string', [ 'content' ] ),
+			'content' => new R2_Envelope_Prop( 'string' ),
+		];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'content' => 'Body' ] );
+
+		$this->assertArrayNotHasKey( 'title', $out, 'An alias that names a real prop belongs to that prop, not the aliasing one.' );
+		$this->assertSame( [ '$$type' => 'string', 'value' => 'Body' ], $out['content'] );
+	}
+
+	// -------------------------------------------------------------------------
+	// Codex round-1 hardening
+	// -------------------------------------------------------------------------
+
+	public function test_throwing_get_meta_item_reads_as_no_aliases_not_a_fatal(): void {
+		$prop = new class() {
+			public function get_key(): string {
+				return 'string';
+			}
+			public function get_meta_item( string $item ) {
+				throw new \RuntimeException( 'introspection exploded' );
+			}
+			public function validate( $value ): bool {
+				return \is_array( $value )
+					&& 'string' === ( $value['$$type'] ?? '' )
+					&& \is_string( $value['value'] ?? null );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'title' => $prop ], [ 'title' => 'Hi' ] );
+
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'Hi' ],
+			$out['title'],
+			'A throwing get_meta_item() must read as "no aliases" and never abort the save/coercion path (Codex round-1).'
+		);
+	}
+
+	public function test_boolean_is_never_offered_as_a_string_cast(): void {
+		// Prop accepts ONLY string envelopes. A raw boolean must NOT be coerced
+		// into '1'/'' — that silently changes meaning; leave it for Elementor's
+		// precise error instead.
+		$schema = [ 'flag' => new R2_Envelope_Prop( 'string' ) ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'flag' => false ] );
+
+		$this->assertSame(
+			false,
+			$out['flag'],
+			'(string) false is "" — a boolean must never be laundered into a string envelope (Codex round-1).'
+		);
+	}
+
+	public function test_boolean_is_not_wrapped_into_a_lenient_non_boolean_member(): void {
+		// Member keyed 'string' that — like Elementor's primitive validation on
+		// a non-required prop — accepts an envelope whose value is "empty"
+		// (false/null/'') as well as a real string. A raw false must NOT become
+		// {'$$type':'string','value':false}; it must be left for Elementor's
+		// precise rejection (Codex round-3).
+		$lenient_string = new class() {
+			public function get_key(): string {
+				return 'string';
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || 'string' !== ( $value['$$type'] ?? '' ) ) {
+					return false;
+				}
+				$inner = $value['value'] ?? null;
+				return \is_string( $inner ) || empty( $inner );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'tag' => $lenient_string ], [ 'tag' => false ] );
+
+		$this->assertSame(
+			false,
+			$out['tag'],
+			'A boolean must never be laundered into a non-boolean member envelope, even one lenient about empty values (Codex round-3).'
+		);
+	}
+
+	public function test_null_is_never_wrapped_into_a_primitive_envelope(): void {
+		// Same lenient non-required scenario as the boolean case, fresh
+		// evidence in Codex round-4: a raw null must produce NO candidates —
+		// a wrapped null is never more meaningful than a raw one, and a
+		// lenient validator would accept the malformed envelope before the
+		// type/enum check.
+		$lenient_string = new class() {
+			public function get_key(): string {
+				return 'string';
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || 'string' !== ( $value['$$type'] ?? '' ) ) {
+					return false;
+				}
+				$inner = $value['value'] ?? null;
+				return \is_string( $inner ) || empty( $inner );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'tag' => $lenient_string ], [ 'tag' => null ] );
+
+		$this->assertNull(
+			$out['tag'],
+			'A raw null must be left for Elementor\'s rejection/normalization, never stored as a malformed typed envelope (Codex round-4).'
+		);
+	}
+
+	public function test_boolean_fallback_is_skipped_for_props_that_described_their_members(): void {
+		// Fresh evidence in Codex round-5: a described NON-boolean prop must
+		// not be offered the common boolean(false) fallback either — a
+		// validator lenient about empty enveloped values would accept the
+		// malformed boolean envelope. The lenient stub here accepts ANY
+		// envelope whose value is empty-ish, exactly the trap.
+		$lenient_described = new class() {
+			public function get_key(): string {
+				return 'string';
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || ! isset( $value['$$type'] ) ) {
+					return false;
+				}
+				$inner = $value['value'] ?? null;
+				return \is_string( $inner ) || empty( $inner );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'tag' => $lenient_described ], [ 'tag' => false ] );
+
+		$this->assertSame(
+			false,
+			$out['tag'],
+			'The common boolean fallback must run only for props that did not describe their members (Codex round-5).'
+		);
+	}
+
+	public function test_common_fallbacks_never_run_for_described_props(): void {
+		// The whole fallback section is gated, not just the boolean case: a
+		// described 'number' prop receiving '' must not be laundered through
+		// the string('')/html('') guesses either — same lenient-empty-value
+		// class (Codex rounds 3–5).
+		$described_number = new class() {
+			public function get_key(): string {
+				return 'number';
+			}
+			public function validate( $value ): bool {
+				// Deliberately accepts a foreign 'string' envelope with any
+				// value — the lenient trap the gate must make unreachable.
+				return \is_array( $value ) && 'string' === ( $value['$$type'] ?? '' );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'n' => $described_number ], [ 'n' => '' ] );
+
+		$this->assertSame(
+			'',
+			$out['n'],
+			'Common-envelope fallbacks must be unreachable for props that described their members (Codex round-5, class retirement).'
+		);
+	}
+
+	public function test_boolean_fallback_still_serves_undescribed_props(): void {
+		// A prop exposing only validate() — no get_key/get_prop_types — must
+		// still be reachable by the common boolean fallback.
+		$undescribed_bool = new class() {
+			public function validate( $value ): bool {
+				return \is_array( $value )
+					&& 'boolean' === ( $value['$$type'] ?? '' )
+					&& \is_bool( $value['value'] ?? null );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'flag' => $undescribed_bool ], [ 'flag' => true ] );
+
+		$this->assertSame(
+			[ '$$type' => 'boolean', 'value' => true ],
+			$out['flag'],
+			'An undescribed boolean prop must still coerce via the common fallback.'
+		);
+	}
+
+	public function test_boolean_still_coerces_into_a_boolean_envelope(): void {
+		$schema = [ 'flag' => new R2_Envelope_Prop( 'boolean', 'boolean' ) ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'flag' => true ] );
+
+		$this->assertSame(
+			[ '$$type' => 'boolean', 'value' => true ],
+			$out['flag'],
+			'The boolean-envelope path must survive the string-cast exclusion.'
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// coerce_tree — whole-tree sweep (#102)
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Registers a widget stub whose static get_props_schema() returns the given
+	 * schema, under a UNIQUE type name — two reasons the name must never be
+	 * reused across tests: (1) props_schema() caches per type for the whole PHP
+	 * process; (2) all registrations share ONE anonymous class, so its static
+	 * $schema holds only the LAST registered schema. Each test registers its
+	 * type immediately before first use, so the per-type cache snapshots the
+	 * right schema exactly once.
+	 */
+	private function register_widget_type( string $type, array $schema ): void {
+		$widget = new class( $schema ) {
+			public static $schema = [];
+			public function __construct( array $s ) {
+				self::$schema = $s;
+			}
+			public static function get_props_schema(): array {
+				return self::$schema;
+			}
+		};
+		$GLOBALS['_widget_types'][ $type ] = $widget;
+	}
+
+	public function test_coerce_tree_repairs_nested_widgets_and_leaves_structure_alone(): void {
+		$this->register_widget_type( 'e-r2-tree-heading', [ 'title' => new R2_Envelope_Prop( 'string' ) ] );
+
+		$tree = [
+			[
+				'id'       => 'root1',
+				'elType'   => 'e-flexbox',
+				'settings' => [ 'anything' => 'raw' ],
+				'elements' => [
+					[
+						'id'         => 'w1',
+						'elType'     => 'widget',
+						'widgetType' => 'e-r2-tree-heading',
+						'settings'   => [ 'title' => 'Deep raw' ],
+						'elements'   => [],
+					],
+				],
+			],
+		];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_tree( $tree );
+
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'Deep raw' ],
+			$out[0]['elements'][0]['settings']['title'],
+			'coerce_tree must reach widgets at any depth — one un-converted widget anywhere blocks the whole save (upstream #102).'
+		);
+		// Container with no resolvable schema, and structure, untouched.
+		$this->assertSame( [ 'anything' => 'raw' ], $out[0]['settings'], 'An element type with no resolvable schema must pass through untouched.' );
+		$this->assertSame( 'root1', $out[0]['id'] );
+		$this->assertSame( 'w1', $out[0]['elements'][0]['id'] );
+	}
+
+	public function test_coerce_tree_repairs_atomic_container_settings_too(): void {
+		// Atomic containers (e-flexbox / e-div-block) carry typed props in
+		// their elType-resolved schema — skipping them leaves the same
+		// whole-tree validation failure the sweep repairs (Codex round-2).
+		$container = new class() {
+			public static $schema = [];
+			public static function get_props_schema(): array {
+				return self::$schema;
+			}
+		};
+		$container::$schema = [ 'tag' => new R2_Envelope_Prop( 'string' ) ];
+
+		$GLOBALS['_registered_element_types'] = [ 'e-r2-flexbox' => $container ];
+
+		$tree = [
+			[
+				'id'       => 'c1',
+				'elType'   => 'e-r2-flexbox',
+				'settings' => [ 'tag' => 'section' ],
+				'elements' => [],
+			],
+		];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_tree( $tree );
+
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'section' ],
+			$out[0]['settings']['tag'],
+			'Atomic container settings must be coerced via their elType schema, not skipped for lacking a widgetType.'
+		);
+	}
+
+	public function test_coerce_tree_leaves_classic_containers_untouched(): void {
+		$tree = [
+			[
+				'id'       => 'c2',
+				'elType'   => 'container',
+				'settings' => [ 'content_width' => 'boxed' ],
+				'elements' => [],
+			],
+		];
+
+		$this->assertSame(
+			$tree,
+			\Elementor_MCP_Atomic_Props::coerce_tree( $tree ),
+			'Classic v3 element types resolve to no schema — their settings must pass through untouched.'
+		);
+	}
+
+	public function test_coerce_tree_with_unknown_widget_type_is_a_noop(): void {
+		$tree = [
+			[
+				'id'         => 'w9',
+				'elType'     => 'widget',
+				'widgetType' => 'e-r2-unregistered',
+				'settings'   => [ 'title' => 'raw' ],
+			],
+		];
+
+		$this->assertSame(
+			$tree,
+			\Elementor_MCP_Atomic_Props::coerce_tree( $tree ),
+			'An unknown widget type has no schema — its settings must pass through untouched.'
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// save_page_data integration — coercion runs before the native save
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Document stub that records the elements it was asked to save and
+	 * "persists" them, so the round-1 projection verification sees a healthy
+	 * save and takes no fallback.
+	 */
+	private function make_persisting_document( int $post_id ): object {
+		return new class( $post_id ) {
+			public $saved_elements = null;
+			private $post_id;
+			public function __construct( int $post_id ) {
+				$this->post_id = $post_id;
+			}
+			public function save( array $args ) {
+				$this->saved_elements = $args['elements'] ?? null;
+				$GLOBALS['_post_meta'][ $this->post_id ]['_elementor_data'] =
+					wp_json_encode( $this->saved_elements );
+				return true;
+			}
+		};
+	}
+
+	private function make_data_with_document( object $document ): \Elementor_MCP_Data {
+		\Elementor\Plugin::$instance->documents = new class( $document ) {
+			private $doc;
+			public function __construct( $doc ) {
+				$this->doc = $doc;
+			}
+			public function get( int $post_id, bool $from_cache = true ) {
+				return $this->doc;
+			}
+		};
+
+		return new \Elementor_MCP_Data();
+	}
+
+	public function test_save_page_data_coerces_the_tree_before_the_native_save(): void {
+		$this->register_widget_type( 'e-r2-save-heading', [ 'title' => new R2_Aliased_Prop( 'string', [ 'content' ] ) ] );
+		// The widget must count as "available" for the projection verification.
+		$document = $this->make_persisting_document( 321 );
+		$data     = $this->make_data_with_document( $document );
+
+		$result = $data->save_page_data(
+			321,
+			[
+				[
+					'id'         => 'w1',
+					'elType'     => 'widget',
+					'widgetType' => 'e-r2-save-heading',
+					// Raw scalar under an ALIAS key: both mechanisms must fire
+					// before Elementor sees the tree.
+					'settings'   => [ 'content' => 'Hi' ],
+					'elements'   => [],
+				],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$this->assertIsArray( $document->saved_elements, 'The native save must have received the tree.' );
+		$settings = $document->saved_elements[0]['settings'];
+		$this->assertArrayNotHasKey( 'content', $settings, 'The alias key must be renamed before the native save sees the settings.' );
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'Hi' ],
+			$settings['title'],
+			'save_page_data must hand Elementor the COERCED tree — coercing after the save would leave the raw value to poison the page (upstream #101).'
+		);
+	}
+
+	public function test_coercion_preserves_element_ids_so_projection_verification_still_passes(): void {
+		$this->register_widget_type( 'e-r2-ids-heading', [ 'title' => new R2_Envelope_Prop( 'string' ) ] );
+		$document = $this->make_persisting_document( 322 );
+		$data     = $this->make_data_with_document( $document );
+
+		$result = $data->save_page_data(
+			322,
+			[
+				[
+					'id'       => 'p1',
+					'elType'   => 'container',
+					'elements' => [
+						[
+							'id'         => 'w2',
+							'elType'     => 'widget',
+							'widgetType' => 'e-r2-ids-heading',
+							'settings'   => [ 'title' => 'raw' ],
+							'elements'   => [],
+						],
+					],
+				],
+			]
+		);
+
+		$this->assertTrue( $result );
+		// A healthy persisting save + id-stable coercion ⇒ NO direct-meta fallback.
+		$fallback_writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertEmpty(
+			$fallback_writes,
+			'Coercion rewrites settings only — ids and structure are unchanged, so the projection verification must not misread a coerced save as a silent drop.'
+		);
+		$this->assertSame( 'p1', $document->saved_elements[0]['id'] );
+		$this->assertSame( 'w2', $document->saved_elements[0]['elements'][0]['id'] );
+	}
+}

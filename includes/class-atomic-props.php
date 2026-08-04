@@ -162,6 +162,541 @@ class Elementor_MCP_Atomic_Props {
 	}
 
 	/**
+	 * Returns an atomic type's raw prop schema (prop name => prop-type object),
+	 * or an empty array when Elementor or the type isn't available.
+	 *
+	 * Cached per type: a page-wide coercion pass asks for the same handful of
+	 * schemas hundreds of times. Distinct from schema_for(), which distills the
+	 * schema into a JSON-friendly summary for error messages — coercion needs
+	 * the live prop-type OBJECTS so it can call validate() on them.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param string $widget_type Atomic widget type, e.g. 'e-heading'.
+	 * @return array<string, object>
+	 */
+	public static function props_schema( string $widget_type ): array {
+		static $cache = array();
+
+		if ( array_key_exists( $widget_type, $cache ) ) {
+			return $cache[ $widget_type ];
+		}
+
+		$cache[ $widget_type ] = self::load_props_schema( $widget_type );
+
+		return $cache[ $widget_type ];
+	}
+
+	/**
+	 * Uncached raw prop-schema lookup.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param string $widget_type Atomic widget type.
+	 * @return array<string, object>
+	 */
+	private static function load_props_schema( string $widget_type ): array {
+		$inst = self::resolve_atomic_instance( $widget_type );
+		if ( ! is_object( $inst ) ) {
+			return array();
+		}
+
+		$class = get_class( $inst );
+		if ( ! method_exists( $class, 'get_props_schema' ) ) {
+			return array();
+		}
+
+		try {
+			$schema = $class::get_props_schema();
+		} catch ( \Throwable $e ) {
+			return array();
+		}
+
+		return is_array( $schema ) ? $schema : array();
+	}
+
+	/**
+	 * Coerces atomic settings into the `$$type` envelopes Elementor expects.
+	 *
+	 * Atomic props are typed: `tag` wants `{$$type:'string'}`, `title` wants
+	 * `{$$type:'html-v3'}`, and so on. A raw value like `'Hello'` is rejected.
+	 * The trouble is that raw values were still *written* to `_elementor_data`,
+	 * where they do lasting damage: Elementor falls back to the prop default, so
+	 * the element renders placeholder text, and every later save of that page
+	 * throws `Settings validation failed`. The page becomes uneditable through
+	 * both the API and the editor (upstream #101).
+	 *
+	 * Passing a plain string is the obvious thing for an agent to do, so accept
+	 * it and wrap it rather than corrupting the page. Because this runs on the
+	 * MERGED settings, it also repairs values a previous version already wrote.
+	 *
+	 * Elementor's own prop types are the oracle: candidate envelopes are offered
+	 * to `validate()` and the first accepted one wins. Nothing here hardcodes
+	 * which type a prop wants, so it keeps working when Elementor revises them
+	 * (`html` -> `html-v2` -> `html-v3` already happened).
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param string $widget_type Atomic widget type, e.g. 'e-heading'.
+	 * @param array  $settings    Settings to coerce.
+	 * @return array
+	 */
+	public static function coerce_settings( string $widget_type, array $settings ): array {
+		return self::coerce_with_schema( self::props_schema( $widget_type ), $settings );
+	}
+
+	/**
+	 * The coercion itself, against a supplied prop schema.
+	 *
+	 * Split out from coerce_settings() so it can be exercised without a live
+	 * Elementor: it needs only objects exposing `validate()`.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $schema   Map of prop name => Elementor prop type.
+	 * @param array $settings Settings to coerce.
+	 * @return array
+	 */
+	public static function coerce_with_schema( array $schema, array $settings ): array {
+		if ( empty( $schema ) ) {
+			return $settings;
+		}
+
+		$settings = self::apply_prop_aliases( $schema, $settings );
+
+		foreach ( $settings as $key => $value ) {
+			$prop = $schema[ $key ] ?? null;
+			if ( ! is_object( $prop ) || ! method_exists( $prop, 'validate' ) ) {
+				continue;
+			}
+
+			$settings[ $key ] = self::coerce_against_prop( $prop, $value );
+		}
+
+		return $settings;
+	}
+
+	/**
+	 * Renames alias keys onto the prop name Elementor actually stores.
+	 *
+	 * Elementor's atomic widgets declare alternative names for their content
+	 * prop, e.g. `e-paragraph`'s `paragraph` accepts `text` and `content`, and
+	 * `e-heading`'s `title` accepts `text`, `content` and `heading`. Those names
+	 * are the obvious guesses, and an agent writing `content` on a paragraph is
+	 * guessing exactly what Elementor itself advertises.
+	 *
+	 * Nothing on the PHP save path consumes those aliases. Worse, Elementor's
+	 * Props_Parser SILENTLY DISCARDS keys it does not recognise and still
+	 * reports the result as valid, so an aliased key is not rejected, it is
+	 * deleted along with its text (upstream #102).
+	 *
+	 * Renaming here, before Elementor sees the settings, preserves the content.
+	 * The alias list is read from Elementor's own prop metadata rather than
+	 * hardcoded, so widgets that gain aliases later are covered automatically.
+	 *
+	 * A canonical value already present always wins; an alias never overwrites
+	 * it, since the canonical key is what Elementor will actually render.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $schema   Map of prop name => Elementor prop type.
+	 * @param array $settings Settings to rewrite.
+	 * @return array
+	 */
+	private static function apply_prop_aliases( array $schema, array $settings ): array {
+		foreach ( $schema as $canonical => $prop ) {
+			if ( ! is_object( $prop ) || ! method_exists( $prop, 'get_meta_item' ) ) {
+				continue;
+			}
+
+			// Already supplied under its real name: nothing to recover.
+			if ( array_key_exists( $canonical, $settings ) ) {
+				continue;
+			}
+
+			// Elementor-supplied object: a throw here must read as "no aliases",
+			// not abort the whole save/coercion path (same guard discipline as
+			// every other dynamic prop-introspection call in this class).
+			try {
+				$aliases = $prop->get_meta_item( 'aliases' );
+			} catch ( \Throwable $e ) {
+				continue;
+			}
+			if ( ! is_array( $aliases ) ) {
+				continue;
+			}
+
+			foreach ( $aliases as $alias ) {
+				if ( ! is_string( $alias ) || ! array_key_exists( $alias, $settings ) ) {
+					continue;
+				}
+
+				// An alias that is itself a real prop belongs to that prop.
+				if ( isset( $schema[ $alias ] ) ) {
+					continue;
+				}
+
+				$settings[ $canonical ] = $settings[ $alias ];
+				unset( $settings[ $alias ] );
+				break;
+			}
+		}
+
+		return $settings;
+	}
+
+	/**
+	 * Coerces every atomic widget in an element tree.
+	 *
+	 * Elementor validates the WHOLE tree on save, so a single un-converted
+	 * widget anywhere on the page blocks the save, including the very edit
+	 * meant to repair the page. Fixing only the element being written left
+	 * users stuck on a page they could not unstick (upstream #102).
+	 *
+	 * Runs on save so any write repairs the entire page. It only ever turns
+	 * invalid values into valid ones: anything Elementor already accepts is
+	 * returned untouched, and anything nothing fits is left alone.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $elements Element tree (Elementor's `elements` array).
+	 * @return array
+	 */
+	public static function coerce_tree( array $elements ): array {
+		foreach ( $elements as &$element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+
+			// Widgets carry their atomic type in widgetType; atomic CONTAINERS
+			// (e-flexbox / e-div-block) carry it in elType and have typed props
+			// of their own (tag, link, …) — skipping them would leave exactly
+			// the whole-tree validation failure this sweep repairs (Codex
+			// round-2). Classic v3 types (section/column/container) resolve to
+			// no schema and pass through untouched.
+			$type = 'widget' === ( $element['elType'] ?? '' )
+				? (string) ( $element['widgetType'] ?? '' )
+				: (string) ( $element['elType'] ?? '' );
+
+			if (
+				'' !== $type
+				&& ! empty( $element['settings'] )
+				&& is_array( $element['settings'] )
+			) {
+				$element['settings'] = self::coerce_settings( $type, $element['settings'] );
+			}
+
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				$element['elements'] = self::coerce_tree( $element['elements'] );
+			}
+		}
+		unset( $element );
+
+		return $elements;
+	}
+
+	/**
+	 * Coerces one value into whatever its prop type accepts.
+	 *
+	 * The prop type describes itself, so nothing here hardcodes envelope names.
+	 * A union is asked for its members (`get_prop_types()`), each member for its
+	 * key (`get_key()`), and an object-shaped member for its inner shape
+	 * (`get_shape()`), which is then coerced recursively.
+	 *
+	 * That generality is the point. Upstream's first version guessed candidate
+	 * envelopes and handled only strings and rich text, so `e-button`'s `link`
+	 * still failed and the page stayed locked (upstream #102). Reading the shape
+	 * instead covers link, and whatever object-shaped prop Elementor adds next.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param object $prop  An Elementor prop type.
+	 * @param mixed  $value The value to coerce.
+	 * @return mixed The coerced value, or the original when nothing fits.
+	 */
+	protected static function coerce_against_prop( $prop, $value ) {
+		if ( self::prop_accepts( $prop, $value ) ) {
+			return $value;
+		}
+
+		foreach ( self::candidates_for( $prop, $value ) as $candidate ) {
+			if ( self::prop_accepts( $prop, $candidate ) ) {
+				return $candidate;
+			}
+		}
+
+		// Nothing fits. Leave it alone so Elementor reports a precise error
+		// rather than us silently storing something reshaped.
+		return $value;
+	}
+
+	/**
+	 * Builds candidate envelopes for a value from the prop type's own members.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param object $prop  An Elementor prop type.
+	 * @param mixed  $value The raw value.
+	 * @return array<int, mixed>
+	 */
+	protected static function candidates_for( $prop, $value ): array {
+		$members = array( $prop );
+		if ( method_exists( $prop, 'get_prop_types' ) ) {
+			try {
+				$found = (array) $prop->get_prop_types();
+				if ( ! empty( $found ) ) {
+					$members = array_values( $found );
+				}
+			} catch ( \Throwable $e ) {
+				$members = array( $prop );
+			}
+		}
+
+		$candidates      = array();
+		$discovered_keys = array();
+
+		foreach ( $members as $member ) {
+			if ( ! is_object( $member ) || ! method_exists( $member, 'get_key' ) ) {
+				continue;
+			}
+
+			try {
+				$key = $member->get_key();
+			} catch ( \Throwable $e ) {
+				continue;
+			}
+
+			$discovered_keys[] = $key;
+
+			// Object-shaped: coerce the inner shape, then wrap. A prop type can
+			// expose get_shape() and still return nothing useful, so fall through
+			// to the primitive handling below rather than dropping the candidate.
+			if ( method_exists( $member, 'get_shape' ) ) {
+				// A PARTIALLY wrapped value — correct outer envelope for this
+				// member, raw/legacy keys inside — must be unwrapped before the
+				// shape scan, or the scan reads the envelope dict ($$type/value)
+				// instead of the payload and the very keys repaired when sent
+				// bare stay broken when sent with the documented envelope
+				// (Codex round-6).
+				$shape_value = $value;
+				if (
+					is_array( $shape_value )
+					&& ( $shape_value['$$type'] ?? null ) === $key
+					&& array_key_exists( 'value', $shape_value )
+				) {
+					$shape_value = $shape_value['value'];
+				}
+
+				$inner = self::coerce_shape( $member, $shape_value );
+				if ( null !== $inner ) {
+					$candidates[] = array(
+						'$$type' => $key,
+						'value'  => $inner,
+					);
+					continue;
+				}
+			}
+
+			// Array-valued member without a usable shape (e.g. `classes`, a
+			// plain list from generic update-element input that Elementor
+			// stores as {'$$type':'classes','value':[...]}): offer the
+			// member-key envelope. The scalar branch below skips arrays and
+			// the common fallbacks are off for described props, so without
+			// this the raw list stays unwrapped and keeps failing the
+			// whole-tree validation (Codex round-7). Values already carrying
+			// a $$type are not double-wrapped. Typed-array members (e.g.
+			// `attributes`, an array of key-value envelopes) describe their
+			// item type via get_item_type() — each raw item is coerced
+			// through it first, or the wrapped outer array would still fail
+			// on its items (Codex round-8).
+			if ( is_array( $value ) && ! isset( $value['$$type'] ) ) {
+				$items = $value;
+				if ( method_exists( $member, 'get_item_type' ) ) {
+					try {
+						$item_type = $member->get_item_type();
+					} catch ( \Throwable $e ) {
+						$item_type = null;
+					}
+					if ( is_object( $item_type ) && method_exists( $item_type, 'validate' ) ) {
+						foreach ( $items as $item_key => $item_value ) {
+							$items[ $item_key ] = self::coerce_against_prop( $item_type, $item_value );
+						}
+					}
+				}
+				$candidates[] = array(
+					'$$type' => $key,
+					'value'  => $items,
+				);
+			}
+
+			// Primitive: wrap the value, and offer a cast where it is lossless.
+			// "Empty-ish" values are never laundered into arbitrary envelopes:
+			// Elementor's primitive validation can treat an empty enveloped
+			// value as valid for a non-required prop BEFORE the type/enum
+			// check, so {'$$type':'string','value':false} or a wrapped null
+			// could be the first accepted candidate and store a malformed prop
+			// instead of leaving the original value to Elementor's precise
+			// rejection/normalization. Hence: null produces no candidates at
+			// all (a wrapped null is never more meaningful than a raw one),
+			// booleans are offered only to boolean-keyed members, and the
+			// string cast is skipped for booleans — (string) true is '1' and
+			// (string) false is '', a silent meaning change.
+			if ( is_scalar( $value ) ) {
+				if ( ! is_bool( $value ) || 'boolean' === $key ) {
+					$candidates[] = array(
+						'$$type' => $key,
+						'value'  => $value,
+					);
+				}
+				if ( ! is_bool( $value ) ) {
+					$candidates[] = array(
+						'$$type' => $key,
+						'value'  => (string) $value,
+					);
+				}
+			}
+		}
+
+		// Fallbacks ONLY for prop types that do not describe themselves — that
+		// is their documented purpose (a prop offering only validate() would
+		// otherwise yield no candidates at all). For a DESCRIBED prop they
+		// must not run: guessing envelopes the prop's own members did not
+		// declare is exactly the lenient-empty-value laundering trap — e.g.
+		// boolean(false), or string('') on a non-string prop, can be accepted
+		// by a non-required primitive validation before its type/enum check
+		// and store a malformed envelope (Codex rounds 3–5, one class).
+		if ( empty( $discovered_keys ) ) {
+			if ( is_scalar( $value ) ) {
+				if ( is_bool( $value ) ) {
+					// Boolean envelope only — no string/html casts:
+					// (string) true is '1' and (string) false is '', a
+					// silent meaning change if a prop happens to accept them.
+					$candidates[] = self::boolean( $value );
+				} else {
+					if ( is_int( $value ) || is_float( $value ) ) {
+						$candidates[] = self::number( $value );
+					}
+					$text         = (string) $value;
+					$candidates[] = self::string( $text );
+					$candidates[] = self::html( $text );
+				}
+			} elseif ( is_array( $value ) && ! isset( $value['$$type'] ) ) {
+				$inner = $value;
+				if ( isset( $inner['content'] ) && is_string( $inner['content'] ) ) {
+					$inner['content'] = self::string( $inner['content'] );
+				}
+				if ( ! isset( $inner['children'] ) || ! is_array( $inner['children'] ) ) {
+					$inner['children'] = array();
+				}
+				$candidates[] = array(
+					'$$type' => 'html-v3',
+					'value'  => $inner,
+				);
+			}
+		}
+
+		return $candidates;
+	}
+
+	/**
+	 * Coerces a value into an object prop type's inner shape.
+	 *
+	 * Handles the two ways a legacy value arrives: as an array using Elementor's
+	 * older key names (a v3 link stores `url` / `is_external`, while the atomic
+	 * shape wants `destination` / `isTargetBlank`), or as a bare scalar that
+	 * belongs in the shape's principal field (a plain string for rich text
+	 * belongs in `content`).
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param object $member An object-shaped Elementor prop type.
+	 * @param mixed  $value  The raw value.
+	 * @return array|null The coerced inner shape, or null when it cannot apply.
+	 */
+	protected static function coerce_shape( $member, $value ): ?array {
+		try {
+			$shape = (array) $member->get_shape();
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+
+		if ( empty( $shape ) ) {
+			return null;
+		}
+
+		// Legacy and shorthand key names, mapped onto the atomic shape.
+		$aliases = array(
+			'destination'   => array( 'url', 'href', 'link' ),
+			'isTargetBlank' => array( 'is_external', 'target_blank', 'targetBlank' ),
+			'content'       => array( 'text', 'title', 'html' ),
+		);
+
+		// A bare scalar belongs in the shape's principal field.
+		if ( ! is_array( $value ) ) {
+			foreach ( array( 'content', 'destination', 'url', 'value' ) as $primary ) {
+				if ( isset( $shape[ $primary ] ) ) {
+					$value = array( $primary => $value );
+					break;
+				}
+			}
+
+			if ( ! is_array( $value ) ) {
+				return null;
+			}
+		}
+
+		$out = array();
+
+		foreach ( $shape as $field => $sub ) {
+			$raw = null;
+
+			if ( array_key_exists( $field, $value ) ) {
+				$raw = $value[ $field ];
+			} else {
+				foreach ( $aliases[ $field ] ?? array() as $alias ) {
+					if ( array_key_exists( $alias, $value ) ) {
+						$raw = $value[ $alias ];
+						break;
+					}
+				}
+			}
+
+			if ( null === $raw ) {
+				continue;
+			}
+
+			$out[ $field ] = is_object( $sub ) && method_exists( $sub, 'validate' )
+				? self::coerce_against_prop( $sub, $raw )
+				: $raw;
+		}
+
+		// `children` is a plain array on rich text, not a wrapped prop.
+		if ( isset( $shape['children'] ) && ! isset( $out['children'] ) ) {
+			$out['children'] = array();
+		}
+
+		return empty( $out ) ? null : $out;
+	}
+
+	/**
+	 * Whether a prop type accepts a value. Prop types can throw on odd input,
+	 * which counts as "no".
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param object $prop  An Elementor prop type.
+	 * @param mixed  $value Candidate value.
+	 * @return bool
+	 */
+	protected static function prop_accepts( $prop, $value ): bool {
+		try {
+			return (bool) $prop->validate( $value );
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+	}
+
+	/**
 	 * Recursively unwraps $$type values back to plain values.
 	 *
 	 * Used for returning AI-friendly data from get-element-settings.

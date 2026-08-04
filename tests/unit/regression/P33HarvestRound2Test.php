@@ -409,6 +409,34 @@ class P33HarvestRound2Test extends TestCase {
 		);
 	}
 
+	public function test_boolean_is_not_wrapped_into_a_lenient_non_boolean_member(): void {
+		// Member keyed 'string' that — like Elementor's primitive validation on
+		// a non-required prop — accepts an envelope whose value is "empty"
+		// (false/null/'') as well as a real string. A raw false must NOT become
+		// {'$$type':'string','value':false}; it must be left for Elementor's
+		// precise rejection (Codex round-3).
+		$lenient_string = new class() {
+			public function get_key(): string {
+				return 'string';
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || 'string' !== ( $value['$$type'] ?? '' ) ) {
+					return false;
+				}
+				$inner = $value['value'] ?? null;
+				return \is_string( $inner ) || empty( $inner );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'tag' => $lenient_string ], [ 'tag' => false ] );
+
+		$this->assertSame(
+			false,
+			$out['tag'],
+			'A boolean must never be laundered into a non-boolean member envelope, even one lenient about empty values (Codex round-3).'
+		);
+	}
+
 	public function test_boolean_still_coerces_into_a_boolean_envelope(): void {
 		$schema = [ 'flag' => new R2_Envelope_Prop( 'boolean', 'boolean' ) ];
 

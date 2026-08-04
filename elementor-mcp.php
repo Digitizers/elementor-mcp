@@ -314,6 +314,16 @@ function elementor_mcp_register_ability( string $name, array $args ) {
 	if ( class_exists( 'Elementor_MCP_Governance' ) ) {
 		$args = Elementor_MCP_Governance::wrap_ability( $name, $args );
 	}
+	// Outermost wrap: normalize the result shape so strict MCP clients never
+	// see a top-level JSON list/scalar in structuredContent (upstream 3.6.1).
+	// Lives here — not in the vendored adapter — so it survives adapter updates.
+	if ( class_exists( 'Elementor_MCP_Result_Normalizer' )
+		&& isset( $args['execute_callback'] ) && is_callable( $args['execute_callback'] ) ) {
+		$inner                    = $args['execute_callback'];
+		$args['execute_callback'] = static function () use ( $inner ) {
+			return Elementor_MCP_Result_Normalizer::normalize( $inner( ...func_get_args() ) );
+		};
+	}
 	return wp_register_ability( $name, $args );
 }
 
@@ -386,6 +396,7 @@ function elementor_mcp_init(): void {
 	}
 
 	// Load class files.
+	require_once ELEMENTOR_MCP_DIR . 'includes/class-result-normalizer.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-id-generator.php';
 	require_once ELEMENTOR_MCP_DIR . 'includes/class-elementor-data.php';
 	// SiteAgent governance bridge — must load before abilities register so

@@ -84,6 +84,46 @@ class Elementor_MCP_Ability_Registrar {
 	 * @return string[] Array of registered ability names.
 	 */
 	public function register_all(): array {
+		try {
+			$this->register_groups();
+		} catch ( \Throwable $e ) {
+			// Ability registration runs on every admin page load and every REST
+			// request, so an exception here is a site-wide fatal: wp-admin becomes
+			// unreachable and the owner has to recover the site (upstream issue
+			// #100, where a host malware scanner had quarantined one class file,
+			// leaving require_once satisfied but the class undeclared).
+			//
+			// No single tool group is worth locking an admin out of their own
+			// site. Keep whatever registered before the failure and carry on; the
+			// tools from the failed group are simply absent.
+			if ( function_exists( 'error_log' ) ) {
+				error_log( 'Elementor MCP: ability registration stopped early: ' . $e->getMessage() );
+			}
+		}
+
+		/**
+		 * Filters the registered ability names.
+		 *
+		 * Allows other plugins to add or modify ability names.
+		 *
+		 * @since 1.0.0
+		 *
+		 * @param string[] $ability_names The registered ability names.
+		 */
+		$this->ability_names = apply_filters( 'elementor_mcp_ability_names', $this->ability_names );
+
+		return $this->ability_names;
+	}
+
+	/**
+	 * Registers every ability group in order. Split out of register_all() so a
+	 * throwing group aborts only the remainder of registration, never the page.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @return void
+	 */
+	protected function register_groups(): void {
 		// Phase 1: Query/discovery abilities (P0 — read-only).
 		$query = new Elementor_MCP_Query_Abilities( $this->data, $this->schema_generator );
 		$query->register();
@@ -226,19 +266,6 @@ class Elementor_MCP_Ability_Registrar {
 			$widget_builder->register();
 			$this->ability_names = array_merge( $this->ability_names, $widget_builder->get_ability_names() );
 		}
-
-		/**
-		 * Filters the registered ability names.
-		 *
-		 * Allows other plugins to add or modify ability names.
-		 *
-		 * @since 1.0.0
-		 *
-		 * @param string[] $ability_names The registered ability names.
-		 */
-		$this->ability_names = apply_filters( 'elementor_mcp_ability_names', $this->ability_names );
-
-		return $this->ability_names;
 	}
 
 	/**

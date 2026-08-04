@@ -995,6 +995,8 @@ namespace {
 			// Core classes
 			'Elementor_MCP_Atomic_Props'           => 'includes/class-atomic-props.php',
 			'Elementor_MCP_Atomic_Styles'          => 'includes/class-atomic-styles.php',
+			'Elementor_MCP_Result_Normalizer'      => 'includes/class-result-normalizer.php',
+			'Elementor_MCP_Ability_Registrar'      => 'includes/abilities/class-ability-registrar.php',
 			'Elementor_MCP_Data'                  => 'includes/class-elementor-data.php',
 			'Elementor_MCP_Element_Factory'        => 'includes/class-element-factory.php',
 			'Elementor_MCP_Id_Generator'           => 'includes/class-id-generator.php',

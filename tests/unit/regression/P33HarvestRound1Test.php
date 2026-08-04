@@ -221,6 +221,40 @@ class P33HarvestRound1Test extends TestCase {
 		);
 	}
 
+	public function test_truthy_save_of_empty_tree_leaving_old_content_falls_back(): void {
+		$data = $this->make_data_with_document( true );
+
+		// delete-page-content path: requested tree is empty, but the silent
+		// drop left the old elements in place.
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode( [ [ 'id' => 'old-content' ] ] );
+
+		$result = $data->save_page_data( 123, [] );
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertNotEmpty(
+			$writes,
+			'An empty-tree save that leaves old content persisted must trigger the fallback (delete-page-content silent drop).'
+		);
+	}
+
+	public function test_truthy_save_of_empty_tree_with_empty_page_skips_fallback(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Page really is empty after the save — no fallback needed.
+		$result = $data->save_page_data( 123, [] );
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertEmpty( $writes, 'A verified empty save must not take the fallback path.' );
+	}
+
 	public function test_reassign_ids_remints_child_local_classes(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = [

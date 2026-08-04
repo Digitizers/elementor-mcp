@@ -241,12 +241,20 @@ class Elementor_MCP_Data {
 		// unchanged ids is indistinguishable from stale content by id-set — this
 		// catches dropped element writes, the #98 failure mode.)
 		$needs_fallback = ! $result;
-		if ( ! $needs_fallback && ! empty( $data ) ) {
+		if ( ! $needs_fallback ) {
 			$persisted_raw = get_post_meta( $post_id, '_elementor_data', true );
 			$persisted     = ( is_string( $persisted_raw ) && '' !== $persisted_raw )
 				? json_decode( $persisted_raw, true )
 				: null;
-			if ( empty( $persisted ) || ! is_array( $persisted ) ) {
+
+			if ( empty( $data ) ) {
+				// Empty requested tree (e.g. delete-page-content): a silent drop
+				// leaves the OLD elements in place — verify the page really is
+				// empty now, else force the direct meta write of the empty tree.
+				if ( is_array( $persisted ) && ! empty( $persisted ) ) {
+					$needs_fallback = true;
+				}
+			} elseif ( empty( $persisted ) || ! is_array( $persisted ) ) {
 				$needs_fallback = true;
 			} else {
 				$requested_ids = array();

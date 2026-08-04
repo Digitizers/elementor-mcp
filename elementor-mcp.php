@@ -429,7 +429,10 @@ function elementor_mcp_init(): void {
 	// would just fatal later inside Plugin::init(), so bail out entirely (the
 	// per-group guards only make sense for OPTIONAL tool groups).
 	$core_ok = true;
-	$core_ok = elementor_mcp_require( 'includes/class-result-normalizer.php' ) && $core_ok;
+	// Result normalizer is OPTIONAL by design — the registration seam guards
+	// it with class_exists, so a quarantined file degrades to unnormalized
+	// results, never to a plugin that refuses to boot.
+	elementor_mcp_require( 'includes/class-result-normalizer.php' );
 	$core_ok = elementor_mcp_require( 'includes/class-id-generator.php' ) && $core_ok;
 	$core_ok = elementor_mcp_require( 'includes/class-elementor-data.php' ) && $core_ok;
 	// SiteAgent governance bridge — must load before abilities register so

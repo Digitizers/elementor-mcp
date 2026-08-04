@@ -565,6 +565,37 @@ class P33HarvestRound1Test extends TestCase {
 		);
 	}
 
+	public function test_mixed_reorder_with_unavailable_addition_still_falls_back(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Persisted: [A, B]. Requested: [B, A, ghost] — a reorder (real edit)
+		// arriving together with an unavailable widget. The available-only
+		// projection [B, A] differs from persisted [A, B], so the drop must be
+		// detected; the fallback writes the projection (no ghost).
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[ [ 'id' => 'elA' ], [ 'id' => 'elB' ] ]
+		);
+
+		$result = $data->save_page_data(
+			123,
+			[
+				[ 'id' => 'elB' ],
+				[ 'id' => 'elA' ],
+				[ 'id' => 'ghostX', 'elType' => 'widget', 'widgetType' => 'ghost-widget' ],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_values( array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		) );
+		$this->assertNotEmpty( $writes, 'Reorder hidden behind an unavailable addition must still fall back.' );
+		$written = json_decode( stripslashes( (string) ( $writes[0]['meta_value'] ?? '' ) ), true );
+		$ids     = array_map( static fn( $el ) => $el['id'], $written );
+		$this->assertSame( [ 'elB', 'elA' ], $ids, 'Fallback writes the sanitized projection: reorder applied, ghost stripped.' );
+	}
+
 	public function test_reassign_ids_remints_child_local_classes(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = [

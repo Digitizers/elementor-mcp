@@ -263,32 +263,23 @@ class Elementor_MCP_Data {
 			} elseif ( empty( $persisted ) || ! is_array( $persisted ) ) {
 				$needs_fallback = true;
 				$silent_drop    = true;
-			} elseif ( $this->element_id_sequence( $data ) !== $this->element_id_sequence( $persisted ) ) {
+			} else {
 				// Distinguish a context-related silent drop from Elementor's own
 				// DELIBERATE sanitization: a save can succeed while removing
 				// elements whose type is unavailable on this site (unknown atomic
-				// widgets etc.). Restoring those via the raw-meta fallback would
-				// bypass that validation and persist broken content. Only fall
-				// back when at least one AVAILABLE element went missing (or on a
-				// pure reorder, which sanitization never produces).
-				$missing = array_diff(
-					$this->element_id_sequence( $data ),
-					$this->element_id_sequence( $persisted )
-				);
-				if ( empty( $missing ) ) {
-					// Same id set, different order — a dropped reorder.
+				// widgets etc.). Project the requested tree the way a native save
+				// would sanitize it — drop unavailable elements EXCEPT ones whose
+				// ids already exist on the page (pre-existing data) — and compare
+				// that projection's parent-aware id sequence against the re-read.
+				// Any difference is a real silent drop (covers nested edits,
+				// reorders, and the mixed case of a structural edit arriving
+				// together with an unavailable element); a pure-sanitization save
+				// matches exactly and is left alone.
+				$persisted_seq = $this->element_id_sequence( $persisted );
+				$expected_tree = $this->strip_unavailable_elements( $data, $persisted_seq );
+				if ( $this->element_id_sequence( $expected_tree ) !== $persisted_seq ) {
 					$needs_fallback = true;
 					$silent_drop    = true;
-				} else {
-					foreach ( $missing as $missing_entry ) {
-						$missing_id = substr( (string) $missing_entry, strpos( (string) $missing_entry, '>' ) + 1 );
-						$el         = $this->find_element_by_id( $data, $missing_id );
-						if ( null === $el || $this->element_type_available( $el ) ) {
-							$needs_fallback = true;
-							$silent_drop    = true;
-							break;
-						}
-					}
 				}
 			}
 		}
@@ -302,12 +293,8 @@ class Elementor_MCP_Data {
 			// no native save happened at all) the tree is written as-is: a widget
 			// from a temporarily inactive plugin is DATA, not sanitization, and
 			// stripping it there would destroy it on an unrelated edit.
-			$persisted_ids = array();
-			if ( isset( $persisted ) && is_array( $persisted ) ) {
-				$persisted_ids = $this->element_id_sequence( $persisted );
-			}
-			$fallback_tree = $silent_drop
-				? $this->strip_unavailable_elements( $data, $persisted_ids )
+			$fallback_tree = ( $silent_drop && isset( $expected_tree ) )
+				? $expected_tree
 				: $data;
 			$json          = wp_json_encode( $fallback_tree );
 

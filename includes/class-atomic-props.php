@@ -143,21 +143,103 @@ class Elementor_MCP_Atomic_Props {
 	}
 
 	/**
-	 * Wraps a WordPress media image reference.
+	 * Wraps a WordPress media image reference for the atomic `e-image` widget.
 	 *
-	 * @param int    $image_id  The attachment ID.
-	 * @param string $image_url The image URL (optional fallback).
+	 * Elementor's Image_Src_Prop_Type enforces `id XOR url` — exactly one of
+	 * the two may be set, the other MUST be null — and the id must be an
+	 * `image-attachment-id`, not a plain `number`. Passing both (or a `number`
+	 * id) makes Elementor reject the value with `image: invalid_value`
+	 * (upstream #74; the fork's own e-svg fix documents the same XOR on this
+	 * prop type family).
+	 *
+	 * Alt text belongs INSIDE this shape, as `src.alt`. There is no top-level
+	 * `alt` prop on `e-image`, so writing one is silently discarded along with
+	 * the text. For an attachment, Elementor ignores `src.alt` entirely and
+	 * renders the media library's own alt text (`_wp_attachment_image_alt`),
+	 * so the caller must write it there instead.
+	 *
+	 * @since 1.27.0 Upstream-correct shape (id XOR url, image-attachment-id, alt).
+	 *
+	 * @param int    $image_id  The attachment ID (0 to use a url instead).
+	 * @param string $image_url The image URL (used only when $image_id is 0).
+	 * @param string $alt       Alt text; only reaches the markup for a url image.
 	 * @return array Typed image prop.
 	 */
-	public static function image( int $image_id, string $image_url = '' ): array {
+	public static function image( int $image_id, string $image_url = '', string $alt = '' ): array {
+		$src = self::image_src_value( $image_id, $image_url );
+
+		if ( '' !== $alt ) {
+			$src['alt'] = self::string( $alt );
+		}
+
 		return array(
 			'$$type' => 'image',
 			'value'  => array(
 				'src' => array(
-					'id'  => self::number( $image_id ),
-					'url' => self::url( $image_url ),
+					'$$type' => 'image-src',
+					'value'  => $src,
 				),
 			),
+		);
+	}
+
+	/**
+	 * Wraps a video reference for the atomic `e-self-hosted-video` widget.
+	 *
+	 * Its `source` prop is a `video-src` SHAPE (`id` XOR `url`), not the plain
+	 * `url` that `e-youtube`'s `source` takes. A bare url envelope makes
+	 * Elementor reject the element outright with `source: invalid_value` on
+	 * 4.2+ (upstream 3.6.2 finding).
+	 *
+	 * Video_Src_Prop_Type requires EXACTLY ONE of the two keys to be
+	 * non-empty, so the unused one is omitted rather than sent as null.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param int    $video_id  The attachment ID (0 to use a url instead).
+	 * @param string $video_url The video URL (used only when $video_id is 0).
+	 * @return array Typed video-src prop.
+	 */
+	public static function video_src( int $video_id, string $video_url = '' ): array {
+		$value = $video_id > 0
+			? array(
+				'id' => array(
+					'$$type' => 'video-attachment-id',
+					'value'  => $video_id,
+				),
+			)
+			: array( 'url' => self::url( $video_url ) );
+
+		return array(
+			'$$type' => 'video-src',
+			'value'  => $value,
+		);
+	}
+
+	/**
+	 * Builds the inner id/url value of image-src: an `image-attachment-id`
+	 * when an id is given (url null), otherwise a `url` (id null).
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param int    $id  The attachment ID (0 to use a url).
+	 * @param string $url The URL (used only when $id is 0).
+	 * @return array{id:?array,url:?array}
+	 */
+	private static function image_src_value( int $id, string $url ): array {
+		if ( $id > 0 ) {
+			return array(
+				'id'  => array(
+					'$$type' => 'image-attachment-id',
+					'value'  => $id,
+				),
+				'url' => null,
+			);
+		}
+
+		return array(
+			'id'  => null,
+			'url' => '' === $url ? null : self::url( $url ),
 		);
 	}
 

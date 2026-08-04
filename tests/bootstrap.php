@@ -221,6 +221,16 @@ namespace {
 		}
 	}
 
+	if ( ! function_exists( 'wp_get_attachment_url' ) ) {
+		/**
+		 * Settable stub: $GLOBALS['_attachment_urls'][id] => url. Unknown ids
+		 * return false, matching WP.
+		 */
+		function wp_get_attachment_url( int $attachment_id ) {
+			return $GLOBALS['_attachment_urls'][ $attachment_id ] ?? false;
+		}
+	}
+
 	/**
 	 * Recording stub: records download_url calls so tests can assert whether
 	 * the HTTP request was (or was not) reached.
@@ -472,7 +482,7 @@ namespace {
 	}
 
 	if ( ! function_exists( 'wp_check_filetype' ) ) {
-		function wp_check_filetype( string $filename, array $mimes = null ): array {
+		function wp_check_filetype( string $filename, ?array $mimes = null ): array {
 			return [ 'ext' => 'svg', 'type' => 'image/svg+xml' ];
 		}
 	}
@@ -1010,6 +1020,7 @@ namespace {
 			// Core classes
 			'Elementor_MCP_Atomic_Props'           => 'includes/class-atomic-props.php',
 			'Elementor_MCP_Atomic_Styles'          => 'includes/class-atomic-styles.php',
+			'Elementor_MCP_Atomic_Widget_Map'      => 'includes/class-atomic-widget-map.php',
 			'Elementor_MCP_Result_Normalizer'      => 'includes/class-result-normalizer.php',
 			'Elementor_MCP_Ability_Registrar'      => 'includes/abilities/class-ability-registrar.php',
 			'Elementor_MCP_Data'                  => 'includes/class-elementor-data.php',

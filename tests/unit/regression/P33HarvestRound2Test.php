@@ -298,6 +298,39 @@ class P33HarvestRound2Test extends TestCase {
 		);
 	}
 
+	public function test_partially_wrapped_envelope_is_unwrapped_before_the_shape_scan(): void {
+		// Correct outer envelope, raw/legacy inner keys: the documented shape
+		// a caller reasonably sends. Must repair exactly like the bare form —
+		// scanning the envelope dict instead of the payload left it invalid
+		// (Codex round-6).
+		$schema = [ 'link' => $this->make_link_prop() ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			$schema,
+			[
+				'link' => [
+					'$$type' => 'link',
+					'value'  => [
+						'url'         => 'https://example.com',
+						'is_external' => true,
+					],
+				],
+			]
+		);
+
+		$this->assertSame(
+			[
+				'$$type' => 'link',
+				'value'  => [
+					'destination'   => [ '$$type' => 'url', 'value' => 'https://example.com' ],
+					'isTargetBlank' => [ '$$type' => 'boolean', 'value' => true ],
+				],
+			],
+			$out['link'],
+			'A partially wrapped object prop must be unwrapped to its value before the shape scan (Codex round-6).'
+		);
+	}
+
 	public function test_bare_scalar_lands_in_the_shapes_principal_field(): void {
 		$schema = [ 'link' => $this->make_link_prop() ];
 

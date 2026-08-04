@@ -472,7 +472,22 @@ class Elementor_MCP_Atomic_Props {
 			// expose get_shape() and still return nothing useful, so fall through
 			// to the primitive handling below rather than dropping the candidate.
 			if ( method_exists( $member, 'get_shape' ) ) {
-				$inner = self::coerce_shape( $member, $value );
+				// A PARTIALLY wrapped value — correct outer envelope for this
+				// member, raw/legacy keys inside — must be unwrapped before the
+				// shape scan, or the scan reads the envelope dict ($$type/value)
+				// instead of the payload and the very keys repaired when sent
+				// bare stay broken when sent with the documented envelope
+				// (Codex round-6).
+				$shape_value = $value;
+				if (
+					is_array( $shape_value )
+					&& ( $shape_value['$$type'] ?? null ) === $key
+					&& array_key_exists( 'value', $shape_value )
+				) {
+					$shape_value = $shape_value['value'];
+				}
+
+				$inner = self::coerce_shape( $member, $shape_value );
 				if ( null !== $inner ) {
 					$candidates[] = array(
 						'$$type' => $key,

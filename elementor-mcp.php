@@ -377,6 +377,32 @@ function elementor_mcp_check_dependencies(): bool {
 }
 
 /**
+ * Guarded require for plugin source files.
+ *
+ * A physically missing or quarantined file (host malware scanners do this —
+ * upstream issue #100) must degrade to that feature being absent, never a
+ * site-wide fatal on every admin page load and REST request. The registrar's
+ * try/catch covers classes that loaded but broke; this covers files that
+ * never loaded at all.
+ *
+ * @since 1.27.0
+ *
+ * @param string $relative Path relative to the plugin directory.
+ * @return bool Whether the file was loaded.
+ */
+function elementor_mcp_require( string $relative ): bool {
+	$path = ELEMENTOR_MCP_DIR . $relative;
+	if ( file_exists( $path ) ) {
+		require_once $path;
+		return true;
+	}
+	if ( function_exists( 'error_log' ) ) {
+		error_log( 'Elementor MCP: missing source file skipped: ' . $relative );
+	}
+	return false;
+}
+
+/**
  * Initializes the plugin.
  *
  * Hooked to `plugins_loaded` at priority 20 to ensure Elementor and
@@ -388,7 +414,7 @@ function elementor_mcp_init(): void {
 	// Make the MCP Adapter available (active standalone plugin, else our bundled
 	// copy) BEFORE the dependency check, so the adapter is never a "go install
 	// this" blocker. The Abilities API is core in WordPress 6.9+/7.0.
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-mcp-adapter-bootstrap.php';
+	elementor_mcp_require( 'includes/class-mcp-adapter-bootstrap.php' );
 	Elementor_MCP_Adapter_Bootstrap::ensure();
 
 	if ( ! elementor_mcp_check_dependencies() ) {
@@ -396,96 +422,105 @@ function elementor_mcp_init(): void {
 	}
 
 	// Load class files.
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-result-normalizer.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-id-generator.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-elementor-data.php';
+	elementor_mcp_require( 'includes/class-result-normalizer.php' );
+	elementor_mcp_require( 'includes/class-id-generator.php' );
+	elementor_mcp_require( 'includes/class-elementor-data.php' );
 	// SiteAgent governance bridge — must load before abilities register so
 	// elementor_mcp_register_ability() can wrap destructive page writes.
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-governance.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-element-factory.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/schemas/class-control-mapper.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/schemas/class-schema-generator.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/validators/class-element-validator.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/validators/class-settings-validator.php';
+	elementor_mcp_require( 'includes/class-governance.php' );
+	elementor_mcp_require( 'includes/class-element-factory.php' );
+	elementor_mcp_require( 'includes/schemas/class-control-mapper.php' );
+	elementor_mcp_require( 'includes/schemas/class-schema-generator.php' );
+	elementor_mcp_require( 'includes/validators/class-element-validator.php' );
+	elementor_mcp_require( 'includes/validators/class-settings-validator.php' );
 	// SEO / A11y toolkit shared helpers (used by the Pro audit abilities).
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-color-contrast.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-content-extractor.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-seo-meta.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-query-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-page-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-layout-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-widget-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-template-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-global-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-composite-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-openverse-client.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-stock-image-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-svg-icon-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-custom-code-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-media-library-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-global-classes-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-global-classes-write-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-variables-write-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-interactions-write-abilities.php';
+	elementor_mcp_require( 'includes/class-color-contrast.php' );
+	elementor_mcp_require( 'includes/class-content-extractor.php' );
+	elementor_mcp_require( 'includes/class-seo-meta.php' );
+	elementor_mcp_require( 'includes/abilities/class-query-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-page-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-layout-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-widget-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-template-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-global-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-composite-abilities.php' );
+	elementor_mcp_require( 'includes/class-openverse-client.php' );
+	elementor_mcp_require( 'includes/abilities/class-stock-image-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-svg-icon-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-custom-code-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-media-library-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-global-classes-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-global-classes-write-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-variables-write-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-interactions-write-abilities.php' );
 	// Performance Analyzer (read-only page + server + WordPress audit → scored
 	// report). Independent of Elementor version; gated on manage_options.
-	require_once ELEMENTOR_MCP_DIR . 'includes/performance/class-performance-finding.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/performance/class-performance-server-audit.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/performance/class-performance-page-audit.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/performance/class-performance-analyzer.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-performance-abilities.php';
+	elementor_mcp_require( 'includes/performance/class-performance-finding.php' );
+	elementor_mcp_require( 'includes/performance/class-performance-server-audit.php' );
+	elementor_mcp_require( 'includes/performance/class-performance-page-audit.php' );
+	elementor_mcp_require( 'includes/performance/class-performance-analyzer.php' );
+	elementor_mcp_require( 'includes/abilities/class-performance-abilities.php' );
 	// Security & Malware Scanner (read-only 4-dimension scan → scored report:
 	// malware heuristics, core-integrity checksum diff, hardening audit,
 	// outdated/abandoned software). Independent of Elementor version; gated on
 	// manage_options.
-	require_once ELEMENTOR_MCP_DIR . 'includes/security/class-security-finding.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/security/class-security-malware-audit.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/security/class-security-integrity-audit.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/security/class-security-hardening-audit.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/security/class-security-software-audit.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/security/class-security-scanner.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-security-abilities.php';
+	elementor_mcp_require( 'includes/security/class-security-finding.php' );
+	elementor_mcp_require( 'includes/security/class-security-malware-audit.php' );
+	elementor_mcp_require( 'includes/security/class-security-integrity-audit.php' );
+	elementor_mcp_require( 'includes/security/class-security-hardening-audit.php' );
+	elementor_mcp_require( 'includes/security/class-security-software-audit.php' );
+	elementor_mcp_require( 'includes/security/class-security-scanner.php' );
+	elementor_mcp_require( 'includes/abilities/class-security-abilities.php' );
 	// Brand Kits (Pro). The writer + backup store + fetcher + abilities load
 	// unconditionally (no admin dependency) so the MCP REST/CLI/proxy surface
 	// can reach them; every write method is independently Pro-gated.
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-system-kit-writer.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-kit-backup-store.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-free-brand-kits.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-angie-bridge.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-system-kit-abilities.php';
-	add_action( 'init', array( 'Elementor_MCP_Kit_Backup_Store', 'register_post_type' ) );
+	elementor_mcp_require( 'includes/class-system-kit-writer.php' );
+	elementor_mcp_require( 'includes/class-kit-backup-store.php' );
+	elementor_mcp_require( 'includes/class-free-brand-kits.php' );
+	elementor_mcp_require( 'includes/class-angie-bridge.php' );
+	elementor_mcp_require( 'includes/abilities/class-system-kit-abilities.php' );
+	if ( class_exists( 'Elementor_MCP_Kit_Backup_Store' ) ) {
+		add_action( 'init', array( 'Elementor_MCP_Kit_Backup_Store', 'register_post_type' ) );
+	}
 	// Widget Builder (Pro) — sandboxed AI-generated Elementor widgets. The
 	// generator/store/loader load unconditionally so the MCP surface can reach
 	// them; every write + the loader itself are independently Pro-gated.
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-widget-generator.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-widget-store.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-widget-loader.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-widget-builder-abilities.php';
-	add_action( 'init', array( 'Elementor_MCP_Widget_Store', 'register_post_type' ) );
-	( new Elementor_MCP_Widget_Loader() )->register_hooks();
+	elementor_mcp_require( 'includes/class-widget-generator.php' );
+	elementor_mcp_require( 'includes/class-widget-store.php' );
+	elementor_mcp_require( 'includes/class-widget-loader.php' );
+	elementor_mcp_require( 'includes/abilities/class-widget-builder-abilities.php' );
+	if ( class_exists( 'Elementor_MCP_Widget_Store' ) ) {
+		add_action( 'init', array( 'Elementor_MCP_Widget_Store', 'register_post_type' ) );
+	}
+	if ( class_exists( 'Elementor_MCP_Widget_Loader' ) ) {
+		( new Elementor_MCP_Widget_Loader() )->register_hooks();
+	}
 	// SEO toolkit abilities (Pro only; self-guards on license at registration).
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-seo-abilities.php';
+	elementor_mcp_require( 'includes/abilities/class-seo-abilities.php' );
 	// Accessibility toolkit abilities (Pro only; self-guards on license).
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-a11y-abilities.php';
+	elementor_mcp_require( 'includes/abilities/class-a11y-abilities.php' );
 	// Atomic elements support (Elementor 4.0+).
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-atomic-props.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-atomic-styles.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-atomic-widget-abilities.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-atomic-layout-abilities.php';
+	elementor_mcp_require( 'includes/class-atomic-props.php' );
+	elementor_mcp_require( 'includes/class-atomic-styles.php' );
+	elementor_mcp_require( 'includes/abilities/class-atomic-widget-abilities.php' );
+	elementor_mcp_require( 'includes/abilities/class-atomic-layout-abilities.php' );
 
-	require_once ELEMENTOR_MCP_DIR . 'includes/abilities/class-ability-registrar.php';
-	require_once ELEMENTOR_MCP_DIR . 'includes/class-plugin.php';
+	elementor_mcp_require( 'includes/abilities/class-ability-registrar.php' );
+	elementor_mcp_require( 'includes/class-plugin.php' );
 
 	// Admin.
 	if ( is_admin() ) {
-		require_once ELEMENTOR_MCP_DIR . 'includes/admin/class-admin.php';
+		elementor_mcp_require( 'includes/admin/class-admin.php' );
 
 		// Free brand-kit apply/restore AJAX (capability-gated, no license gate).
 		add_action( 'wp_ajax_elementor_mcp_apply_brand_kit', 'elementor_mcp_apply_brand_kit_ajax' );
 		add_action( 'wp_ajax_elementor_mcp_restore_brand_kit', 'elementor_mcp_restore_brand_kit_ajax' );
 	}
 
-	// Boot the plugin.
-	Elementor_MCP_Plugin::instance();
+	// Boot the plugin. If the core plugin class itself failed to load there
+	// is nothing to boot — the tools are simply absent this request.
+	if ( class_exists( 'Elementor_MCP_Plugin' ) ) {
+		Elementor_MCP_Plugin::instance();
+	}
 }
 add_action( 'plugins_loaded', 'elementor_mcp_init', 20 );

@@ -301,7 +301,13 @@ class Elementor_MCP_Data {
 			// no native save happened at all) the tree is written as-is: a widget
 			// from a temporarily inactive plugin is DATA, not sanitization, and
 			// stripping it there would destroy it on an unrelated edit.
-			$fallback_tree = $silent_drop ? $this->strip_unavailable_elements( $data ) : $data;
+			$persisted_ids = array();
+			if ( isset( $persisted ) && is_array( $persisted ) ) {
+				$persisted_ids = $this->element_id_sequence( $persisted );
+			}
+			$fallback_tree = $silent_drop
+				? $this->strip_unavailable_elements( $data, $persisted_ids )
+				: $data;
 			$json          = wp_json_encode( $fallback_tree );
 
 			if ( false === $json ) {
@@ -466,25 +472,34 @@ class Elementor_MCP_Data {
 	/**
 	 * Recursively removes elements whose type is unavailable on this site.
 	 *
-	 * Used by the raw-meta fallback so it writes only what Elementor's own
-	 * save would accept — never resurrecting deliberately sanitized elements.
+	 * Used by the silent-drop fallback so it writes only what Elementor's own
+	 * save would accept — never resurrecting deliberately sanitized elements —
+	 * while preserving unavailable elements that already exist on the page
+	 * (their ids appear in $keep_ids, the persisted tree's id sequence).
 	 *
 	 * @since 1.27.0
 	 *
 	 * @param array $elements The element tree.
+	 * @param array $keep_ids Ids present in the persisted tree — always kept.
 	 * @return array Filtered tree.
 	 */
-	private function strip_unavailable_elements( array $elements ): array {
+	private function strip_unavailable_elements( array $elements, array $keep_ids = array() ): array {
 		$out = array();
 		foreach ( $elements as $el ) {
 			if ( ! is_array( $el ) ) {
 				continue;
 			}
-			if ( ! $this->element_type_available( $el ) ) {
+			// Strip only what Elementor removed in THIS save: an unavailable
+			// element whose id survived in the persisted tree is pre-existing
+			// page data (e.g. a widget from a temporarily inactive plugin) and
+			// must be preserved, not destroyed by an unrelated edit's fallback.
+			$el_id = isset( $el['id'] ) ? (string) $el['id'] : '';
+			if ( ! $this->element_type_available( $el )
+				&& ( '' === $el_id || ! in_array( $el_id, $keep_ids, true ) ) ) {
 				continue;
 			}
 			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
-				$el['elements'] = $this->strip_unavailable_elements( $el['elements'] );
+				$el['elements'] = $this->strip_unavailable_elements( $el['elements'], $keep_ids );
 			}
 			$out[] = $el;
 		}

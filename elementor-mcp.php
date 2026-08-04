@@ -414,25 +414,38 @@ function elementor_mcp_init(): void {
 	// Make the MCP Adapter available (active standalone plugin, else our bundled
 	// copy) BEFORE the dependency check, so the adapter is never a "go install
 	// this" blocker. The Abilities API is core in WordPress 6.9+/7.0.
-	elementor_mcp_require( 'includes/class-mcp-adapter-bootstrap.php' );
+	if ( ! elementor_mcp_require( 'includes/class-mcp-adapter-bootstrap.php' )
+		|| ! class_exists( 'Elementor_MCP_Adapter_Bootstrap' ) ) {
+		return; // Nothing to boot without the adapter bootstrap.
+	}
 	Elementor_MCP_Adapter_Bootstrap::ensure();
 
 	if ( ! elementor_mcp_check_dependencies() ) {
 		return;
 	}
 
-	// Load class files.
-	elementor_mcp_require( 'includes/class-result-normalizer.php' );
-	elementor_mcp_require( 'includes/class-id-generator.php' );
-	elementor_mcp_require( 'includes/class-elementor-data.php' );
+	// Load class files. The CORE set below is what Elementor_MCP_Plugin's
+	// constructor instantiates directly — if any of these are missing, booting
+	// would just fatal later inside Plugin::init(), so bail out entirely (the
+	// per-group guards only make sense for OPTIONAL tool groups).
+	$core_ok = true;
+	$core_ok = elementor_mcp_require( 'includes/class-result-normalizer.php' ) && $core_ok;
+	$core_ok = elementor_mcp_require( 'includes/class-id-generator.php' ) && $core_ok;
+	$core_ok = elementor_mcp_require( 'includes/class-elementor-data.php' ) && $core_ok;
 	// SiteAgent governance bridge — must load before abilities register so
 	// elementor_mcp_register_ability() can wrap destructive page writes.
 	elementor_mcp_require( 'includes/class-governance.php' );
-	elementor_mcp_require( 'includes/class-element-factory.php' );
-	elementor_mcp_require( 'includes/schemas/class-control-mapper.php' );
-	elementor_mcp_require( 'includes/schemas/class-schema-generator.php' );
+	$core_ok = elementor_mcp_require( 'includes/class-element-factory.php' ) && $core_ok;
+	$core_ok = elementor_mcp_require( 'includes/schemas/class-control-mapper.php' ) && $core_ok;
+	$core_ok = elementor_mcp_require( 'includes/schemas/class-schema-generator.php' ) && $core_ok;
 	elementor_mcp_require( 'includes/validators/class-element-validator.php' );
-	elementor_mcp_require( 'includes/validators/class-settings-validator.php' );
+	$core_ok = elementor_mcp_require( 'includes/validators/class-settings-validator.php' ) && $core_ok;
+	if ( ! $core_ok ) {
+		if ( function_exists( 'error_log' ) ) {
+			error_log( 'Elementor MCP: core source files missing — plugin not booted this request.' );
+		}
+		return;
+	}
 	// SEO / A11y toolkit shared helpers (used by the Pro audit abilities).
 	elementor_mcp_require( 'includes/class-color-contrast.php' );
 	elementor_mcp_require( 'includes/class-content-extractor.php' );

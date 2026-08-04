@@ -499,6 +499,46 @@ class P33HarvestRound1Test extends TestCase {
 		);
 	}
 
+	public function test_silent_drop_fallback_preserves_preexisting_unavailable_widget(): void {
+		$data = $this->make_data_with_document( true );
+
+		// The page ALREADY contains an inactive-plugin widget (persisted), and a
+		// truthy-but-stale save dropped an unrelated available addition. The
+		// fallback must fire — and must keep the pre-existing unavailable widget.
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[
+				[
+					'id'       => 'root1',
+					'elements' => [ [ 'id' => 'legacy1', 'elType' => 'widget', 'widgetType' => 'inactive-plugin-widget' ] ],
+				],
+			]
+		);
+
+		$result = $data->save_page_data(
+			123,
+			[
+				[
+					'id'       => 'root1',
+					'elements' => [
+						[ 'id' => 'legacy1', 'elType' => 'widget', 'widgetType' => 'inactive-plugin-widget' ],
+						[ 'id' => 'newbox1', 'elType' => 'container' ],
+					],
+				],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_values( array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		) );
+		$this->assertNotEmpty( $writes, 'Dropped available addition must trigger the fallback.' );
+		$written   = json_decode( stripslashes( (string) ( $writes[0]['meta_value'] ?? '' ) ), true );
+		$child_ids = array_map( static fn( $el ) => $el['id'], $written[0]['elements'] ?? [] );
+		$this->assertContains( 'legacy1', $child_ids, 'Pre-existing unavailable widget preserved.' );
+		$this->assertContains( 'newbox1', $child_ids, 'The dropped available addition written.' );
+	}
+
 	public function test_reassign_ids_remints_child_local_classes(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = [

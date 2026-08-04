@@ -300,6 +300,78 @@ class P33HarvestRound1Test extends TestCase {
 		);
 	}
 
+	public function test_sanitized_unavailable_widget_does_not_trigger_fallback(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Elementor deliberately stripped the unknown widget type on save —
+		// the bootstrap widgets_manager stub reports every type unavailable.
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[ [ 'id' => 'root1', 'elements' => [] ] ]
+		);
+
+		$result = $data->save_page_data(
+			123,
+			[
+				[
+					'id'       => 'root1',
+					'elements' => [ [ 'id' => 'ghost1', 'elType' => 'widget', 'widgetType' => 'ghost-widget' ] ],
+				],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertEmpty(
+			$writes,
+			'Deliberate sanitization of an unavailable widget type must NOT be resurrected by the raw-meta fallback.'
+		);
+	}
+
+	public function test_dropped_available_widget_still_triggers_fallback(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Make this widget type AVAILABLE: manager returns an object for it.
+		// Restore the shared stub afterwards — Plugin::$instance is global.
+		$original_manager = \Elementor\Plugin::$instance->widgets_manager;
+
+		\Elementor\Plugin::$instance->widgets_manager = new class() {
+			public function get_widget_types( $type = null ) {
+				return 'real-widget' === $type ? new \stdClass() : null;
+			}
+		};
+
+		try {
+			$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+				[ [ 'id' => 'root1', 'elements' => [] ] ]
+			);
+
+			$result = $data->save_page_data(
+				123,
+				[
+					[
+						'id'       => 'root1',
+						'elements' => [ [ 'id' => 'w1', 'elType' => 'widget', 'widgetType' => 'real-widget' ] ],
+					],
+				]
+			);
+
+			$this->assertTrue( $result );
+			$writes = array_filter(
+				$GLOBALS['_wp_meta_calls'],
+				static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+			);
+			$this->assertNotEmpty(
+				$writes,
+				'A silently dropped AVAILABLE widget is a real write failure and must trigger the fallback.'
+			);
+		} finally {
+			\Elementor\Plugin::$instance->widgets_manager = $original_manager;
+		}
+	}
+
 	public function test_reassign_ids_remints_child_local_classes(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = [

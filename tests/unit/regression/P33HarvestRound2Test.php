@@ -464,6 +464,79 @@ class P33HarvestRound2Test extends TestCase {
 		);
 	}
 
+	public function test_boolean_fallback_is_skipped_for_props_that_described_their_members(): void {
+		// Fresh evidence in Codex round-5: a described NON-boolean prop must
+		// not be offered the common boolean(false) fallback either — a
+		// validator lenient about empty enveloped values would accept the
+		// malformed boolean envelope. The lenient stub here accepts ANY
+		// envelope whose value is empty-ish, exactly the trap.
+		$lenient_described = new class() {
+			public function get_key(): string {
+				return 'string';
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || ! isset( $value['$$type'] ) ) {
+					return false;
+				}
+				$inner = $value['value'] ?? null;
+				return \is_string( $inner ) || empty( $inner );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'tag' => $lenient_described ], [ 'tag' => false ] );
+
+		$this->assertSame(
+			false,
+			$out['tag'],
+			'The common boolean fallback must run only for props that did not describe their members (Codex round-5).'
+		);
+	}
+
+	public function test_common_fallbacks_never_run_for_described_props(): void {
+		// The whole fallback section is gated, not just the boolean case: a
+		// described 'number' prop receiving '' must not be laundered through
+		// the string('')/html('') guesses either — same lenient-empty-value
+		// class (Codex rounds 3–5).
+		$described_number = new class() {
+			public function get_key(): string {
+				return 'number';
+			}
+			public function validate( $value ): bool {
+				// Deliberately accepts a foreign 'string' envelope with any
+				// value — the lenient trap the gate must make unreachable.
+				return \is_array( $value ) && 'string' === ( $value['$$type'] ?? '' );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'n' => $described_number ], [ 'n' => '' ] );
+
+		$this->assertSame(
+			'',
+			$out['n'],
+			'Common-envelope fallbacks must be unreachable for props that described their members (Codex round-5, class retirement).'
+		);
+	}
+
+	public function test_boolean_fallback_still_serves_undescribed_props(): void {
+		// A prop exposing only validate() — no get_key/get_prop_types — must
+		// still be reachable by the common boolean fallback.
+		$undescribed_bool = new class() {
+			public function validate( $value ): bool {
+				return \is_array( $value )
+					&& 'boolean' === ( $value['$$type'] ?? '' )
+					&& \is_bool( $value['value'] ?? null );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'flag' => $undescribed_bool ], [ 'flag' => true ] );
+
+		$this->assertSame(
+			[ '$$type' => 'boolean', 'value' => true ],
+			$out['flag'],
+			'An undescribed boolean prop must still coerce via the common fallback.'
+		);
+	}
+
 	public function test_boolean_still_coerces_into_a_boolean_envelope(): void {
 		$schema = [ 'flag' => new R2_Envelope_Prop( 'boolean', 'boolean' ) ];
 

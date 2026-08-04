@@ -452,7 +452,8 @@ class Elementor_MCP_Atomic_Props {
 			}
 		}
 
-		$candidates = array();
+		$candidates      = array();
+		$discovered_keys = array();
 
 		foreach ( $members as $member ) {
 			if ( ! is_object( $member ) || ! method_exists( $member, 'get_key' ) ) {
@@ -464,6 +465,8 @@ class Elementor_MCP_Atomic_Props {
 			} catch ( \Throwable $e ) {
 				continue;
 			}
+
+			$discovered_keys[] = $key;
 
 			// Object-shaped: coerce the inner shape, then wrap. A prop type can
 			// expose get_shape() and still return nothing useful, so fall through
@@ -507,36 +510,42 @@ class Elementor_MCP_Atomic_Props {
 			}
 		}
 
-		// Fallbacks for prop types that do not describe themselves. Everything
-		// Elementor ships exposes get_key(), but a prop type offering only
-		// validate() would otherwise yield no candidates at all. These are the
-		// common envelopes.
-		if ( is_scalar( $value ) ) {
-			if ( is_bool( $value ) ) {
-				// Boolean envelope only — no string/html casts here either:
-				// (string) true is '1' and (string) false is '', a silent
-				// meaning change if a prop happens to accept them.
-				$candidates[] = self::boolean( $value );
-			} else {
-				if ( is_int( $value ) || is_float( $value ) ) {
-					$candidates[] = self::number( $value );
+		// Fallbacks ONLY for prop types that do not describe themselves — that
+		// is their documented purpose (a prop offering only validate() would
+		// otherwise yield no candidates at all). For a DESCRIBED prop they
+		// must not run: guessing envelopes the prop's own members did not
+		// declare is exactly the lenient-empty-value laundering trap — e.g.
+		// boolean(false), or string('') on a non-string prop, can be accepted
+		// by a non-required primitive validation before its type/enum check
+		// and store a malformed envelope (Codex rounds 3–5, one class).
+		if ( empty( $discovered_keys ) ) {
+			if ( is_scalar( $value ) ) {
+				if ( is_bool( $value ) ) {
+					// Boolean envelope only — no string/html casts:
+					// (string) true is '1' and (string) false is '', a
+					// silent meaning change if a prop happens to accept them.
+					$candidates[] = self::boolean( $value );
+				} else {
+					if ( is_int( $value ) || is_float( $value ) ) {
+						$candidates[] = self::number( $value );
+					}
+					$text         = (string) $value;
+					$candidates[] = self::string( $text );
+					$candidates[] = self::html( $text );
 				}
-				$text         = (string) $value;
-				$candidates[] = self::string( $text );
-				$candidates[] = self::html( $text );
+			} elseif ( is_array( $value ) && ! isset( $value['$$type'] ) ) {
+				$inner = $value;
+				if ( isset( $inner['content'] ) && is_string( $inner['content'] ) ) {
+					$inner['content'] = self::string( $inner['content'] );
+				}
+				if ( ! isset( $inner['children'] ) || ! is_array( $inner['children'] ) ) {
+					$inner['children'] = array();
+				}
+				$candidates[] = array(
+					'$$type' => 'html-v3',
+					'value'  => $inner,
+				);
 			}
-		} elseif ( is_array( $value ) && ! isset( $value['$$type'] ) ) {
-			$inner = $value;
-			if ( isset( $inner['content'] ) && is_string( $inner['content'] ) ) {
-				$inner['content'] = self::string( $inner['content'] );
-			}
-			if ( ! isset( $inner['children'] ) || ! is_array( $inner['children'] ) ) {
-				$inner['children'] = array();
-			}
-			$candidates[] = array(
-				'$$type' => 'html-v3',
-				'value'  => $inner,
-			);
 		}
 
 		return $candidates;

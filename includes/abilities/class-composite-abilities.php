@@ -304,7 +304,7 @@ class Elementor_MCP_Composite_Abilities {
 				$settings    = $item['settings'] ?? array();
 
 				if ( ! empty( $widget_type ) ) {
-					$widget = $this->factory->create_widget( $widget_type, $settings );
+					$widget = $this->build_widget( $widget_type, $settings );
 					$this->elements_created++;
 
 					// Widgets placed directly inside a row container must be
@@ -335,4 +335,36 @@ class Elementor_MCP_Composite_Abilities {
 		return $elements;
 	}
 
+	/**
+	 * Builds a widget element for build-page, atomic-aware.
+	 *
+	 * For an Elementor 4.0+ atomic widget type this routes the node's settings
+	 * through the SAME convenience mapping the add-atomic-* tools use
+	 * (Elementor_MCP_Atomic_Widget_Map), so friendly params like `content`,
+	 * `image_url`/`alt` and `video_url` become the typed props Elementor
+	 * stores instead of being discarded. The node's flat style params
+	 * (padding, background_color, typography, …) are passed to the factory,
+	 * which applies them as a local class exactly as the individual atomic
+	 * tools do. Everything else falls back to the legacy raw-settings widget.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param string $widget_type Widget type.
+	 * @param array  $settings    Node settings (convenience params for atomic widgets).
+	 * @return array Widget element structure.
+	 */
+	private function build_widget( string $widget_type, array $settings ): array {
+		if (
+			class_exists( 'Elementor_MCP_Atomic_Widget_Map' )
+			&& Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type )
+		) {
+			$mapped = Elementor_MCP_Atomic_Widget_Map::settings( $widget_type, $settings );
+
+			// Third arg: the raw node settings double as flat style params
+			// (build_common_props + build_typography_props read them).
+			return $this->factory->create_atomic_widget( $widget_type, (array) $mapped, $settings );
+		}
+
+		return $this->factory->create_widget( $widget_type, $settings );
+	}
 }

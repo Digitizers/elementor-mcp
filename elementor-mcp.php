@@ -523,6 +523,7 @@ function elementor_mcp_init(): void {
 	// Atomic elements support (Elementor 4.0+).
 	elementor_mcp_require( 'includes/class-atomic-props.php' );
 	elementor_mcp_require( 'includes/class-atomic-styles.php' );
+	elementor_mcp_require( 'includes/class-atomic-widget-map.php' );
 	elementor_mcp_require( 'includes/abilities/class-atomic-widget-abilities.php' );
 	elementor_mcp_require( 'includes/abilities/class-atomic-layout-abilities.php' );
 

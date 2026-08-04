@@ -45,19 +45,6 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 	}
 
 	/**
-	 * Content prop for e-heading/e-paragraph/e-button text. Elementor 4.x GA
-	 * types these as Html_V3 (html-v3); 3.x-experimental used a plain String.
-	 *
-	 * @param string $text Plain text content.
-	 * @return array Typed prop ($$type html-v3 on 4.x, string on 3.x).
-	 */
-	private static function content_prop( string $text ): array {
-		return Elementor_MCP_Atomic_Props::is_v4()
-			? Elementor_MCP_Atomic_Props::html( $text )
-			: Elementor_MCP_Atomic_Props::string( $text );
-	}
-
-	/**
 	 * JSON-Schema fragment for the flat atomic styling props the factory reads
 	 * (typography + common). Shared by the convenience tools and add-atomic-widget
 	 * so agents discover the capability. The factory accepts more keys than are
@@ -96,6 +83,12 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 	 */
 	public function register(): void {
 		if ( ! Elementor_MCP_Atomic_Props::is_atomic_supported() ) {
+			return;
+		}
+
+		// Fatal-proof: the convenience tools delegate their settings mapping
+		// to the shared widget map; without it they would register broken.
+		if ( ! class_exists( 'Elementor_MCP_Atomic_Widget_Map' ) ) {
 			return;
 		}
 
@@ -389,19 +382,9 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			array(),
 			'e-heading',
 			function ( $input ) {
-				$settings = array();
-				$settings['title'] = self::content_prop( sanitize_text_field( $input['title'] ?? 'Heading' ) );
-				$settings['tag']   = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['tag'] ?? 'h2' ) );
-
-				if ( ! empty( $input['link'] ) ) {
-					$settings['link'] = Elementor_MCP_Atomic_Props::link( esc_url_raw( $input['link'] ) );
-				}
-				if ( ! empty( $input['css_id'] ) ) {
-					$settings['_cssid'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['css_id'] ) );
-				}
-
-				$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
-				return $settings;
+				// Single source of the mapping — build-page consumes the same
+				// class, so both produce byte-identical settings (P3.3 #9).
+				return Elementor_MCP_Atomic_Widget_Map::settings( 'e-heading', $input );
 			}
 		);
 	}
@@ -419,22 +402,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			array(),
 			'e-paragraph',
 			function ( $input ) {
-				$settings = array();
-				// The e-paragraph widget's content prop is named `paragraph`
-				// (Html_V3), not `text` — writing `text` silently dropped the
-				// content (issue #56). The fork already writes `paragraph` via
-				// its 4.x content_prop helper.
-				$settings['paragraph'] = self::content_prop( sanitize_text_field( $input['content'] ?? 'Paragraph text' ) );
-
-				if ( ! empty( $input['link'] ) ) {
-					$settings['link'] = Elementor_MCP_Atomic_Props::link( esc_url_raw( $input['link'] ) );
-				}
-				if ( ! empty( $input['css_id'] ) ) {
-					$settings['_cssid'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['css_id'] ) );
-				}
-
-				$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
-				return $settings;
+				return Elementor_MCP_Atomic_Widget_Map::settings( 'e-paragraph', $input );
 			}
 		);
 	}
@@ -453,19 +421,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			array(),
 			'e-button',
 			function ( $input ) {
-				$settings = array();
-				$settings['text'] = self::content_prop( sanitize_text_field( $input['text'] ?? 'Click Here' ) );
-
-				if ( ! empty( $input['link'] ) ) {
-					$target_blank = ! empty( $input['target_blank'] );
-					$settings['link'] = Elementor_MCP_Atomic_Props::link( esc_url_raw( $input['link'] ), $target_blank );
-				}
-				if ( ! empty( $input['css_id'] ) ) {
-					$settings['_cssid'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['css_id'] ) );
-				}
-
-				$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
-				return $settings;
+				return Elementor_MCP_Atomic_Widget_Map::settings( 'e-button', $input );
 			}
 		);
 	}
@@ -485,30 +441,10 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			array(),
 			'e-image',
 			function ( $input ) {
-				$settings = array();
-
-				$image_id  = absint( $input['image_id'] ?? 0 );
-				$image_url = esc_url_raw( $input['image_url'] ?? '' );
-
-				if ( $image_id ) {
-					$url = wp_get_attachment_url( $image_id );
-					$settings['image'] = Elementor_MCP_Atomic_Props::image( $image_id, $url ?: '' );
-				} elseif ( $image_url ) {
-					$settings['image'] = Elementor_MCP_Atomic_Props::image( 0, $image_url );
-				}
-
-				if ( ! empty( $input['alt'] ) ) {
-					$settings['alt'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['alt'] ) );
-				}
-				if ( ! empty( $input['link'] ) ) {
-					$settings['link'] = Elementor_MCP_Atomic_Props::link( esc_url_raw( $input['link'] ) );
-				}
-				if ( ! empty( $input['css_id'] ) ) {
-					$settings['_cssid'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['css_id'] ) );
-				}
-
-				$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
-				return $settings;
+				// Delegates the whole mapping, including the id-XOR-url
+				// image-src shape (upstream #74 — the old both-keys shape is
+				// rejected on 4.x) and the attachment alt-meta write.
+				return Elementor_MCP_Atomic_Widget_Map::settings( 'e-image', $input );
 			}
 		);
 	}
@@ -526,28 +462,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			array(),
 			'e-svg',
 			function ( $input ) {
-				$settings = array();
-
-				$svg_id  = absint( $input['svg_id'] ?? 0 );
-				$svg_url = esc_url_raw( $input['svg_url'] ?? '' );
-
-				// e-svg uses Image_Src_Prop_Type ($$type: image-src) whose validate_value()
-				// accepts exactly ONE of id/url. Sending both (via ::image()) fails → default
-				// placeholder SVG. Emit image-src with a single `url` key.
-				$src_url = $svg_id ? ( wp_get_attachment_url( $svg_id ) ?: '' ) : $svg_url;
-				if ( $src_url ) {
-					$settings['svg'] = array(
-						'$$type' => Elementor_MCP_Atomic_Props::is_v4() ? 'svg-src' : 'image-src',
-						'value'  => array( 'url' => array( '$$type' => 'url', 'value' => $src_url ) ),
-					);
-				}
-
-				if ( ! empty( $input['css_id'] ) ) {
-					$settings['_cssid'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['css_id'] ) );
-				}
-
-				$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
-				return $settings;
+				return Elementor_MCP_Atomic_Widget_Map::settings( 'e-svg', $input );
 			}
 		);
 	}
@@ -564,17 +479,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			array( 'video_url' ),
 			'e-youtube',
 			function ( $input ) {
-				$settings = array();
-				// e-youtube's video prop is `source` (a String prop), not `url`
-				// (issue #56 class).
-				$settings['source'] = Elementor_MCP_Atomic_Props::string( esc_url_raw( $input['video_url'] ?? '' ) );
-
-				if ( ! empty( $input['css_id'] ) ) {
-					$settings['_cssid'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['css_id'] ) );
-				}
-
-				$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
-				return $settings;
+				return Elementor_MCP_Atomic_Widget_Map::settings( 'e-youtube', $input );
 			}
 		);
 	}
@@ -592,24 +497,10 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			array(),
 			'e-self-hosted-video',
 			function ( $input ) {
-				$settings = array();
-
-				$video_id  = absint( $input['video_id'] ?? 0 );
-				$video_url = esc_url_raw( $input['video_url'] ?? '' );
-
-				if ( $video_id ) {
-					$url = wp_get_attachment_url( $video_id );
-					$settings['source'] = Elementor_MCP_Atomic_Props::url( $url ?: '' );
-				} elseif ( $video_url ) {
-					$settings['source'] = Elementor_MCP_Atomic_Props::url( $video_url );
-				}
-
-				if ( ! empty( $input['css_id'] ) ) {
-					$settings['_cssid'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['css_id'] ) );
-				}
-
-				$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
-				return $settings;
+				// On 4.x `source` is a video-src SHAPE (id XOR url) — a bare
+				// url envelope is refused outright on 4.2+ (upstream 3.6.2);
+				// the map keeps the fork's plain-url shape for 3.x.
+				return Elementor_MCP_Atomic_Widget_Map::settings( 'e-self-hosted-video', $input );
 			}
 		);
 	}
@@ -625,14 +516,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			array(),
 			'e-divider',
 			function ( $input ) {
-				$settings = array();
-
-				if ( ! empty( $input['css_id'] ) ) {
-					$settings['_cssid'] = Elementor_MCP_Atomic_Props::string( sanitize_text_field( $input['css_id'] ) );
-				}
-
-				$settings['classes'] = Elementor_MCP_Atomic_Props::classes();
-				return $settings;
+				return Elementor_MCP_Atomic_Widget_Map::settings( 'e-divider', $input );
 			}
 		);
 	}

@@ -280,8 +280,9 @@ class Elementor_MCP_Data {
 					$needs_fallback = true;
 					$silent_drop    = true;
 				} else {
-					foreach ( $missing as $missing_id ) {
-						$el = $this->find_element_by_id( $data, $missing_id );
+					foreach ( $missing as $missing_entry ) {
+						$missing_id = substr( (string) $missing_entry, strpos( (string) $missing_entry, '>' ) + 1 );
+						$el         = $this->find_element_by_id( $data, $missing_id );
 						if ( null === $el || $this->element_type_available( $el ) ) {
 							$needs_fallback = true;
 							$silent_drop    = true;
@@ -494,8 +495,16 @@ class Elementor_MCP_Data {
 			// page data (e.g. a widget from a temporarily inactive plugin) and
 			// must be preserved, not destroyed by an unrelated edit's fallback.
 			$el_id = isset( $el['id'] ) ? (string) $el['id'] : '';
-			if ( ! $this->element_type_available( $el )
-				&& ( '' === $el_id || ! in_array( $el_id, $keep_ids, true ) ) ) {
+			$kept  = false;
+			if ( '' !== $el_id ) {
+				foreach ( $keep_ids as $entry ) {
+					if ( substr( (string) $entry, strpos( (string) $entry, '>' ) + 1 ) === $el_id ) {
+						$kept = true;
+						break;
+					}
+				}
+			}
+			if ( ! $this->element_type_available( $el ) && ! $kept ) {
 				continue;
 			}
 			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
@@ -558,18 +567,23 @@ class Elementor_MCP_Data {
 	 * @param array $elements The element tree.
 	 * @return string[] Ordered id list.
 	 */
-	private function element_id_sequence( array $elements ): array {
+	private function element_id_sequence( array $elements, string $parent_id = '' ): array {
 		$ids = array();
 		foreach ( $elements as $el ) {
 			if ( ! is_array( $el ) ) {
 				continue;
 			}
-			if ( isset( $el['id'] ) ) {
-				$ids[] = (string) $el['id'];
+			$el_id = isset( $el['id'] ) ? (string) $el['id'] : '';
+			if ( '' !== $el_id ) {
+				// Encode parentage, not just order: moving an element to a
+				// different parent can leave the flat depth-first order intact
+				// ([A[B]] -> [A],[B] both flatten to A,B), so each entry carries
+				// its parent id.
+				$ids[] = $parent_id . '>' . $el_id;
 			}
 			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
-				foreach ( $this->element_id_sequence( $el['elements'] ) as $child_id ) {
-					$ids[] = $child_id;
+				foreach ( $this->element_id_sequence( $el['elements'], $el_id ) as $child_entry ) {
+					$ids[] = $child_entry;
 				}
 			}
 		}

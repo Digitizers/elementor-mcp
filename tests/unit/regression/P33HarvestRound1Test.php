@@ -539,6 +539,32 @@ class P33HarvestRound1Test extends TestCase {
 		$this->assertContains( 'newbox1', $child_ids, 'The dropped available addition written.' );
 	}
 
+	public function test_parentage_only_move_drop_triggers_fallback(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Persisted (stale): B nested inside A. Requested: B moved to top level
+		// right after A — flat DFS order is identical (A, B); only parentage
+		// differs. A silent drop of this move must still be detected.
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[ [ 'id' => 'elA', 'elements' => [ [ 'id' => 'elB' ] ] ] ]
+		);
+
+		$result = $data->save_page_data(
+			123,
+			[ [ 'id' => 'elA', 'elements' => [] ], [ 'id' => 'elB' ] ]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertNotEmpty(
+			$writes,
+			'A silently dropped parentage-only move (same flat order) must trigger the fallback.'
+		);
+	}
+
 	public function test_reassign_ids_remints_child_local_classes(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = [

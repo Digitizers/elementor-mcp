@@ -518,8 +518,15 @@ function elementor_mcp_init(): void {
 	elementor_mcp_require( 'includes/abilities/class-atomic-widget-abilities.php' );
 	elementor_mcp_require( 'includes/abilities/class-atomic-layout-abilities.php' );
 
-	elementor_mcp_require( 'includes/abilities/class-ability-registrar.php' );
-	elementor_mcp_require( 'includes/class-plugin.php' );
+	// Registrar + Plugin are core too: Plugin::init() constructs the registrar
+	// directly, so a skipped registrar file would fatal past every guard.
+	if ( ! elementor_mcp_require( 'includes/abilities/class-ability-registrar.php' )
+		|| ! elementor_mcp_require( 'includes/class-plugin.php' ) ) {
+		if ( function_exists( 'error_log' ) ) {
+			error_log( 'Elementor MCP: registrar/plugin core file missing — plugin not booted this request.' );
+		}
+		return;
+	}
 
 	// Admin.
 	if ( is_admin() ) {

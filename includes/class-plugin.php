@@ -216,6 +216,18 @@ class Elementor_MCP_Plugin {
 			return;
 		}
 
+		// Defer ENTIRELY until every pack class is loadable: reconciling a
+		// partial pack (A11y quarantined while SEO loads) would remove the
+		// SEO slugs now, so once the missing file returns the v2 pack is no
+		// longer pristine and its remaining slugs stay disabled forever —
+		// deferring only the completion flag is not enough, the mutation
+		// itself must wait. A later init retries with all classes present.
+		if ( ! class_exists( 'Elementor_MCP_Seo_Abilities' )
+			|| ! class_exists( 'Elementor_MCP_A11y_Abilities' )
+			|| ! class_exists( 'Elementor_MCP_Widget_Builder_Abilities' ) ) {
+			return;
+		}
+
 		$disabled = get_option( 'elementor_mcp_disabled_tools', array() );
 		if ( is_array( $disabled ) && ! empty( $disabled ) ) {
 			$applied     = (int) get_option( 'elementor_mcp_defaults_applied', 0 );
@@ -225,16 +237,7 @@ class Elementor_MCP_Plugin {
 			}
 		}
 
-		// Mark the migration complete ONLY when every pack class was loadable:
-		// a partial pack (a quarantined ability file on this request) would
-		// otherwise unlock what it could, stamp done, and leave the missing
-		// pack's tools disabled forever once its file returns. Leaving the flag
-		// unset retries the reconciliation on a later init.
-		if ( class_exists( 'Elementor_MCP_Seo_Abilities' )
-			&& class_exists( 'Elementor_MCP_A11y_Abilities' )
-			&& class_exists( 'Elementor_MCP_Widget_Builder_Abilities' ) ) {
-			update_option( 'elementor_mcp_premium_unlock_applied', '1' );
-		}
+		update_option( 'elementor_mcp_premium_unlock_applied', '1' );
 	}
 
 	/**

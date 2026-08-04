@@ -497,6 +497,21 @@ class Elementor_MCP_Atomic_Props {
 				}
 			}
 
+			// Array-valued member without a usable shape (e.g. `classes`, a
+			// plain list from generic update-element input that Elementor
+			// stores as {'$$type':'classes','value':[...]}): offer the
+			// member-key envelope. The scalar branch below skips arrays and
+			// the common fallbacks are off for described props, so without
+			// this the raw list stays unwrapped and keeps failing the
+			// whole-tree validation (Codex round-7). Values already carrying
+			// a $$type are not double-wrapped.
+			if ( is_array( $value ) && ! isset( $value['$$type'] ) ) {
+				$candidates[] = array(
+					'$$type' => $key,
+					'value'  => $value,
+				);
+			}
+
 			// Primitive: wrap the value, and offer a cast where it is lossless.
 			// "Empty-ish" values are never laundered into arbitrary envelopes:
 			// Elementor's primitive validation can treat an empty enveloped

@@ -348,6 +348,35 @@ class P33HarvestRound2Test extends TestCase {
 		);
 	}
 
+	public function test_raw_array_is_wrapped_for_a_described_shapeless_member(): void {
+		// `classes` arrives as a plain list from generic update-element input
+		// but Elementor stores {'$$type':'classes','value':[...]}. A described
+		// member without a shape must still offer its own-key envelope for
+		// array values — the scalar branch skips arrays and the common
+		// fallbacks are off for described props (Codex round-7).
+		$classes_prop = new class() {
+			public function get_key(): string {
+				return 'classes';
+			}
+			public function validate( $value ): bool {
+				return \is_array( $value )
+					&& 'classes' === ( $value['$$type'] ?? '' )
+					&& \is_array( $value['value'] ?? null );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			[ 'classes' => $classes_prop ],
+			[ 'classes' => [ 'e-abc-123' ] ]
+		);
+
+		$this->assertSame(
+			[ '$$type' => 'classes', 'value' => [ 'e-abc-123' ] ],
+			$out['classes'],
+			'A raw class list must be wrapped into the member\'s own envelope (Codex round-7).'
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// Alias prop mapping (#102)
 	// -------------------------------------------------------------------------

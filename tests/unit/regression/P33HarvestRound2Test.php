@@ -377,6 +377,70 @@ class P33HarvestRound2Test extends TestCase {
 		);
 	}
 
+	public function test_typed_array_items_are_coerced_through_get_item_type(): void {
+		// Elementor's atomic `attributes` prop is an array of key-value
+		// envelopes. Wrapping only the outer array leaves each raw item
+		// invalid — items must be coerced through the member's
+		// get_item_type() first (Codex round-8).
+		$key_value_item = new R2_Shape_Prop(
+			'key-value',
+			[
+				'key'   => new R2_Envelope_Prop( 'string' ),
+				'value' => new R2_Envelope_Prop( 'string' ),
+			]
+		);
+
+		$attributes_prop = new class( $key_value_item ) {
+			private $item_type;
+			public function __construct( $item_type ) {
+				$this->item_type = $item_type;
+			}
+			public function get_key(): string {
+				return 'attributes';
+			}
+			public function get_item_type() {
+				return $this->item_type;
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || 'attributes' !== ( $value['$$type'] ?? '' ) ) {
+					return false;
+				}
+				$items = $value['value'] ?? null;
+				if ( ! \is_array( $items ) ) {
+					return false;
+				}
+				foreach ( $items as $item ) {
+					if ( ! $this->item_type->validate( $item ) ) {
+						return false;
+					}
+				}
+				return true;
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			[ 'attributes' => $attributes_prop ],
+			[ 'attributes' => [ [ 'key' => 'data-x', 'value' => '1' ] ] ]
+		);
+
+		$this->assertSame(
+			[
+				'$$type' => 'attributes',
+				'value'  => [
+					[
+						'$$type' => 'key-value',
+						'value'  => [
+							'key'   => [ '$$type' => 'string', 'value' => 'data-x' ],
+							'value' => [ '$$type' => 'string', 'value' => '1' ],
+						],
+					],
+				],
+			],
+			$out['attributes'],
+			'Raw typed-array items must be coerced through get_item_type() before the outer envelope validates (Codex round-8).'
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// Alias prop mapping (#102)
 	// -------------------------------------------------------------------------

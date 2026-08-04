@@ -504,11 +504,28 @@ class Elementor_MCP_Atomic_Props {
 			// the common fallbacks are off for described props, so without
 			// this the raw list stays unwrapped and keeps failing the
 			// whole-tree validation (Codex round-7). Values already carrying
-			// a $$type are not double-wrapped.
+			// a $$type are not double-wrapped. Typed-array members (e.g.
+			// `attributes`, an array of key-value envelopes) describe their
+			// item type via get_item_type() — each raw item is coerced
+			// through it first, or the wrapped outer array would still fail
+			// on its items (Codex round-8).
 			if ( is_array( $value ) && ! isset( $value['$$type'] ) ) {
+				$items = $value;
+				if ( method_exists( $member, 'get_item_type' ) ) {
+					try {
+						$item_type = $member->get_item_type();
+					} catch ( \Throwable $e ) {
+						$item_type = null;
+					}
+					if ( is_object( $item_type ) && method_exists( $item_type, 'validate' ) ) {
+						foreach ( $items as $item_key => $item_value ) {
+							$items[ $item_key ] = self::coerce_against_prop( $item_type, $item_value );
+						}
+					}
+				}
 				$candidates[] = array(
 					'$$type' => $key,
-					'value'  => $value,
+					'value'  => $items,
 				);
 			}
 

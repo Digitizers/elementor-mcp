@@ -289,8 +289,13 @@ class Elementor_MCP_Data {
 
 		if ( $needs_fallback ) {
 			// Fallback: direct meta write for non-browser contexts (CLI, REST proxy)
-			// and for the silent-drop case above.
-			$json = wp_json_encode( $data );
+			// and for the silent-drop case above. Strip unavailable-type elements
+			// first — Elementor would have sanitized them away, and the raw write
+			// must not resurrect what a native save deliberately removes (this
+			// also covers the mixed case: a real drop alongside an unavailable
+			// widget in the same tree).
+			$fallback_tree = $this->strip_unavailable_elements( $data );
+			$json          = wp_json_encode( $fallback_tree );
 
 			if ( false === $json ) {
 				return new \WP_Error(
@@ -451,6 +456,34 @@ class Elementor_MCP_Data {
 	 * @param array $elements The element tree.
 	 * @return array The tree with new IDs.
 	 */
+	/**
+	 * Recursively removes elements whose type is unavailable on this site.
+	 *
+	 * Used by the raw-meta fallback so it writes only what Elementor's own
+	 * save would accept — never resurrecting deliberately sanitized elements.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $elements The element tree.
+	 * @return array Filtered tree.
+	 */
+	private function strip_unavailable_elements( array $elements ): array {
+		$out = array();
+		foreach ( $elements as $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			if ( ! $this->element_type_available( $el ) ) {
+				continue;
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				$el['elements'] = $this->strip_unavailable_elements( $el['elements'] );
+			}
+			$out[] = $el;
+		}
+		return $out;
+	}
+
 	/**
 	 * Whether an element's type is available on this site.
 	 *

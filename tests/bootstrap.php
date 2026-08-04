@@ -174,9 +174,10 @@ namespace {
 	if ( ! function_exists( 'update_post_meta' ) ) {
 		function update_post_meta( int $post_id, string $meta_key, $meta_value, $prev_value = '' ) {
 			$GLOBALS['_wp_meta_calls'][] = [
-				'action'   => 'update',
-				'post_id'  => $post_id,
-				'meta_key' => $meta_key,
+				'action'     => 'update',
+				'post_id'    => $post_id,
+				'meta_key'   => $meta_key,
+				'meta_value' => $meta_value,
 			];
 			return true;
 		}

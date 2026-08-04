@@ -152,13 +152,28 @@ class Elementor_MCP_Plugin {
 	 * @return array<int,string[]> Map of minimum defaults-version → slug list.
 	 */
 	public static function premium_unlock_packs(): array {
+		// Each pack class is guarded: a missing/quarantined ability file must
+		// degrade to that pack contributing no slugs — this runs on the `init`
+		// reconciliation path, OUTSIDE the registrar's fatal-proof catch, so an
+		// unguarded undefined-class Error here fataled admin and REST alike.
 		$data = new Elementor_MCP_Data();
+
+		$v2 = array();
+		if ( class_exists( 'Elementor_MCP_Seo_Abilities' ) ) {
+			$v2 = array_merge( $v2, ( new Elementor_MCP_Seo_Abilities( $data ) )->get_ability_names() );
+		}
+		if ( class_exists( 'Elementor_MCP_A11y_Abilities' ) ) {
+			$v2 = array_merge( $v2, ( new Elementor_MCP_A11y_Abilities( $data ) )->get_ability_names() );
+		}
+
+		$v3 = array();
+		if ( class_exists( 'Elementor_MCP_Widget_Builder_Abilities' ) ) {
+			$v3 = ( new Elementor_MCP_Widget_Builder_Abilities() )->get_ability_names();
+		}
+
 		return array(
-			2 => array_values( array_unique( array_merge(
-				( new Elementor_MCP_Seo_Abilities( $data ) )->get_ability_names(),
-				( new Elementor_MCP_A11y_Abilities( $data ) )->get_ability_names()
-			) ) ),
-			3 => ( new Elementor_MCP_Widget_Builder_Abilities() )->get_ability_names(),
+			2 => array_values( array_unique( $v2 ) ),
+			3 => $v3,
 		);
 	}
 

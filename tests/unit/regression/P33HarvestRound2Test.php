@@ -474,10 +474,59 @@ class P33HarvestRound2Test extends TestCase {
 			$out[0]['elements'][0]['settings']['title'],
 			'coerce_tree must reach widgets at any depth — one un-converted widget anywhere blocks the whole save (upstream #102).'
 		);
-		// Non-widget settings and structure untouched.
-		$this->assertSame( [ 'anything' => 'raw' ], $out[0]['settings'], 'Non-widget elements must not be coerced.' );
+		// Container with no resolvable schema, and structure, untouched.
+		$this->assertSame( [ 'anything' => 'raw' ], $out[0]['settings'], 'An element type with no resolvable schema must pass through untouched.' );
 		$this->assertSame( 'root1', $out[0]['id'] );
 		$this->assertSame( 'w1', $out[0]['elements'][0]['id'] );
+	}
+
+	public function test_coerce_tree_repairs_atomic_container_settings_too(): void {
+		// Atomic containers (e-flexbox / e-div-block) carry typed props in
+		// their elType-resolved schema — skipping them leaves the same
+		// whole-tree validation failure the sweep repairs (Codex round-2).
+		$container = new class() {
+			public static $schema = [];
+			public static function get_props_schema(): array {
+				return self::$schema;
+			}
+		};
+		$container::$schema = [ 'tag' => new R2_Envelope_Prop( 'string' ) ];
+
+		$GLOBALS['_registered_element_types'] = [ 'e-r2-flexbox' => $container ];
+
+		$tree = [
+			[
+				'id'       => 'c1',
+				'elType'   => 'e-r2-flexbox',
+				'settings' => [ 'tag' => 'section' ],
+				'elements' => [],
+			],
+		];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_tree( $tree );
+
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'section' ],
+			$out[0]['settings']['tag'],
+			'Atomic container settings must be coerced via their elType schema, not skipped for lacking a widgetType.'
+		);
+	}
+
+	public function test_coerce_tree_leaves_classic_containers_untouched(): void {
+		$tree = [
+			[
+				'id'       => 'c2',
+				'elType'   => 'container',
+				'settings' => [ 'content_width' => 'boxed' ],
+				'elements' => [],
+			],
+		];
+
+		$this->assertSame(
+			$tree,
+			\Elementor_MCP_Atomic_Props::coerce_tree( $tree ),
+			'Classic v3 element types resolve to no schema — their settings must pass through untouched.'
+		);
 	}
 
 	public function test_coerce_tree_with_unknown_widget_type_is_a_noop(): void {

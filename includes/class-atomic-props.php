@@ -368,16 +368,22 @@ class Elementor_MCP_Atomic_Props {
 				continue;
 			}
 
+			// Widgets carry their atomic type in widgetType; atomic CONTAINERS
+			// (e-flexbox / e-div-block) carry it in elType and have typed props
+			// of their own (tag, link, …) — skipping them would leave exactly
+			// the whole-tree validation failure this sweep repairs (Codex
+			// round-2). Classic v3 types (section/column/container) resolve to
+			// no schema and pass through untouched.
+			$type = 'widget' === ( $element['elType'] ?? '' )
+				? (string) ( $element['widgetType'] ?? '' )
+				: (string) ( $element['elType'] ?? '' );
+
 			if (
-				'widget' === ( $element['elType'] ?? '' )
-				&& ! empty( $element['widgetType'] )
+				'' !== $type
 				&& ! empty( $element['settings'] )
 				&& is_array( $element['settings'] )
 			) {
-				$element['settings'] = self::coerce_settings(
-					(string) $element['widgetType'],
-					$element['settings']
-				);
+				$element['settings'] = self::coerce_settings( $type, $element['settings'] );
 			}
 
 			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {

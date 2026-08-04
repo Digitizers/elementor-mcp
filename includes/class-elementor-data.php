@@ -702,6 +702,34 @@ class Elementor_MCP_Data {
 					$item['settings'] = array();
 				}
 
+				// Sibling-root keys: on v4 atomic elements the local `styles`
+				// map and `editor_settings` (Navigator label = editor_settings.
+				// title) live at the element ROOT, as siblings of `settings`.
+				// An agent naturally nests them under `settings`; hoist them out
+				// and deep-merge into the root so they actually persist instead
+				// of being written to a dead `settings.styles` key (upstream
+				// #72, #73).
+				$touched_styles = false;
+				foreach ( array( 'styles', 'editor_settings' ) as $root_key ) {
+					if ( ! array_key_exists( $root_key, $settings ) ) {
+						continue;
+					}
+
+					if ( 'styles' === $root_key ) {
+						$touched_styles = true;
+					}
+
+					$incoming = $settings[ $root_key ];
+					unset( $settings[ $root_key ] );
+
+					if ( is_array( $incoming ) ) {
+						$existing          = isset( $item[ $root_key ] ) && is_array( $item[ $root_key ] ) ? $item[ $root_key ] : array();
+						$item[ $root_key ] = self::deep_merge( $existing, $incoming );
+					} else {
+						$item[ $root_key ] = $incoming;
+					}
+				}
+
 				// Containers: rewrite MCP shorthand keys (`justify_content`,
 				// `align_items`, `align_content`) to Elementor's prefixed flex
 				// keys before merging. Without this, the values are saved
@@ -711,6 +739,20 @@ class Elementor_MCP_Data {
 				}
 
 				$item['settings'] = array_merge( $item['settings'], $settings );
+
+				// v4 atomic: a local style class only renders when the element's
+				// `classes` prop references it. An agent that writes a `styles`
+				// map but forgets to add the class id to settings.classes gets a
+				// silent no-op — the styles persist but never apply (upstream
+				// #92). Wire every local class id from the styles map into
+				// settings.classes. (Prop-value coercion is NOT repeated here:
+				// the fork's save_page_data() sweeps the whole tree via
+				// coerce_tree() on the way out, which covers these merged
+				// settings too.)
+				if ( $touched_styles ) {
+					self::sync_local_class_refs( $item );
+				}
+
 				return true;
 			}
 
@@ -722,5 +764,137 @@ class Elementor_MCP_Data {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Recursively merges $incoming into $existing. Associative arrays are merged
+	 * key-by-key; lists (numeric-keyed arrays, e.g. a `variants` array) and
+	 * scalars are replaced wholesale by the incoming value. This lets a partial
+	 * `styles`/`editor_settings` update touch one class or key without dropping
+	 * the siblings, while still replacing a variants list the caller supplied in
+	 * full.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $existing The current value.
+	 * @param array $incoming The value to merge in (wins on conflicts).
+	 * @return array The merged array.
+	 */
+	private static function deep_merge( array $existing, array $incoming ): array {
+		foreach ( $incoming as $key => $value ) {
+			if (
+				is_string( $key )
+				&& isset( $existing[ $key ] )
+				&& is_array( $existing[ $key ] )
+				&& is_array( $value )
+				&& self::is_assoc( $existing[ $key ] )
+				&& self::is_assoc( $value )
+			) {
+				$existing[ $key ] = self::deep_merge( $existing[ $key ], $value );
+			} else {
+				$existing[ $key ] = $value;
+			}
+		}
+
+		return $existing;
+	}
+
+	/**
+	 * Whether an array is associative (has any string key / non-sequential
+	 * integer keys). An empty array is treated as a list (not associative).
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $arr The array to test.
+	 * @return bool
+	 */
+	private static function is_assoc( array $arr ): bool {
+		if ( array() === $arr ) {
+			return false;
+		}
+
+		return array_keys( $arr ) !== range( 0, count( $arr ) - 1 );
+	}
+
+	/**
+	 * Ensures every local style class in an atomic element's `styles` map is
+	 * referenced by its `settings.classes` prop, so Elementor actually applies
+	 * the styles at render time.
+	 *
+	 * In Elementor 4.0 (atomic), a per-element local class lives in the element
+	 * root `styles` map keyed by an `e-<id>-<hash>` class id, with a sibling
+	 * `settings.classes = { $$type:'classes', value:[ ...ids ] }` that lists the
+	 * classes actually applied to the element. Writing a `styles` entry alone
+	 * persists the definition but renders nothing until the id is also in
+	 * `classes.value`. This wires up any missing references (idempotent) so a
+	 * `styles` write is self-contained (upstream #92).
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $item Element structure (by reference).
+	 */
+	private static function sync_local_class_refs( array &$item ): void {
+		if ( empty( $item['styles'] ) || ! is_array( $item['styles'] ) ) {
+			return;
+		}
+
+		// Collect local class ids from the styles map (type:'class' only).
+		$ids = array();
+		foreach ( $item['styles'] as $key => $def ) {
+			if ( ! is_array( $def ) ) {
+				continue;
+			}
+			if ( isset( $def['type'] ) && 'class' !== $def['type'] ) {
+				continue;
+			}
+			$id = ( isset( $def['id'] ) && is_string( $def['id'] ) && '' !== $def['id'] )
+				? $def['id']
+				: ( is_string( $key ) ? $key : '' );
+			if ( '' !== $id ) {
+				$ids[] = $id;
+			}
+		}
+
+		if ( empty( $ids ) ) {
+			return;
+		}
+
+		if ( ! isset( $item['settings'] ) || ! is_array( $item['settings'] ) ) {
+			$item['settings'] = array();
+		}
+		$classes = ( isset( $item['settings']['classes'] ) && is_array( $item['settings']['classes'] ) )
+			? $item['settings']['classes']
+			: array();
+
+		// A raw LIST (an agent wrote `classes` as a bare id array) is the
+		// value, not the wrapper — fold it in before normalizing, or the ids
+		// already on the element would be clobbered into a malformed shape.
+		// (Divergence from upstream, which loses this edge.)
+		if ( ! isset( $classes['$$type'] ) && ! self::is_assoc( $classes ) ) {
+			$classes = array( 'value' => $classes );
+		}
+
+		// Normalize to the atomic classes wrapper { $$type:'classes', value:[] }.
+		if ( ! isset( $classes['$$type'] ) ) {
+			$classes['$$type'] = 'classes';
+		}
+		if ( ! isset( $classes['value'] ) || ! is_array( $classes['value'] ) ) {
+			$classes['value'] = array();
+		}
+
+		foreach ( $ids as $id ) {
+			if ( ! in_array( $id, $classes['value'], true ) ) {
+				$classes['value'][] = $id;
+			}
+		}
+
+		// Canonical key order ($$type first), preserving any extra keys.
+		$ordered = array(
+			'$$type' => $classes['$$type'],
+			'value'  => $classes['value'],
+		);
+		unset( $classes['$$type'], $classes['value'] );
+
+		$item['settings']['classes'] = $ordered + $classes;
 	}
 }

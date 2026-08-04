@@ -210,6 +210,15 @@ class Elementor_MCP_Data {
 			return $document;
 		}
 
+		// Capture the PRE-save tree: pre-existence of unavailable elements must
+		// be judged against what the page held BEFORE this save — the post-save
+		// re-read can't distinguish "never existed" from "just sanitized away",
+		// and a widget from a temporarily inactive plugin that lived on the
+		// page is data an unrelated edit must not destroy.
+		$pre_raw = get_post_meta( $post_id, '_elementor_data', true );
+		$pre_tree = ( is_string( $pre_raw ) && '' !== $pre_raw ) ? json_decode( $pre_raw, true ) : null;
+		$pre_seq  = is_array( $pre_tree ) ? $this->element_id_sequence( $pre_tree ) : array();
+
 		// Attempt native Elementor save (handles CSS regen, cache busting).
 		// Elementor 4.0 atomic widgets THROW on invalid settings instead of
 		// returning false, so catch it and return a clean error rather than
@@ -283,7 +292,14 @@ class Elementor_MCP_Data {
 				// together with an unavailable element); a pure-sanitization save
 				// matches exactly and is left alone.
 				$persisted_seq = $this->element_id_sequence( $persisted );
-				$expected_tree = $this->strip_unavailable_elements( $data, $persisted_seq );
+				// Preserve unavailable elements that existed either AFTER the
+				// save (still persisted) or BEFORE it (pre-save capture): a
+				// native save that sanitized away a pre-existing inactive-plugin
+				// widget is destruction of page data, not acceptable
+				// sanitization — the mismatch below restores it via the
+				// projection.
+				$keep_ids      = array_values( array_unique( array_merge( $persisted_seq, $pre_seq ) ) );
+				$expected_tree = $this->strip_unavailable_elements( $data, $keep_ids );
 				if ( $this->element_id_sequence( $expected_tree ) !== $persisted_seq ) {
 					$needs_fallback = true;
 					$silent_drop    = true;

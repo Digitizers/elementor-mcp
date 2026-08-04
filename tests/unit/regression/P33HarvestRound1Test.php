@@ -635,6 +635,57 @@ class P33HarvestRound1Test extends TestCase {
 		$this->assertNotEmpty( $writes, 'Available elements dropped to empty must fall back.' );
 	}
 
+	public function test_preexisting_widget_sanitized_by_save_is_restored(): void {
+		// Pre-save page holds an inactive-plugin widget; the native save
+		// SANITIZES it away while persisting the unrelated addition. That is
+		// destruction of pre-existing page data — the fallback must restore it.
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[
+				[ 'id' => 'legacy1', 'elType' => 'widget', 'widgetType' => 'inactive-plugin-widget' ],
+			]
+		);
+
+		$document = new class() {
+			public function save( array $args ) {
+				// Simulate: save persists only the available element, dropping
+				// the pre-existing unavailable widget.
+				$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+					[ [ 'id' => 'newbox1', 'elType' => 'container' ] ]
+				);
+				return true;
+			}
+		};
+		\Elementor\Plugin::$instance->documents = new class( $document ) {
+			private $doc;
+			public function __construct( $doc ) {
+				$this->doc = $doc;
+			}
+			public function get( int $post_id, bool $from_cache = true ) {
+				return $this->doc;
+			}
+		};
+		$data = new \Elementor_MCP_Data();
+
+		$result = $data->save_page_data(
+			123,
+			[
+				[ 'id' => 'legacy1', 'elType' => 'widget', 'widgetType' => 'inactive-plugin-widget' ],
+				[ 'id' => 'newbox1', 'elType' => 'container' ],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_values( array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		) );
+		$this->assertNotEmpty( $writes, 'Sanitizing away a PRE-EXISTING widget is destruction, not acceptable sanitization.' );
+		$written = json_decode( stripslashes( (string) ( $writes[0]['meta_value'] ?? '' ) ), true );
+		$ids     = array_map( static fn( $el ) => $el['id'], $written );
+		$this->assertContains( 'legacy1', $ids, 'Pre-existing widget restored by the fallback.' );
+		$this->assertContains( 'newbox1', $ids );
+	}
+
 	public function test_reassign_ids_remints_child_local_classes(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = [

@@ -490,11 +490,16 @@ function elementor_mcp_init(): void {
 	// Brand Kits (Pro). The writer + backup store + fetcher + abilities load
 	// unconditionally (no admin dependency) so the MCP REST/CLI/proxy surface
 	// can reach them; every write method is independently Pro-gated.
-	elementor_mcp_require( 'includes/class-system-kit-writer.php' );
+	// The system-kit writer is the dependency of the whole brand-kit surface:
+	// abilities and AJAX handlers call it unconditionally, so when its file is
+	// missing the dependents must not load/register at all.
+	$kit_writer_ok = elementor_mcp_require( 'includes/class-system-kit-writer.php' );
 	elementor_mcp_require( 'includes/class-kit-backup-store.php' );
 	elementor_mcp_require( 'includes/class-free-brand-kits.php' );
 	elementor_mcp_require( 'includes/class-angie-bridge.php' );
-	elementor_mcp_require( 'includes/abilities/class-system-kit-abilities.php' );
+	if ( $kit_writer_ok && class_exists( 'Elementor_MCP_System_Kit_Writer' ) ) {
+		elementor_mcp_require( 'includes/abilities/class-system-kit-abilities.php' );
+	}
 	if ( class_exists( 'Elementor_MCP_Kit_Backup_Store' ) ) {
 		add_action( 'init', array( 'Elementor_MCP_Kit_Backup_Store', 'register_post_type' ) );
 	}
@@ -536,8 +541,12 @@ function elementor_mcp_init(): void {
 		elementor_mcp_require( 'includes/admin/class-admin.php' );
 
 		// Free brand-kit apply/restore AJAX (capability-gated, no license gate).
-		add_action( 'wp_ajax_elementor_mcp_apply_brand_kit', 'elementor_mcp_apply_brand_kit_ajax' );
-		add_action( 'wp_ajax_elementor_mcp_restore_brand_kit', 'elementor_mcp_restore_brand_kit_ajax' );
+		// Skipped when the writer failed to load — both handlers call it
+		// unconditionally.
+		if ( class_exists( 'Elementor_MCP_System_Kit_Writer' ) ) {
+			add_action( 'wp_ajax_elementor_mcp_apply_brand_kit', 'elementor_mcp_apply_brand_kit_ajax' );
+			add_action( 'wp_ajax_elementor_mcp_restore_brand_kit', 'elementor_mcp_restore_brand_kit_ajax' );
+		}
 	}
 
 	// Boot the plugin. If the core plugin class itself failed to load there

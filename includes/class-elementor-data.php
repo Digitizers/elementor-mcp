@@ -194,6 +194,22 @@ class Elementor_MCP_Data {
 	 * @return bool|\WP_Error True on success, WP_Error on failure.
 	 */
 	public function save_page_data( int $post_id, array $data ) {
+		// v4 atomic: Elementor validates the WHOLE element tree on save, so one
+		// widget holding raw (unwrapped) prop values blocks every save of the
+		// page, including the edit meant to repair it (upstream #101/#102).
+		// Sweep the tree on the way in: raw scalars are wrapped into the $$type
+		// envelope their prop type accepts, and advertised alias keys are
+		// renamed onto the canonical prop before Elementor's parser would
+		// silently delete them. This only ever turns invalid values into valid
+		// ones, so it is a no-op for healthy pages. It runs FIRST — before the
+		// governance snapshot and the pre-save capture — so both observe
+		// exactly the tree this save will write, and the projection
+		// verification below compares like against like (coercion rewrites
+		// settings only, never element ids or structure).
+		if ( class_exists( 'Elementor_MCP_Atomic_Props' ) ) {
+			$data = Elementor_MCP_Atomic_Props::coerce_tree( $data );
+		}
+
 		// SiteAgent governance: snapshot the page before the first write of a
 		// governed run. No-op unless the worker is installed and a governed tool
 		// is in flight; fails closed if the snapshot cannot be captured.

@@ -314,7 +314,14 @@ class Elementor_MCP_Atomic_Props {
 				continue;
 			}
 
-			$aliases = $prop->get_meta_item( 'aliases' );
+			// Elementor-supplied object: a throw here must read as "no aliases",
+			// not abort the whole save/coercion path (same guard discipline as
+			// every other dynamic prop-introspection call in this class).
+			try {
+				$aliases = $prop->get_meta_item( 'aliases' );
+			} catch ( \Throwable $e ) {
+				continue;
+			}
 			if ( ! is_array( $aliases ) ) {
 				continue;
 			}
@@ -467,12 +474,15 @@ class Elementor_MCP_Atomic_Props {
 			}
 
 			// Primitive: wrap the value, and offer a cast where it is lossless.
+			// Booleans are excluded from the string cast — (string) true is '1'
+			// and (string) false is '', which silently changes meaning if a
+			// prop happens to accept a string envelope.
 			if ( is_scalar( $value ) || null === $value ) {
 				$candidates[] = array(
 					'$$type' => $key,
 					'value'  => $value,
 				);
-				if ( is_scalar( $value ) ) {
+				if ( is_scalar( $value ) && ! is_bool( $value ) ) {
 					$candidates[] = array(
 						'$$type' => $key,
 						'value'  => (string) $value,
@@ -486,15 +496,19 @@ class Elementor_MCP_Atomic_Props {
 		// validate() would otherwise yield no candidates at all. These are the
 		// common envelopes.
 		if ( is_scalar( $value ) ) {
-			$text = (string) $value;
 			if ( is_bool( $value ) ) {
+				// Boolean envelope only — no string/html casts here either:
+				// (string) true is '1' and (string) false is '', a silent
+				// meaning change if a prop happens to accept them.
 				$candidates[] = self::boolean( $value );
+			} else {
+				if ( is_int( $value ) || is_float( $value ) ) {
+					$candidates[] = self::number( $value );
+				}
+				$text         = (string) $value;
+				$candidates[] = self::string( $text );
+				$candidates[] = self::html( $text );
 			}
-			if ( is_int( $value ) || is_float( $value ) ) {
-				$candidates[] = self::number( $value );
-			}
-			$candidates[] = self::string( $text );
-			$candidates[] = self::html( $text );
 		} elseif ( is_array( $value ) && ! isset( $value['$$type'] ) ) {
 			$inner = $value;
 			if ( isset( $inner['content'] ) && is_string( $inner['content'] ) ) {

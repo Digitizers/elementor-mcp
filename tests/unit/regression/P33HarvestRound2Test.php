@@ -367,6 +367,61 @@ class P33HarvestRound2Test extends TestCase {
 	}
 
 	// -------------------------------------------------------------------------
+	// Codex round-1 hardening
+	// -------------------------------------------------------------------------
+
+	public function test_throwing_get_meta_item_reads_as_no_aliases_not_a_fatal(): void {
+		$prop = new class() {
+			public function get_key(): string {
+				return 'string';
+			}
+			public function get_meta_item( string $item ) {
+				throw new \RuntimeException( 'introspection exploded' );
+			}
+			public function validate( $value ): bool {
+				return \is_array( $value )
+					&& 'string' === ( $value['$$type'] ?? '' )
+					&& \is_string( $value['value'] ?? null );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'title' => $prop ], [ 'title' => 'Hi' ] );
+
+		$this->assertSame(
+			[ '$$type' => 'string', 'value' => 'Hi' ],
+			$out['title'],
+			'A throwing get_meta_item() must read as "no aliases" and never abort the save/coercion path (Codex round-1).'
+		);
+	}
+
+	public function test_boolean_is_never_offered_as_a_string_cast(): void {
+		// Prop accepts ONLY string envelopes. A raw boolean must NOT be coerced
+		// into '1'/'' — that silently changes meaning; leave it for Elementor's
+		// precise error instead.
+		$schema = [ 'flag' => new R2_Envelope_Prop( 'string' ) ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'flag' => false ] );
+
+		$this->assertSame(
+			false,
+			$out['flag'],
+			'(string) false is "" — a boolean must never be laundered into a string envelope (Codex round-1).'
+		);
+	}
+
+	public function test_boolean_still_coerces_into_a_boolean_envelope(): void {
+		$schema = [ 'flag' => new R2_Envelope_Prop( 'boolean', 'boolean' ) ];
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( $schema, [ 'flag' => true ] );
+
+		$this->assertSame(
+			[ '$$type' => 'boolean', 'value' => true ],
+			$out['flag'],
+			'The boolean-envelope path must survive the string-cast exclusion.'
+		);
+	}
+
+	// -------------------------------------------------------------------------
 	// coerce_tree — whole-tree sweep (#102)
 	// -------------------------------------------------------------------------
 

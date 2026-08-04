@@ -245,6 +245,7 @@ class Elementor_MCP_Data {
 		// normalization (and the fallback would then clobber it) — so
 		// settings-only silent drops remain undetectable here.
 		$needs_fallback = ! $result;
+		$silent_drop    = false;
 		if ( ! $needs_fallback ) {
 			$persisted_raw = get_post_meta( $post_id, '_elementor_data', true );
 			$persisted     = ( is_string( $persisted_raw ) && '' !== $persisted_raw )
@@ -257,9 +258,11 @@ class Elementor_MCP_Data {
 				// empty now, else force the direct meta write of the empty tree.
 				if ( is_array( $persisted ) && ! empty( $persisted ) ) {
 					$needs_fallback = true;
+					$silent_drop    = true;
 				}
 			} elseif ( empty( $persisted ) || ! is_array( $persisted ) ) {
 				$needs_fallback = true;
+				$silent_drop    = true;
 			} elseif ( $this->element_id_sequence( $data ) !== $this->element_id_sequence( $persisted ) ) {
 				// Distinguish a context-related silent drop from Elementor's own
 				// DELIBERATE sanitization: a save can succeed while removing
@@ -275,11 +278,13 @@ class Elementor_MCP_Data {
 				if ( empty( $missing ) ) {
 					// Same id set, different order — a dropped reorder.
 					$needs_fallback = true;
+					$silent_drop    = true;
 				} else {
 					foreach ( $missing as $missing_id ) {
 						$el = $this->find_element_by_id( $data, $missing_id );
 						if ( null === $el || $this->element_type_available( $el ) ) {
 							$needs_fallback = true;
+							$silent_drop    = true;
 							break;
 						}
 					}
@@ -289,12 +294,14 @@ class Elementor_MCP_Data {
 
 		if ( $needs_fallback ) {
 			// Fallback: direct meta write for non-browser contexts (CLI, REST proxy)
-			// and for the silent-drop case above. Strip unavailable-type elements
-			// first — Elementor would have sanitized them away, and the raw write
-			// must not resurrect what a native save deliberately removes (this
-			// also covers the mixed case: a real drop alongside an unavailable
-			// widget in the same tree).
-			$fallback_tree = $this->strip_unavailable_elements( $data );
+			// and for the silent-drop case above. On the SILENT-DROP path only,
+			// strip unavailable-type elements first — a native save deliberately
+			// sanitizes those, and the raw write must not resurrect them (covers
+			// the mixed case too). On the classic falsy-return path (CLI/REST —
+			// no native save happened at all) the tree is written as-is: a widget
+			// from a temporarily inactive plugin is DATA, not sanitization, and
+			// stripping it there would destroy it on an unrelated edit.
+			$fallback_tree = $silent_drop ? $this->strip_unavailable_elements( $data ) : $data;
 			$json          = wp_json_encode( $fallback_tree );
 
 			if ( false === $json ) {
@@ -500,12 +507,27 @@ class Elementor_MCP_Data {
 	 */
 	private function element_type_available( array $element ): bool {
 		$widget_type = isset( $element['widgetType'] ) ? (string) $element['widgetType'] : '';
-		if ( '' === $widget_type ) {
+		if ( '' !== $widget_type ) {
+			$manager = \Elementor\Plugin::$instance->widgets_manager ?? null;
+			if ( $manager && method_exists( $manager, 'get_widget_types' ) ) {
+				return null !== $manager->get_widget_types( $widget_type );
+			}
 			return true;
 		}
-		$manager = \Elementor\Plugin::$instance->widgets_manager ?? null;
-		if ( $manager && method_exists( $manager, 'get_widget_types' ) ) {
-			return null !== $manager->get_widget_types( $widget_type );
+
+		// Atomic containers (e-flexbox, e-div-block, ...) carry no widgetType —
+		// their availability lives in the elements manager. Classic structural
+		// types are always available.
+		$el_type = isset( $element['elType'] ) ? (string) $element['elType'] : '';
+		if ( in_array( $el_type, array( '', 'widget', 'section', 'column', 'container' ), true ) ) {
+			return true;
+		}
+		$em = \Elementor\Plugin::$instance->elements_manager ?? null;
+		if ( $em && method_exists( $em, 'get_element_types' ) ) {
+			$types = $em->get_element_types();
+			if ( is_array( $types ) ) {
+				return array_key_exists( $el_type, $types );
+			}
 		}
 		return true;
 	}

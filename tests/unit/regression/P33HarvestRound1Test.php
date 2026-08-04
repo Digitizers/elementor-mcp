@@ -26,8 +26,9 @@ class P33HarvestRound1Test extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$GLOBALS['_wp_meta_calls'] = [];
-		$GLOBALS['_post_meta']     = [];
+		$GLOBALS['_wp_meta_calls']            = [];
+		$GLOBALS['_post_meta']                = [];
+		$GLOBALS['_registered_element_types'] = [];
 	}
 
 	// -------------------------------------------------------------------------
@@ -407,6 +408,95 @@ class P33HarvestRound1Test extends TestCase {
 		);
 		$this->assertContains( 'plain1', $child_ids, 'Available element written.' );
 		$this->assertNotContains( 'ghost1', $child_ids, 'Unavailable widget must be stripped from the fallback write.' );
+	}
+
+	public function test_falsy_save_preserves_unavailable_widgets_in_fallback(): void {
+		$data = $this->make_data_with_document( null );
+
+		// Classic CLI/REST falsy return: no native save ran — a widget from a
+		// temporarily inactive plugin is data and must be written as-is.
+		$result = $data->save_page_data(
+			123,
+			[
+				[
+					'id'       => 'root1',
+					'elements' => [ [ 'id' => 'ghost1', 'elType' => 'widget', 'widgetType' => 'inactive-plugin-widget' ] ],
+				],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_values( array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		) );
+		$this->assertNotEmpty( $writes );
+		$written   = json_decode( stripslashes( (string) ( $writes[0]['meta_value'] ?? '' ) ), true );
+		$child_ids = array_map( static fn( $el ) => $el['id'], $written[0]['elements'] ?? [] );
+		$this->assertContains(
+			'ghost1',
+			$child_ids,
+			'Falsy-save fallback must preserve unavailable widgets — that is data, not sanitization.'
+		);
+	}
+
+	public function test_sanitized_unregistered_atomic_container_not_resurrected(): void {
+		$data = $this->make_data_with_document( true );
+
+		// e-flexbox is NOT in $GLOBALS['_registered_element_types'] — Elementor
+		// sanitized it away; no fallback despite the id-sequence mismatch.
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[ [ 'id' => 'root1', 'elements' => [] ] ]
+		);
+
+		$result = $data->save_page_data(
+			123,
+			[
+				[
+					'id'       => 'root1',
+					'elements' => [ [ 'id' => 'flex1', 'elType' => 'e-flexbox' ] ],
+				],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertEmpty(
+			$writes,
+			'An unregistered atomic container (no widgetType) sanitized by Elementor must not be resurrected.'
+		);
+	}
+
+	public function test_registered_atomic_container_drop_triggers_fallback(): void {
+		$data = $this->make_data_with_document( true );
+
+		$GLOBALS['_registered_element_types'] = [ 'e-flexbox' ];
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[ [ 'id' => 'root1', 'elements' => [] ] ]
+		);
+
+		$result = $data->save_page_data(
+			123,
+			[
+				[
+					'id'       => 'root1',
+					'elements' => [ [ 'id' => 'flex1', 'elType' => 'e-flexbox' ] ],
+				],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertNotEmpty(
+			$writes,
+			'A silently dropped REGISTERED atomic container is a real write failure.'
+		);
 	}
 
 	public function test_reassign_ids_remints_child_local_classes(): void {

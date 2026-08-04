@@ -225,7 +225,16 @@ class Elementor_MCP_Plugin {
 			}
 		}
 
-		update_option( 'elementor_mcp_premium_unlock_applied', '1' );
+		// Mark the migration complete ONLY when every pack class was loadable:
+		// a partial pack (a quarantined ability file on this request) would
+		// otherwise unlock what it could, stamp done, and leave the missing
+		// pack's tools disabled forever once its file returns. Leaving the flag
+		// unset retries the reconciliation on a later init.
+		if ( class_exists( 'Elementor_MCP_Seo_Abilities' )
+			&& class_exists( 'Elementor_MCP_A11y_Abilities' )
+			&& class_exists( 'Elementor_MCP_Widget_Builder_Abilities' ) ) {
+			update_option( 'elementor_mcp_premium_unlock_applied', '1' );
+		}
 	}
 
 	/**

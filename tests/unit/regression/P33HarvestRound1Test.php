@@ -596,6 +596,45 @@ class P33HarvestRound1Test extends TestCase {
 		$this->assertSame( [ 'elB', 'elA' ], $ids, 'Fallback writes the sanitized projection: reorder applied, ghost stripped.' );
 	}
 
+	public function test_all_unavailable_tree_sanitized_to_empty_not_resurrected(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Native save sanitized EVERY requested element (all unavailable) —
+		// _elementor_data is empty. That is pure sanitization, not a drop;
+		// the raw unsanitized tree must not be written back.
+		$result = $data->save_page_data(
+			123,
+			[ [ 'id' => 'ghost1', 'elType' => 'widget', 'widgetType' => 'ghost-widget' ] ]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertEmpty(
+			$writes,
+			'A fully-sanitized tree (empty persisted) must not trigger the raw fallback.'
+		);
+	}
+
+	public function test_available_tree_dropped_to_empty_still_falls_back(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Available elements silently dropped to an empty page — real failure.
+		$result = $data->save_page_data(
+			123,
+			[ [ 'id' => 'real1', 'elType' => 'container' ] ]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertNotEmpty( $writes, 'Available elements dropped to empty must fall back.' );
+	}
+
 	public function test_reassign_ids_remints_child_local_classes(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = [

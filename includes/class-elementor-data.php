@@ -260,10 +260,17 @@ class Elementor_MCP_Data {
 					$needs_fallback = true;
 					$silent_drop    = true;
 				}
-			} elseif ( empty( $persisted ) || ! is_array( $persisted ) ) {
-				$needs_fallback = true;
-				$silent_drop    = true;
 			} else {
+				// Empty/invalid persisted content flows through the SAME
+				// projection compare with an empty persisted sequence: a
+				// requested tree that consists ENTIRELY of unavailable elements
+				// projects to [] == [] and is pure sanitization (upstream
+				// documents exactly this for unknown atomic elements) — the
+				// old dedicated empty-persisted branch wrongly fell back and
+				// wrote the raw unsanitized tree.
+				if ( ! is_array( $persisted ) ) {
+					$persisted = array();
+				}
 				// Distinguish a context-related silent drop from Elementor's own
 				// DELIBERATE sanitization: a save can succeed while removing
 				// elements whose type is unavailable on this site (unknown atomic

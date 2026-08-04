@@ -480,21 +480,25 @@ class Elementor_MCP_Atomic_Props {
 			}
 
 			// Primitive: wrap the value, and offer a cast where it is lossless.
-			// Booleans are offered ONLY to boolean-keyed members: Elementor's
-			// primitive validation can treat an "empty" enveloped value as
-			// valid for a non-required prop, so {'$$type':'string','value':false}
+			// "Empty-ish" values are never laundered into arbitrary envelopes:
+			// Elementor's primitive validation can treat an empty enveloped
+			// value as valid for a non-required prop BEFORE the type/enum
+			// check, so {'$$type':'string','value':false} or a wrapped null
 			// could be the first accepted candidate and store a malformed prop
-			// instead of leaving the precise rejection to Elementor. The string
-			// cast is likewise skipped for booleans — (string) true is '1' and
+			// instead of leaving the original value to Elementor's precise
+			// rejection/normalization. Hence: null produces no candidates at
+			// all (a wrapped null is never more meaningful than a raw one),
+			// booleans are offered only to boolean-keyed members, and the
+			// string cast is skipped for booleans — (string) true is '1' and
 			// (string) false is '', a silent meaning change.
-			if ( is_scalar( $value ) || null === $value ) {
+			if ( is_scalar( $value ) ) {
 				if ( ! is_bool( $value ) || 'boolean' === $key ) {
 					$candidates[] = array(
 						'$$type' => $key,
 						'value'  => $value,
 					);
 				}
-				if ( is_scalar( $value ) && ! is_bool( $value ) ) {
+				if ( ! is_bool( $value ) ) {
 					$candidates[] = array(
 						'$$type' => $key,
 						'value'  => (string) $value,

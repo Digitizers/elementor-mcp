@@ -437,6 +437,33 @@ class P33HarvestRound2Test extends TestCase {
 		);
 	}
 
+	public function test_null_is_never_wrapped_into_a_primitive_envelope(): void {
+		// Same lenient non-required scenario as the boolean case, fresh
+		// evidence in Codex round-4: a raw null must produce NO candidates —
+		// a wrapped null is never more meaningful than a raw one, and a
+		// lenient validator would accept the malformed envelope before the
+		// type/enum check.
+		$lenient_string = new class() {
+			public function get_key(): string {
+				return 'string';
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || 'string' !== ( $value['$$type'] ?? '' ) ) {
+					return false;
+				}
+				$inner = $value['value'] ?? null;
+				return \is_string( $inner ) || empty( $inner );
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'tag' => $lenient_string ], [ 'tag' => null ] );
+
+		$this->assertNull(
+			$out['tag'],
+			'A raw null must be left for Elementor\'s rejection/normalization, never stored as a malformed typed envelope (Codex round-4).'
+		);
+	}
+
 	public function test_boolean_still_coerces_into_a_boolean_envelope(): void {
 		$schema = [ 'flag' => new R2_Envelope_Prop( 'boolean', 'boolean' ) ];
 

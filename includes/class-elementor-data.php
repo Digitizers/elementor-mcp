@@ -232,10 +232,14 @@ class Elementor_MCP_Data {
 
 		// Verify the native save actually persisted our elements. Elementor's
 		// Document::save() can return a truthy value in some 4.x / atomic / REST
-		// contexts yet drop the elements so `_elementor_data` ends up empty —
-		// a silent write failure the caller never sees (upstream issue #98).
-		// Re-read and, if we sent real elements but nothing landed, force the
-		// direct meta write below rather than reporting a phantom success.
+		// contexts yet drop the elements — leaving `_elementor_data` empty, or
+		// (on an already-populated page) leaving the STALE pre-save content in
+		// place — a silent write failure the caller never sees (upstream #98).
+		// Re-read and compare the top-level element-id set: ids survive
+		// Elementor's save-time settings normalization, so a missing requested
+		// id means our tree did not land. (A save that only changes settings on
+		// unchanged ids is indistinguishable from stale content by id-set — this
+		// catches dropped element writes, the #98 failure mode.)
 		$needs_fallback = ! $result;
 		if ( ! $needs_fallback && ! empty( $data ) ) {
 			$persisted_raw = get_post_meta( $post_id, '_elementor_data', true );
@@ -244,6 +248,22 @@ class Elementor_MCP_Data {
 				: null;
 			if ( empty( $persisted ) || ! is_array( $persisted ) ) {
 				$needs_fallback = true;
+			} else {
+				$requested_ids = array();
+				foreach ( $data as $el ) {
+					if ( is_array( $el ) && isset( $el['id'] ) ) {
+						$requested_ids[] = (string) $el['id'];
+					}
+				}
+				$persisted_ids = array();
+				foreach ( $persisted as $el ) {
+					if ( is_array( $el ) && isset( $el['id'] ) ) {
+						$persisted_ids[] = (string) $el['id'];
+					}
+				}
+				if ( array_diff( $requested_ids, $persisted_ids ) ) {
+					$needs_fallback = true;
+				}
 			}
 		}
 
@@ -414,6 +434,14 @@ class Elementor_MCP_Data {
 	public function reassign_ids( array $elements ): array {
 		foreach ( $elements as &$element ) {
 			$element['id'] = Elementor_MCP_Id_Generator::generate();
+
+			// Re-mint v4 local style classes against the new id — here, not only
+			// in reassign_element_ids(), so children of a duplicated container
+			// AND the template-import paths (which call reassign_ids directly)
+			// get fresh classes too (upstream #97).
+			if ( class_exists( 'Elementor_MCP_Atomic_Styles' ) ) {
+				Elementor_MCP_Atomic_Styles::remap_local_classes( $element );
+			}
 
 			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
 				$element['elements'] = $this->reassign_ids( $element['elements'] );

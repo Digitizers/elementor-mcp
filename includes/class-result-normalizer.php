@@ -46,7 +46,7 @@ class Elementor_MCP_Result_Normalizer {
 
 		// Already a JSON object: a string-keyed array, or any object that is
 		// not an error. Leave the shape the ability intended.
-		if ( is_array( $result ) && ! array_is_list( $result ) ) {
+		if ( is_array( $result ) && ! self::is_list( $result ) ) {
 			return $result;
 		}
 		if ( is_object( $result ) ) {
@@ -54,5 +54,29 @@ class Elementor_MCP_Result_Normalizer {
 		}
 
 		return array( 'data' => $result );
+	}
+
+	/**
+	 * array_is_list() with a PHP 8.0 fallback — the function is 8.1+ and the
+	 * plugin supports 8.0 (the test suite masks this via Composer's polyfill,
+	 * which production never loads).
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $arr The array to test.
+	 * @return bool
+	 */
+	private static function is_list( array $arr ): bool {
+		if ( function_exists( 'array_is_list' ) ) {
+			return array_is_list( $arr );
+		}
+		$i = 0;
+		foreach ( $arr as $k => $unused ) {
+			if ( $k !== $i ) {
+				return false;
+			}
+			$i++;
+		}
+		return true;
 	}
 }

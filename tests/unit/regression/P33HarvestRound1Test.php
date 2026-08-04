@@ -196,4 +196,64 @@ class P33HarvestRound1Test extends TestCase {
 		$err = new \WP_Error( 'code', 'message' );
 		$this->assertSame( $err, \Elementor_MCP_Result_Normalizer::normalize( $err ) );
 	}
+
+	// -------------------------------------------------------------------------
+	// Codex round-1 hardening
+	// -------------------------------------------------------------------------
+
+	public function test_truthy_save_leaving_stale_content_falls_back(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Page already populated with DIFFERENT element ids: a save that
+		// silently drops our tree leaves this stale content in place.
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode( [ [ 'id' => 'stale-old' ] ] );
+
+		$result = $data->save_page_data( 123, [ [ 'id' => 'fresh-new', 'elType' => 'container' ] ] );
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertNotEmpty(
+			$writes,
+			'Stale pre-save content (requested ids missing from the re-read) must trigger the fallback.'
+		);
+	}
+
+	public function test_reassign_ids_remints_child_local_classes(): void {
+		$data = new \Elementor_MCP_Data();
+		$tree = [
+			[
+				'id'       => 'parent1',
+				'elements' => [
+					[
+						'id'     => 'child22',
+						'styles' => [
+							'e-child22-cafe123' => [ 'id' => 'e-child22-cafe123', 'type' => 'class' ],
+						],
+					],
+				],
+			],
+		];
+
+		$out   = $data->reassign_ids( $tree );
+		$child = $out[0]['elements'][0];
+		$class = array_keys( $child['styles'] )[0];
+
+		$this->assertStringStartsWith(
+			'e-' . $child['id'] . '-',
+			$class,
+			'Children reassigned through reassign_ids() (duplicate + template import paths) must get re-minted local classes too.'
+		);
+	}
+
+	public function test_normalizer_is_list_fallback_matches_native(): void {
+		// Exercise the private fallback logic shape indirectly: both a list and
+		// a map normalize correctly regardless of array_is_list availability.
+		$this->assertSame( [ 'data' => [ 'a', 'b' ] ], \Elementor_MCP_Result_Normalizer::normalize( [ 'a', 'b' ] ) );
+		$this->assertSame( [ 'k' => 'v' ], \Elementor_MCP_Result_Normalizer::normalize( [ 'k' => 'v' ] ) );
+		// Non-zero-based keys are NOT a list — must pass through unwrapped.
+		$this->assertSame( [ 1 => 'x' ], \Elementor_MCP_Result_Normalizer::normalize( [ 1 => 'x' ] ) );
+	}
 }

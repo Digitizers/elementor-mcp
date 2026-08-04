@@ -255,6 +255,51 @@ class P33HarvestRound1Test extends TestCase {
 		$this->assertEmpty( $writes, 'A verified empty save must not take the fallback path.' );
 	}
 
+	public function test_truthy_save_dropping_nested_change_falls_back(): void {
+		$data = $this->make_data_with_document( true );
+
+		// Same top-level id, but the persisted (stale) tree is missing the
+		// nested child we just added — top-level comparison would miss this.
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[ [ 'id' => 'root1', 'elements' => [] ] ]
+		);
+
+		$result = $data->save_page_data(
+			123,
+			[ [ 'id' => 'root1', 'elements' => [ [ 'id' => 'new-child', 'elType' => 'widget' ] ] ] ]
+		);
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertNotEmpty(
+			$writes,
+			'A silent drop of a nested-only change must trigger the fallback (recursive id-sequence comparison).'
+		);
+	}
+
+	public function test_truthy_save_dropping_reorder_falls_back(): void {
+		$data = $this->make_data_with_document( true );
+
+		$GLOBALS['_post_meta'][123]['_elementor_data'] = wp_json_encode(
+			[ [ 'id' => 'a1' ], [ 'id' => 'b2' ] ]
+		);
+
+		$result = $data->save_page_data( 123, [ [ 'id' => 'b2' ], [ 'id' => 'a1' ] ] );
+
+		$this->assertTrue( $result );
+		$writes = array_filter(
+			$GLOBALS['_wp_meta_calls'],
+			static fn( $c ) => 'update' === $c['action'] && '_elementor_data' === $c['meta_key']
+		);
+		$this->assertNotEmpty(
+			$writes,
+			'A silently dropped reorder (same id set, different order) must trigger the fallback.'
+		);
+	}
+
 	public function test_reassign_ids_remints_child_local_classes(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = [

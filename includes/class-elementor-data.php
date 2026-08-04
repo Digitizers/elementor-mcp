@@ -235,11 +235,15 @@ class Elementor_MCP_Data {
 		// contexts yet drop the elements — leaving `_elementor_data` empty, or
 		// (on an already-populated page) leaving the STALE pre-save content in
 		// place — a silent write failure the caller never sees (upstream #98).
-		// Re-read and compare the top-level element-id set: ids survive
-		// Elementor's save-time settings normalization, so a missing requested
-		// id means our tree did not land. (A save that only changes settings on
-		// unchanged ids is indistinguishable from stale content by id-set — this
-		// catches dropped element writes, the #98 failure mode.)
+		// Re-read and compare the RECURSIVE, ORDERED element-id sequence: ids
+		// survive Elementor's save-time settings normalization, so any
+		// structural difference (nested add/delete/duplicate/reorder, not just
+		// top-level) means our tree did not land. Known limitation, stated
+		// plainly: a mutation that changes ONLY settings on an unchanged tree
+		// shape is indistinguishable from stale content by structure, and a
+		// deep settings comparison would false-positive against Elementor's own
+		// normalization (and the fallback would then clobber it) — so
+		// settings-only silent drops remain undetectable here.
 		$needs_fallback = ! $result;
 		if ( ! $needs_fallback ) {
 			$persisted_raw = get_post_meta( $post_id, '_elementor_data', true );
@@ -256,22 +260,8 @@ class Elementor_MCP_Data {
 				}
 			} elseif ( empty( $persisted ) || ! is_array( $persisted ) ) {
 				$needs_fallback = true;
-			} else {
-				$requested_ids = array();
-				foreach ( $data as $el ) {
-					if ( is_array( $el ) && isset( $el['id'] ) ) {
-						$requested_ids[] = (string) $el['id'];
-					}
-				}
-				$persisted_ids = array();
-				foreach ( $persisted as $el ) {
-					if ( is_array( $el ) && isset( $el['id'] ) ) {
-						$persisted_ids[] = (string) $el['id'];
-					}
-				}
-				if ( array_diff( $requested_ids, $persisted_ids ) ) {
-					$needs_fallback = true;
-				}
+			} elseif ( $this->element_id_sequence( $data ) !== $this->element_id_sequence( $persisted ) ) {
+				$needs_fallback = true;
 			}
 		}
 
@@ -439,6 +429,35 @@ class Elementor_MCP_Data {
 	 * @param array $elements The element tree.
 	 * @return array The tree with new IDs.
 	 */
+	/**
+	 * Depth-first, ordered sequence of every element id in a tree.
+	 *
+	 * Used by the silent-save verification: comparing full sequences catches
+	 * nested adds/deletes/duplicates and reorders, not just top-level drops.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $elements The element tree.
+	 * @return string[] Ordered id list.
+	 */
+	private function element_id_sequence( array $elements ): array {
+		$ids = array();
+		foreach ( $elements as $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			if ( isset( $el['id'] ) ) {
+				$ids[] = (string) $el['id'];
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				foreach ( $this->element_id_sequence( $el['elements'] ) as $child_id ) {
+					$ids[] = $child_id;
+				}
+			}
+		}
+		return $ids;
+	}
+
 	public function reassign_ids( array $elements ): array {
 		foreach ( $elements as &$element ) {
 			$element['id'] = Elementor_MCP_Id_Generator::generate();

@@ -194,6 +194,84 @@ class ContentExtractorTest extends Ability_Test_Case {
 		$this->assertSame( 42, $images[0]['attachment_id'] );
 	}
 
+	public function test_atomic_attachment_alt_comes_from_the_media_library_not_the_payload(): void {
+		// Elementor renders _wp_attachment_image_alt for an attachment and
+		// ignores src.alt. A stale (or never-persisted) payload alt must not
+		// make the audits pass while the rendered image has an empty alt
+		// (Codex retro-round follow-up).
+		$tree = array(
+			array(
+				'id'         => 'atomicstale',
+				'elType'     => 'widget',
+				'widgetType' => 'e-image',
+				'settings'   => array(
+					'image' => array(
+						'$$type' => 'image',
+						'value'  => array(
+							'src' => array(
+								'$$type' => 'image-src',
+								'value'  => array(
+									'id'  => array( '$$type' => 'image-attachment-id', 'value' => 42 ),
+									'url' => null,
+									'alt' => array( '$$type' => 'string', 'value' => 'Stale payload alt' ),
+								),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$r      = Elementor_MCP_Content_Extractor::extract( $tree );
+		$images = array_values(
+			array_filter( $r['images'], static function ( $i ) {
+				return 'atomicstale' === $i['element_id'];
+			} )
+		);
+
+		$this->assertCount( 1, $images );
+		$this->assertSame(
+			'',
+			$images[0]['alt'],
+			'The media library is authoritative for an atomic attachment — the stubbed empty library alt IS the rendered state.'
+		);
+	}
+
+	public function test_atomic_url_image_still_uses_its_payload_alt(): void {
+		// No attachment: src.alt is what renders, so it must be reported.
+		$tree = array(
+			array(
+				'id'         => 'atomicurl',
+				'elType'     => 'widget',
+				'widgetType' => 'e-image',
+				'settings'   => array(
+					'image' => array(
+						'$$type' => 'image',
+						'value'  => array(
+							'src' => array(
+								'$$type' => 'image-src',
+								'value'  => array(
+									'id'  => null,
+									'url' => array( '$$type' => 'url', 'value' => 'https://example.com/u.jpg' ),
+									'alt' => array( '$$type' => 'string', 'value' => 'Url alt' ),
+								),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$r      = Elementor_MCP_Content_Extractor::extract( $tree );
+		$images = array_values(
+			array_filter( $r['images'], static function ( $i ) {
+				return 'atomicurl' === $i['element_id'];
+			} )
+		);
+
+		$this->assertSame( 'Url alt', $images[0]['alt'] );
+	}
+
 	public function test_eyebrow_div_becomes_text_block(): void {
 		$r     = Elementor_MCP_Content_Extractor::extract( $this->fixture_tree() );
 		$texts = array_column( $r['text_blocks'], 'text' );

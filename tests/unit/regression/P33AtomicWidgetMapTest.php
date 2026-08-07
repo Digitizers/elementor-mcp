@@ -151,7 +151,7 @@ class P33AtomicWidgetMapTest extends TestCase {
 		$this->assertArrayNotHasKey( 'alt', $out, 'There is no top-level alt prop on e-image — writing one is silently discarded.' );
 	}
 
-	public function test_image_by_id_uses_attachment_id_envelope_and_writes_alt_meta(): void {
+	public function test_image_by_id_uses_attachment_id_envelope_and_defers_the_alt_write(): void {
 		$out = \Elementor_MCP_Atomic_Widget_Map::settings(
 			'e-image',
 			[
@@ -168,14 +168,99 @@ class P33AtomicWidgetMapTest extends TestCase {
 		);
 		$this->assertNull( $src['value']['url'], 'id XOR url: url must be null when an id is given.' );
 
-		$alt_writes = array_filter(
-			$GLOBALS['_wp_meta_calls'],
-			static fn( $c ) => 'update' === $c['action'] && '_wp_attachment_image_alt' === $c['meta_key'] && 42 === $c['post_id']
+		$this->assertEmpty(
+			array_filter(
+				$GLOBALS['_wp_meta_calls'],
+				static fn( $c ) => '_wp_attachment_image_alt' === ( $c['meta_key'] ?? '' )
+			),
+			'settings() must be PURE — the attachment alt write is deferred until the page save succeeds (Codex retro-round P1).'
 		);
-		$this->assertNotEmpty(
-			$alt_writes,
-			'For an attachment, Elementor renders only the media library alt — the mapper must write _wp_attachment_image_alt.'
+	}
+
+	// -------------------------------------------------------------------------
+	// Attachment alt write — authorization + deferral (Codex retro-round P1)
+	// -------------------------------------------------------------------------
+
+	public function test_pending_alt_write_describes_only_attachment_alt_intent(): void {
+		$this->assertSame(
+			[ 'attachment_id' => 42, 'alt' => 'Team photo' ],
+			\Elementor_MCP_Atomic_Widget_Map::pending_alt_write( 'e-image', [ 'image_id' => 42, 'alt' => 'Team photo' ] )
 		);
+
+		// A url image carries its alt inline in src.alt — no attachment to write to.
+		$this->assertNull(
+			\Elementor_MCP_Atomic_Widget_Map::pending_alt_write( 'e-image', [ 'image_url' => 'https://example.com/a.jpg', 'alt' => 'A cat' ] )
+		);
+		// No alt supplied: never blank an existing attachment's alt text.
+		$this->assertNull( \Elementor_MCP_Atomic_Widget_Map::pending_alt_write( 'e-image', [ 'image_id' => 42 ] ) );
+		// Other widget types imply no media write at all.
+		$this->assertNull( \Elementor_MCP_Atomic_Widget_Map::pending_alt_write( 'e-heading', [ 'image_id' => 42, 'alt' => 'x' ] ) );
+	}
+
+	public function test_alt_write_is_skipped_without_edit_rights_on_the_attachment(): void {
+		// The caller may edit the PAGE (all the tools check) but not this
+		// attachment — the media item must not be mutated.
+		$GLOBALS['_caps'] = [ 'edit_posts' ];
+
+		try {
+			$written = \Elementor_MCP_Atomic_Widget_Map::apply_alt_write( [ 'attachment_id' => 42, 'alt' => 'Team photo' ] );
+
+			$this->assertFalse( $written );
+			$this->assertEmpty(
+				array_filter(
+					$GLOBALS['_wp_meta_calls'],
+					static fn( $c ) => '_wp_attachment_image_alt' === ( $c['meta_key'] ?? '' )
+				),
+				'Editing the page a media item sits on must not grant edit rights over the media item (Codex retro-round P1).'
+			);
+		} finally {
+			$GLOBALS['_caps'] = null;
+		}
+	}
+
+	public function test_alt_write_applies_with_edit_rights(): void {
+		$GLOBALS['_caps'] = [ 'edit_post' ];
+
+		try {
+			$written = \Elementor_MCP_Atomic_Widget_Map::apply_alt_write( [ 'attachment_id' => 42, 'alt' => 'Team photo' ] );
+
+			$this->assertTrue( $written );
+			$writes = array_values(
+				array_filter(
+					$GLOBALS['_wp_meta_calls'],
+					static fn( $c ) => 'update' === $c['action'] && '_wp_attachment_image_alt' === ( $c['meta_key'] ?? '' ) && 42 === $c['post_id']
+				)
+			);
+			$this->assertNotEmpty( $writes );
+			$this->assertSame( 'Team photo', $writes[0]['meta_value'] );
+		} finally {
+			$GLOBALS['_caps'] = null;
+		}
+	}
+
+	public function test_apply_alt_write_tolerates_null_and_malformed_input(): void {
+		$this->assertFalse( \Elementor_MCP_Atomic_Widget_Map::apply_alt_write( null ) );
+		$this->assertFalse( \Elementor_MCP_Atomic_Widget_Map::apply_alt_write( [ 'alt' => 'no id' ] ) );
+		$this->assertFalse( \Elementor_MCP_Atomic_Widget_Map::apply_alt_write( [ 'attachment_id' => 0, 'alt' => 'x' ] ) );
+	}
+
+	public function test_build_widget_defers_the_alt_write_instead_of_performing_it(): void {
+		$this->v4();
+		$GLOBALS['_caps'] = [ 'edit_post' ];
+
+		try {
+			$this->build_widget_via_composite( 'e-image', [ 'image_id' => 42, 'alt' => 'From build-page' ] );
+
+			$this->assertEmpty(
+				array_filter(
+					$GLOBALS['_wp_meta_calls'],
+					static fn( $c ) => '_wp_attachment_image_alt' === ( $c['meta_key'] ?? '' )
+				),
+				'build-page must not mutate an attachment while merely BUILDING the tree — an invalid parent or failed save would leave the change behind (Codex retro-round P1).'
+			);
+		} finally {
+			$GLOBALS['_caps'] = null;
+		}
 	}
 
 	public function test_image_without_source_params_yields_no_image_prop(): void {

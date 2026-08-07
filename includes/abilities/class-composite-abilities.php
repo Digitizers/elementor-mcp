@@ -38,6 +38,15 @@ class Elementor_MCP_Composite_Abilities {
 	private $elements_created = 0;
 
 	/**
+	 * Attachment alt-meta writes implied by the structure being built,
+	 * collected during the build and applied only after the page save
+	 * succeeds (and only for attachments the user may edit).
+	 *
+	 * @var array<int, array{attachment_id:int,alt:string}>
+	 */
+	private $pending_alt_writes = array();
+
+	/**
 	 * Constructor.
 	 *
 	 * @since 1.0.0
@@ -201,8 +210,9 @@ class Elementor_MCP_Composite_Abilities {
 		}
 
 		// 2. Build the Elementor element tree from the declarative structure.
-		$this->elements_created = 0;
-		$elements               = $this->build_elements( $structure );
+		$this->elements_created  = 0;
+		$this->pending_alt_writes = array();
+		$elements                = $this->build_elements( $structure );
 
 		// 3. Save the element data.
 		$result = $this->data->save_page_data( $post_id, $elements );
@@ -210,6 +220,15 @@ class Elementor_MCP_Composite_Abilities {
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
+
+		// Attachment alt writes are applied only AFTER the page write
+		// succeeded, and only for attachments this user may edit — page-edit
+		// rights do not extend to the media items placed on it (Codex
+		// retro-round P1).
+		foreach ( $this->pending_alt_writes as $pending ) {
+			Elementor_MCP_Atomic_Widget_Map::apply_alt_write( $pending );
+		}
+		$this->pending_alt_writes = array();
 
 		// 4. Save page settings if provided.
 		if ( ! empty( $page_settings ) ) {
@@ -359,6 +378,13 @@ class Elementor_MCP_Composite_Abilities {
 			&& Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type )
 		) {
 			$mapped = Elementor_MCP_Atomic_Widget_Map::settings( $widget_type, $settings );
+
+			// Any attachment alt write this node implies is DEFERRED to after
+			// the page save (and authorized against the attachment there).
+			$pending = Elementor_MCP_Atomic_Widget_Map::pending_alt_write( $widget_type, $settings );
+			if ( null !== $pending ) {
+				$this->pending_alt_writes[] = $pending;
+			}
 
 			// Third arg: the raw node settings double as flat style params
 			// (build_common_props + build_typography_props read them).

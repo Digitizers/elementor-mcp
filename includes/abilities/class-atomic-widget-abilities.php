@@ -341,10 +341,18 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 						return new \WP_Error( 'not_found', "Parent element '{$parent_id}' not found in page {$post_id}." );
 					}
 
+					// The attachment alt write an e-image implies is applied ONLY
+					// after the page write succeeded, and only for a user who may
+					// edit that attachment — page-edit rights do not extend to the
+					// media item (Codex retro-round P1).
+					$pending_alt = Elementor_MCP_Atomic_Widget_Map::pending_alt_write( $widget_type, $input );
+
 					$save = $this->data->save_page_data( $post_id, $page_data );
 					if ( is_wp_error( $save ) ) {
 						return Elementor_MCP_Atomic_Props::enrich_save_rejection( $save, $widget_type );
 					}
+
+					Elementor_MCP_Atomic_Widget_Map::apply_alt_write( $pending_alt );
 
 					return array( 'element_id' => $element['id'] );
 				},

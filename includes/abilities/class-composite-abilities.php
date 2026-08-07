@@ -401,7 +401,10 @@ class Elementor_MCP_Composite_Abilities {
 
 			// Any attachment alt write this node implies is DEFERRED to after
 			// the page save (and authorized against the attachment there).
-			$pending = Elementor_MCP_Atomic_Widget_Map::pending_alt_write( $widget_type, $friendly );
+			// The typed props go in too: one that overrides the media prop
+			// also cancels the alt write, which would otherwise land on an
+			// attachment the widget does not render.
+			$pending = Elementor_MCP_Atomic_Widget_Map::pending_alt_write( $widget_type, $friendly, $typed );
 			if ( null !== $pending ) {
 				$this->pending_alt_writes[] = $pending;
 			}

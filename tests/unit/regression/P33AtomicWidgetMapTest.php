@@ -368,6 +368,31 @@ class P33AtomicWidgetMapTest extends TestCase {
 		return $method->invoke( $composite, $widget_type, $settings );
 	}
 
+	/**
+	 * Builds one widget and returns [ element, queued attachment alt writes ].
+	 *
+	 * @return array{0:array,1:array}
+	 */
+	private function build_widget_and_pending_writes( string $widget_type, array $settings ): array {
+		$composite = new \Elementor_MCP_Composite_Abilities(
+			new \Elementor_MCP_Data(),
+			new \Elementor_MCP_Element_Factory()
+		);
+
+		$method = new \ReflectionMethod( \Elementor_MCP_Composite_Abilities::class, 'build_widget' );
+		if ( PHP_VERSION_ID < 80100 ) {
+			$method->setAccessible( true );
+		}
+		$element = $method->invoke( $composite, $widget_type, $settings );
+
+		$prop = new \ReflectionProperty( \Elementor_MCP_Composite_Abilities::class, 'pending_alt_writes' );
+		if ( PHP_VERSION_ID < 80100 ) {
+			$prop->setAccessible( true );
+		}
+
+		return [ $element, $prop->getValue( $composite ) ];
+	}
+
 	public function test_build_page_maps_friendly_params_for_atomic_widgets(): void {
 		$this->v4();
 
@@ -466,6 +491,69 @@ class P33AtomicWidgetMapTest extends TestCase {
 		$this->assertEmpty(
 			$element['styles'],
 			'A typed envelope is not a flat style param — feeding it to build_common_props would emit a nonsense size.'
+		);
+	}
+
+	public function test_pending_alt_write_is_cancelled_by_a_typed_media_prop(): void {
+		$this->v4();
+
+		$params = [
+			'image_id' => 7,
+			'alt'      => 'Alt for an image that is not on the page',
+		];
+
+		$this->assertNotNull(
+			\Elementor_MCP_Atomic_Widget_Map::pending_alt_write( 'e-image', $params ),
+			'Without an override the friendly params still imply the alt write.'
+		);
+
+		$this->assertNull(
+			\Elementor_MCP_Atomic_Widget_Map::pending_alt_write(
+				'e-image',
+				$params,
+				[ 'image' => \Elementor_MCP_Atomic_Props::image( 42, '', 'Rendered alt' ) ]
+			),
+			'A typed image prop wins over the mapped one, so attachment 7 is not on the page — writing its alt would mutate an unrelated attachment.'
+		);
+	}
+
+	public function test_build_page_queues_no_alt_write_for_an_overridden_image(): void {
+		$this->v4();
+
+		$typed = \Elementor_MCP_Atomic_Props::image( 42, '', 'Rendered alt' );
+
+		[ $element, $pending ] = $this->build_widget_and_pending_writes(
+			'e-image',
+			[
+				'image'    => $typed,
+				'image_id' => 7,
+				'alt'      => 'Alt for an image that is not on the page',
+			]
+		);
+
+		$this->assertSame( $typed, $element['settings']['image'], 'The typed prop is what the widget renders.' );
+		$this->assertSame(
+			[],
+			$pending,
+			'build-page must hand the typed props to pending_alt_write — otherwise it queues a write against attachment 7, which the page never displays.'
+		);
+	}
+
+	public function test_build_page_still_queues_the_alt_write_without_an_override(): void {
+		$this->v4();
+
+		[ , $pending ] = $this->build_widget_and_pending_writes(
+			'e-image',
+			[
+				'image_id' => 7,
+				'alt'      => 'Team photo',
+			]
+		);
+
+		$this->assertSame(
+			[ [ 'attachment_id' => 7, 'alt' => 'Team photo' ] ],
+			$pending,
+			'The cancellation is scoped to an overridden media prop — the ordinary friendly-param path still defers its write.'
 		);
 	}
 

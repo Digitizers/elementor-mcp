@@ -203,14 +203,26 @@ class Elementor_MCP_Atomic_Widget_Map {
 	 * (b) deferred until the page write actually succeeded — an invalid
 	 * parent id or a failed save must not leave a stray alt change behind.
 	 *
+	 * A caller may also override the media prop directly, handing over an
+	 * already-typed envelope that wins over anything the convenience params
+	 * built. The alt write belongs to the image the widget actually renders,
+	 * so an overridden media prop cancels it: writing it anyway would mutate
+	 * an attachment that is not on the page at all.
+	 *
 	 * @since 1.27.0
 	 *
 	 * @param string $widget_type Widget type.
 	 * @param array  $params      Convenience params.
+	 * @param array  $typed_props Props the caller typed itself, which override the mapping.
 	 * @return array{attachment_id:int,alt:string}|null
 	 */
-	public static function pending_alt_write( string $widget_type, array $params ): ?array {
+	public static function pending_alt_write( string $widget_type, array $params, array $typed_props = array() ): ?array {
 		if ( 'e-image' !== $widget_type ) {
+			return null;
+		}
+
+		$media_key = self::media_prop_key( $widget_type );
+		if ( null !== $media_key && isset( $typed_props[ $media_key ] ) ) {
 			return null;
 		}
 
@@ -225,6 +237,19 @@ class Elementor_MCP_Atomic_Widget_Map {
 			'attachment_id' => $image_id,
 			'alt'           => $alt,
 		);
+	}
+
+	/**
+	 * The settings key a widget type's media (and therefore its implied
+	 * attachment alt write) is built into, or null for a type with none.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param string $widget_type Widget type.
+	 * @return string|null
+	 */
+	public static function media_prop_key( string $widget_type ): ?string {
+		return 'e-image' === $widget_type ? 'image' : null;
 	}
 
 	/**

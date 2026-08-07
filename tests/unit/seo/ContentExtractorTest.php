@@ -119,6 +119,81 @@ class ContentExtractorTest extends Ability_Test_Case {
 		$this->assertArrayNotHasKey( 'EYEBROW', $by_text );
 	}
 
+	public function test_atomic_image_src_envelope_is_discovered(): void {
+		// The shape the convenience tools + build-page actually write:
+		// image.value.src is an `image-src` envelope holding id/url/alt. Before
+		// this fix collect_image() read id/url one level too high, so every
+		// atomic image was invisible to the SEO/a11y reports (Codex
+		// retro-round).
+		$tree = array(
+			array(
+				'id'         => 'atomicimg',
+				'elType'     => 'widget',
+				'widgetType' => 'e-image',
+				'settings'   => array(
+					'image' => array(
+						'$$type' => 'image',
+						'value'  => array(
+							'src' => array(
+								'$$type' => 'image-src',
+								'value'  => array(
+									'id'  => null,
+									'url' => array( '$$type' => 'url', 'value' => 'https://example.com/atomic.jpg' ),
+									'alt' => array( '$$type' => 'string', 'value' => 'Atomic alt' ),
+								),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$r      = Elementor_MCP_Content_Extractor::extract( $tree );
+		$images = array_values(
+			array_filter( $r['images'], static function ( $i ) {
+				return 'atomicimg' === $i['element_id'];
+			} )
+		);
+
+		$this->assertCount( 1, $images, 'An atomic image written in the image-src shape must be discovered.' );
+		$this->assertSame( 'https://example.com/atomic.jpg', $images[0]['url'] );
+		$this->assertSame( 'Atomic alt', $images[0]['alt'] );
+	}
+
+	public function test_atomic_image_src_envelope_with_attachment_id(): void {
+		$tree = array(
+			array(
+				'id'         => 'atomicid',
+				'elType'     => 'widget',
+				'widgetType' => 'e-image',
+				'settings'   => array(
+					'image' => array(
+						'$$type' => 'image',
+						'value'  => array(
+							'src' => array(
+								'$$type' => 'image-src',
+								'value'  => array(
+									'id'  => array( '$$type' => 'image-attachment-id', 'value' => 42 ),
+									'url' => null,
+								),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$r      = Elementor_MCP_Content_Extractor::extract( $tree );
+		$images = array_values(
+			array_filter( $r['images'], static function ( $i ) {
+				return 'atomicid' === $i['element_id'];
+			} )
+		);
+
+		$this->assertCount( 1, $images );
+		$this->assertSame( 42, $images[0]['attachment_id'] );
+	}
+
 	public function test_eyebrow_div_becomes_text_block(): void {
 		$r     = Elementor_MCP_Content_Extractor::extract( $this->fixture_tree() );
 		$texts = array_column( $r['text_blocks'], 'text' );

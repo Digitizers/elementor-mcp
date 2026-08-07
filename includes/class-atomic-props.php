@@ -585,14 +585,33 @@ class Elementor_MCP_Atomic_Props {
 			// member-key envelope. The scalar branch below skips arrays and
 			// the common fallbacks are off for described props, so without
 			// this the raw list stays unwrapped and keeps failing the
-			// whole-tree validation (Codex round-7). Values already carrying
-			// a $$type are not double-wrapped. Typed-array members (e.g.
+			// whole-tree validation (Codex round-7). Typed-array members (e.g.
 			// `attributes`, an array of key-value envelopes) describe their
 			// item type via get_item_type() — each raw item is coerced
 			// through it first, or the wrapped outer array would still fail
 			// on its items (Codex round-8).
+			//
+			// A value that ALREADY carries the member's own envelope but
+			// holds raw items is unwrapped to its payload first and rebuilt
+			// after (mirroring the object-shape branch above). Skipping it —
+			// as the earlier `! isset($value['$$type'])` guard did — meant a
+			// caller who supplied the documented envelope got no item
+			// coercion at all and Elementor still rejected the tree (Codex
+			// retro-round). A FOREIGN envelope is left alone: rewrapping
+			// someone else's typed value is the laundering rounds 3–5 closed.
+			$array_payload = null;
 			if ( is_array( $value ) && ! isset( $value['$$type'] ) ) {
-				$items = $value;
+				$array_payload = $value;
+			} elseif (
+				is_array( $value )
+				&& ( $value['$$type'] ?? null ) === $key
+				&& is_array( $value['value'] ?? null )
+			) {
+				$array_payload = $value['value'];
+			}
+
+			if ( null !== $array_payload ) {
+				$items = $array_payload;
 				if ( method_exists( $member, 'get_item_type' ) ) {
 					try {
 						$item_type = $member->get_item_type();

@@ -709,8 +709,16 @@ class Elementor_MCP_Data {
 				// and deep-merge into the root so they actually persist instead
 				// of being written to a dead `settings.styles` key (upstream
 				// #72, #73).
+				//
+				// ATOMIC ONLY. On a classic/custom widget `styles` and
+				// `editor_settings` are ordinary control names — this repo's
+				// widget builder happily registers controls with those names —
+				// and hoisting them would delete the control's value from
+				// `settings` while reporting success, leaving the widget
+				// rendering its old value forever (Codex retro-round).
+				$is_atomic      = self::is_atomic_element( $item );
 				$touched_styles = false;
-				foreach ( array( 'styles', 'editor_settings' ) as $root_key ) {
+				foreach ( $is_atomic ? array( 'styles', 'editor_settings' ) : array() as $root_key ) {
 					if ( ! array_key_exists( $root_key, $settings ) ) {
 						continue;
 					}
@@ -764,6 +772,31 @@ class Elementor_MCP_Data {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Whether an element is an Elementor 4 atomic element.
+	 *
+	 * Structural, not registry-based: atomic types are namespaced `e-*` —
+	 * atomic widgets carry `elType: 'widget'` with an `e-*` widgetType
+	 * (`e-heading`, `e-image`, …), atomic containers carry the `e-*` name in
+	 * `elType` itself (`e-flexbox`, `e-div-block`). A registry lookup would
+	 * make the answer depend on a live Elementor being present, which the
+	 * write path must not.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $item Element structure.
+	 * @return bool
+	 */
+	private static function is_atomic_element( array $item ): bool {
+		$el_type = (string) ( $item['elType'] ?? '' );
+
+		if ( 'widget' === $el_type ) {
+			return 0 === strpos( (string) ( $item['widgetType'] ?? '' ), 'e-' );
+		}
+
+		return 0 === strpos( $el_type, 'e-' );
 	}
 
 	/**

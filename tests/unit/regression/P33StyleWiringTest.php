@@ -304,6 +304,74 @@ class P33StyleWiringTest extends TestCase {
 		$this->assertArrayHasKey( 'e-deep-4', $tree[0]['elements'][0]['styles'] );
 	}
 
+	// -------------------------------------------------------------------------
+	// Hoisting is ATOMIC-ONLY (Codex retro-round)
+	// -------------------------------------------------------------------------
+
+	public function test_classic_widget_keeps_styles_control_in_its_own_settings(): void {
+		// This repo's widget builder lets a custom widget register controls
+		// named `styles` / `editor_settings`. Hoisting those to the element
+		// root would delete the control's value from settings while reporting
+		// success — the widget would render its old value forever.
+		$data = new \Elementor_MCP_Data();
+		$tree = $this->tree_with_element(
+			$this->base_element( [ 'elType' => 'widget', 'widgetType' => 'my_custom_widget' ] )
+		);
+
+		$data->update_element_settings(
+			$tree,
+			'el1',
+			[
+				'styles'          => 'compact',
+				'editor_settings' => 'inline',
+			]
+		);
+
+		$this->assertSame( 'compact', $tree[0]['settings']['styles'], 'A classic widget control named styles must stay in settings.' );
+		$this->assertSame( 'inline', $tree[0]['settings']['editor_settings'] );
+		$this->assertArrayNotHasKey( 'styles', $tree[0], 'Nothing may be hoisted to the root of a classic widget.' );
+		$this->assertArrayNotHasKey( 'classes', $tree[0]['settings'], 'No class wiring on a classic widget either.' );
+	}
+
+	public function test_atomic_widget_still_hoists(): void {
+		$data = new \Elementor_MCP_Data();
+		$tree = $this->tree_with_element(
+			$this->base_element( [ 'elType' => 'widget', 'widgetType' => 'e-heading' ] )
+		);
+
+		$data->update_element_settings(
+			$tree,
+			'el1',
+			[ 'styles' => [ 'e-abc-1' => [ 'id' => 'e-abc-1', 'type' => 'class', 'variants' => [] ] ] ]
+		);
+
+		$this->assertArrayHasKey( 'e-abc-1', $tree[0]['styles'], 'An atomic WIDGET (elType=widget, e-* widgetType) must still hoist.' );
+		$this->assertSame( [ 'e-abc-1' ], $tree[0]['settings']['classes']['value'] );
+	}
+
+	public function test_atomic_container_still_hoists(): void {
+		$data = new \Elementor_MCP_Data();
+		$tree = $this->tree_with_element( $this->base_element( [ 'elType' => 'e-flexbox' ] ) );
+
+		$data->update_element_settings(
+			$tree,
+			'el1',
+			[ 'styles' => [ 'e-box-2' => [ 'id' => 'e-box-2', 'type' => 'class', 'variants' => [] ] ] ]
+		);
+
+		$this->assertArrayHasKey( 'e-box-2', $tree[0]['styles'], 'An atomic CONTAINER carries e-* in elType itself.' );
+	}
+
+	public function test_classic_container_does_not_hoist(): void {
+		$data = new \Elementor_MCP_Data();
+		$tree = $this->tree_with_element( $this->base_element( [ 'elType' => 'container' ] ) );
+
+		$data->update_element_settings( $tree, 'el1', [ 'styles' => 'legacy-value' ] );
+
+		$this->assertSame( 'legacy-value', $tree[0]['settings']['styles'] );
+		$this->assertArrayNotHasKey( 'styles', $tree[0] );
+	}
+
 	public function test_container_shorthand_normalization_still_runs(): void {
 		$data = new \Elementor_MCP_Data();
 		$tree = $this->tree_with_element(

@@ -441,6 +441,96 @@ class P33HarvestRound2Test extends TestCase {
 		);
 	}
 
+	public function test_already_wrapped_typed_array_gets_its_items_coerced(): void {
+		// Correct outer envelope, RAW items inside — the documented shape a
+		// caller reasonably sends. The earlier guard skipped the item-coercion
+		// branch whenever $$type was set, so Elementor still rejected the tree
+		// (Codex retro-round).
+		$key_value_item = new R2_Shape_Prop(
+			'key-value',
+			[
+				'key'   => new R2_Envelope_Prop( 'string' ),
+				'value' => new R2_Envelope_Prop( 'string' ),
+			]
+		);
+
+		$attributes_prop = new class( $key_value_item ) {
+			private $item_type;
+			public function __construct( $item_type ) {
+				$this->item_type = $item_type;
+			}
+			public function get_key(): string {
+				return 'attributes';
+			}
+			public function get_item_type() {
+				return $this->item_type;
+			}
+			public function validate( $value ): bool {
+				if ( ! \is_array( $value ) || 'attributes' !== ( $value['$$type'] ?? '' ) ) {
+					return false;
+				}
+				$items = $value['value'] ?? null;
+				if ( ! \is_array( $items ) ) {
+					return false;
+				}
+				foreach ( $items as $item ) {
+					if ( ! $this->item_type->validate( $item ) ) {
+						return false;
+					}
+				}
+				return true;
+			}
+		};
+
+		$out = \Elementor_MCP_Atomic_Props::coerce_with_schema(
+			[ 'attributes' => $attributes_prop ],
+			[
+				'attributes' => [
+					'$$type' => 'attributes',
+					'value'  => [ [ 'key' => 'data-x', 'value' => '1' ] ],
+				],
+			]
+		);
+
+		$this->assertSame(
+			[
+				'$$type' => 'attributes',
+				'value'  => [
+					[
+						'$$type' => 'key-value',
+						'value'  => [
+							'key'   => [ '$$type' => 'string', 'value' => 'data-x' ],
+							'value' => [ '$$type' => 'string', 'value' => '1' ],
+						],
+					],
+				],
+			],
+			$out['attributes'],
+			'An already-wrapped typed array must be unwrapped, its items coerced, and the envelope rebuilt (Codex retro-round).'
+		);
+	}
+
+	public function test_foreign_envelope_is_not_rewrapped_as_an_array_payload(): void {
+		// A value carrying SOMEONE ELSE'S envelope must be left alone — taking
+		// its payload and rewrapping it under this member's key is exactly the
+		// laundering rounds 3-5 closed.
+		$classes_prop = new class() {
+			public function get_key(): string {
+				return 'classes';
+			}
+			public function validate( $value ): bool {
+				return \is_array( $value )
+					&& 'classes' === ( $value['$$type'] ?? '' )
+					&& \is_array( $value['value'] ?? null );
+			}
+		};
+
+		$foreign = [ '$$type' => 'attributes', 'value' => [ 'a' ] ];
+		$out     = \Elementor_MCP_Atomic_Props::coerce_with_schema( [ 'classes' => $classes_prop ], [ 'classes' => $foreign ] );
+
+		$this->assertSame( $foreign, $out['classes'] );
+	}
+
 	// -------------------------------------------------------------------------
 	// Alias prop mapping (#102)
 	// -------------------------------------------------------------------------

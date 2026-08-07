@@ -368,6 +368,31 @@ class P33AtomicWidgetMapTest extends TestCase {
 		return $method->invoke( $composite, $widget_type, $settings );
 	}
 
+	/**
+	 * Builds one widget and returns [ element, queued attachment alt writes ].
+	 *
+	 * @return array{0:array,1:array}
+	 */
+	private function build_widget_and_pending_writes( string $widget_type, array $settings ): array {
+		$composite = new \Elementor_MCP_Composite_Abilities(
+			new \Elementor_MCP_Data(),
+			new \Elementor_MCP_Element_Factory()
+		);
+
+		$method = new \ReflectionMethod( \Elementor_MCP_Composite_Abilities::class, 'build_widget' );
+		if ( PHP_VERSION_ID < 80100 ) {
+			$method->setAccessible( true );
+		}
+		$element = $method->invoke( $composite, $widget_type, $settings );
+
+		$prop = new \ReflectionProperty( \Elementor_MCP_Composite_Abilities::class, 'pending_alt_writes' );
+		if ( PHP_VERSION_ID < 80100 ) {
+			$prop->setAccessible( true );
+		}
+
+		return [ $element, $prop->getValue( $composite ) ];
+	}
+
 	public function test_build_page_maps_friendly_params_for_atomic_widgets(): void {
 		$this->v4();
 
@@ -404,5 +429,145 @@ class P33AtomicWidgetMapTest extends TestCase {
 
 		$this->assertSame( 'heading', $element['widgetType'] );
 		$this->assertSame( 'Legacy', $element['settings']['title'], 'Non-atomic widgets keep raw settings — the legacy path is untouched.' );
+	}
+
+	// -------------------------------------------------------------------------
+	// build-page must not launder an ALREADY typed prop through the convenience
+	// mapping — every builder sanitizes its input, and sanitize_text_field() on
+	// an array returns '', so the caller's most explicit value was the one that
+	// got erased.
+	// -------------------------------------------------------------------------
+
+	public function test_build_page_preserves_a_typed_prop_instead_of_mapping_it(): void {
+		$this->v4();
+
+		$typed = \Elementor_MCP_Atomic_Props::html( '<strong>Typed</strong> by the caller' );
+
+		$element = $this->build_widget_via_composite( 'e-heading', [ 'title' => $typed ] );
+
+		$this->assertSame(
+			$typed,
+			$element['settings']['title'],
+			'A prop the caller already typed must survive verbatim — mapping it sanitized an array to the empty string.'
+		);
+	}
+
+	public function test_build_page_mixes_typed_props_with_friendly_params_and_styles(): void {
+		$this->v4();
+
+		$typed = \Elementor_MCP_Atomic_Props::html( 'Typed title' );
+
+		$element = $this->build_widget_via_composite(
+			'e-heading',
+			[
+				'title'   => $typed,
+				'tag'     => 'h3',
+				'padding' => 20,
+			]
+		);
+
+		$this->assertSame( $typed, $element['settings']['title'], 'The typed prop wins.' );
+		$this->assertSame(
+			\Elementor_MCP_Atomic_Props::string( 'h3' ),
+			$element['settings']['tag'],
+			'Friendly params alongside a typed prop are still mapped.'
+		);
+		$this->assertNotEmpty( $element['styles'], 'Flat style params are still applied when a typed prop is present.' );
+	}
+
+	public function test_build_page_typed_props_are_not_read_as_style_params(): void {
+		$this->v4();
+
+		// `width` is BOTH a flat style param and a plausible prop name. A typed
+		// envelope handed under such a key must not be cast to a float size.
+		$element = $this->build_widget_via_composite(
+			'e-heading',
+			[
+				'title' => 'Heading',
+				'width' => \Elementor_MCP_Atomic_Props::string( 'ignored-as-style' ),
+			]
+		);
+
+		$this->assertEmpty(
+			$element['styles'],
+			'A typed envelope is not a flat style param — feeding it to build_common_props would emit a nonsense size.'
+		);
+	}
+
+	public function test_pending_alt_write_is_cancelled_by_a_typed_media_prop(): void {
+		$this->v4();
+
+		$params = [
+			'image_id' => 7,
+			'alt'      => 'Alt for an image that is not on the page',
+		];
+
+		$this->assertNotNull(
+			\Elementor_MCP_Atomic_Widget_Map::pending_alt_write( 'e-image', $params ),
+			'Without an override the friendly params still imply the alt write.'
+		);
+
+		$this->assertNull(
+			\Elementor_MCP_Atomic_Widget_Map::pending_alt_write(
+				'e-image',
+				$params,
+				[ 'image' => \Elementor_MCP_Atomic_Props::image( 42, '', 'Rendered alt' ) ]
+			),
+			'A typed image prop wins over the mapped one, so attachment 7 is not on the page — writing its alt would mutate an unrelated attachment.'
+		);
+	}
+
+	public function test_build_page_queues_no_alt_write_for_an_overridden_image(): void {
+		$this->v4();
+
+		$typed = \Elementor_MCP_Atomic_Props::image( 42, '', 'Rendered alt' );
+
+		[ $element, $pending ] = $this->build_widget_and_pending_writes(
+			'e-image',
+			[
+				'image'    => $typed,
+				'image_id' => 7,
+				'alt'      => 'Alt for an image that is not on the page',
+			]
+		);
+
+		$this->assertSame( $typed, $element['settings']['image'], 'The typed prop is what the widget renders.' );
+		$this->assertSame(
+			[],
+			$pending,
+			'build-page must hand the typed props to pending_alt_write — otherwise it queues a write against attachment 7, which the page never displays.'
+		);
+	}
+
+	public function test_build_page_still_queues_the_alt_write_without_an_override(): void {
+		$this->v4();
+
+		[ , $pending ] = $this->build_widget_and_pending_writes(
+			'e-image',
+			[
+				'image_id' => 7,
+				'alt'      => 'Team photo',
+			]
+		);
+
+		$this->assertSame(
+			[ [ 'attachment_id' => 7, 'alt' => 'Team photo' ] ],
+			$pending,
+			'The cancellation is scoped to an overridden media prop — the ordinary friendly-param path still defers its write.'
+		);
+	}
+
+	public function test_build_page_preserves_a_typed_complex_prop(): void {
+		$this->v4();
+
+		$typed = \Elementor_MCP_Atomic_Props::image( 42, '', 'Alt in the envelope' );
+
+		$element = $this->build_widget_via_composite( 'e-image', [ 'image' => $typed ] );
+
+		$this->assertSame(
+			$typed,
+			$element['settings']['image'],
+			'A complex prop the caller typed itself must pass through — the map only builds `image` from image_id/image_url and would otherwise leave the widget empty.'
+		);
 	}
 }

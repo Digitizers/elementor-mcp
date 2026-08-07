@@ -366,6 +366,16 @@ class Elementor_MCP_Composite_Abilities {
 	 * which applies them as a local class exactly as the individual atomic
 	 * tools do. Everything else falls back to the legacy raw-settings widget.
 	 *
+	 * A caller may also hand a prop over ALREADY typed — `title` as a full
+	 * `$$type` envelope rather than a plain string. Such a value is not a
+	 * convenience param and must never reach the mapping: every builder
+	 * sanitizes its input, and sanitize_text_field() on an array returns '',
+	 * so mapping a typed prop would erase exactly the value the caller was
+	 * most explicit about. Typed props are therefore split out up front,
+	 * excluded from the mapping AND from the style params (no style param is
+	 * an envelope), and overlaid on the mapped result — an explicit typed
+	 * value always wins over anything the convenience layer derived.
+	 *
 	 * @since 1.27.0
 	 *
 	 * @param string $widget_type Widget type.
@@ -377,18 +387,35 @@ class Elementor_MCP_Composite_Abilities {
 			class_exists( 'Elementor_MCP_Atomic_Widget_Map' )
 			&& Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type )
 		) {
-			$mapped = Elementor_MCP_Atomic_Widget_Map::settings( $widget_type, $settings );
+			$typed    = array();
+			$friendly = array();
+			foreach ( $settings as $key => $value ) {
+				if ( is_array( $value ) && isset( $value['$$type'] ) ) {
+					$typed[ $key ] = $value;
+				} else {
+					$friendly[ $key ] = $value;
+				}
+			}
+
+			$mapped = Elementor_MCP_Atomic_Widget_Map::settings( $widget_type, $friendly );
 
 			// Any attachment alt write this node implies is DEFERRED to after
 			// the page save (and authorized against the attachment there).
-			$pending = Elementor_MCP_Atomic_Widget_Map::pending_alt_write( $widget_type, $settings );
+			// The typed props go in too: one that overrides the media prop
+			// also cancels the alt write, which would otherwise land on an
+			// attachment the widget does not render.
+			$pending = Elementor_MCP_Atomic_Widget_Map::pending_alt_write( $widget_type, $friendly, $typed );
 			if ( null !== $pending ) {
 				$this->pending_alt_writes[] = $pending;
 			}
 
-			// Third arg: the raw node settings double as flat style params
+			// Third arg: the friendly node settings double as flat style params
 			// (build_common_props + build_typography_props read them).
-			return $this->factory->create_atomic_widget( $widget_type, (array) $mapped, $settings );
+			return $this->factory->create_atomic_widget(
+				$widget_type,
+				array_merge( (array) $mapped, $typed ),
+				$friendly
+			);
 		}
 
 		return $this->factory->create_widget( $widget_type, $settings );

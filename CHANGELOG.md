@@ -2,6 +2,16 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.27.1 — 2026-08-08
+
+- Fixed: **the Angie bridge never loaded in the Elementor editor** — the one surface it exists for. Its bundle was registered on `admin_enqueue_scripts`, which the editor never fires: that screen is rendered from `admin_action_elementor`, before admin-header.php, and Elementor then calls `remove_all_actions( 'wp_enqueue_scripts' )` and rebuilds a front-end style document from its own hooks. The bridge now also rides `elementor/editor/after_enqueue_scripts`, the hook Angie's own editor integration uses, and guards against a double localize.
+- Fixed: the bridge registered through `registerServer()` with a config carrying no `type`. The SDK answers that with a warning and hands off to `registerLocalServer()` **without awaiting**, so the promise resolved before the registration had begun and a failure inside it could never surface. It now calls `registerLocalServer()` directly.
+- New: `window.emcpAngieBridgeDebug` — `isAngieReady()`, `registrations()`, `pending()`. A registration that stays queued is otherwise indistinguishable from a successful one: nothing throws, nothing logs, the tools simply never appear. It exposes state, not authority; every tool call still goes through the REST routes, the server-side allowlist, the read-only invariant, and each ability's own permission callback.
+
+Verified live on WP 6.9 / Elementor 4.2.2 / Angie 1.1.11: Angie discovers the six read-only tools and executes them (`list-pages`, `list-global-classes`, `list-variables` all returning 200).
+
+**The bridge's tool list is independent of the admin Tools toggles.** `register_groups()` registers every ability with the Abilities API; the `elementor_mcp_ability_names` filter only trims the name list handed to the MCP Adapter server. The bridge resolves its own six-entry allowlist through `wp_get_ability()`, so switching tools off on the Tools tab — including low-tools mode — does not empty it.
+
 ## 1.27.0 — 2026-08-07
 
 - New: **Four upstream correctness ports (P3.3 round 1).**

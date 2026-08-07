@@ -10,7 +10,7 @@ All notable changes to MCP Tools for Elementor are documented in this file.
 
 Verified live on WP 6.9 / Elementor 4.2.2 / Angie 1.1.11: Angie discovers the six read-only tools and executes them (`list-pages`, `list-global-classes`, `list-variables` all returning 200).
 
-**Note for anyone whose bridge lists nothing:** the tool toggles on the admin Tools tab filter abilities at registration, so a disabled tool is absent from the bridge too. The bridge's allowlist needs `list-widgets`, `get-widget-schema`, `get-page-structure` and `list-pages` enabled (low-tools mode disables all four).
+**Note for anyone whose bridge lists nothing:** the tool toggles on the admin Tools tab filter abilities at registration, so a tool switched off there is absent from the bridge too. Check that `list-widgets`, `get-widget-schema`, `get-page-structure` and `list-pages` are enabled. Low-tools mode keeps those four (they are on the essentials list) but does drop `list-global-classes` and `list-variables`, which are not.
 
 ## 1.27.0 — 2026-08-07
 

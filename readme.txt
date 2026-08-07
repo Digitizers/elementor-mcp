@@ -416,6 +416,12 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 
 == Upgrade Notice ==
 
+= 1.27.0 =
+Contains a security fix: the attachment alt-text write implied by add-atomic-image/build-page is now authorized against the attachment itself (editing a page never granted edit rights over the media on it) and deferred until the page save succeeds. Also makes atomic (Elementor 4.0+) writes reliable — settings are coerced to the typed prop shapes Elementor expects, so values that previously saved and then rendered as nothing now work.
+
+= 1.26.0 =
+Adds the opt-in, off-by-default Angie bridge: six read-only inspection tools exposed to Elementor's Angie assistant. No write tools are exposed. Nothing changes unless you enable the toggle on the Connection tab.
+
 = 1.7.1 =
 Premium Templates library + EMCP Agent Skill download go live for Pro subscribers. New Skills and Templates admin tabs. Global upgrade banner on non-EMCP admin screens. All in-plugin Upgrade CTAs now route to the external pricing page on emcp.msrbuilds.com.
 

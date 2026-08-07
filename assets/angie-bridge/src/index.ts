@@ -29,6 +29,11 @@ declare global {
 	interface Window {
 		emcpAngieBridge?: BridgeConfig;
 		__emcpAngieBridgeInit?: boolean;
+		emcpAngieBridgeDebug?: {
+			isAngieReady: () => boolean;
+			registrations: () => unknown[];
+			pending: () => unknown[];
+		};
 	}
 }
 
@@ -120,13 +125,30 @@ async function init(): Promise< void > {
 		)
 	);
 
-	await sdk.registerServer( {
+	// registerLocalServer(), NOT registerServer(): a config without a `type`
+	// makes registerServer warn and hand off to registerLocalServer WITHOUT
+	// awaiting it, so our await resolved before the registration had begun and
+	// a failure inside it could never reach our catch. Calling the local API
+	// directly is what the SDK asks for and keeps the promise meaningful.
+	await sdk.registerLocalServer( {
 		name: config.serverName,
 		version: config.version,
 		description:
 			'Aura Design Engine (read-only): inspect Elementor pages, widgets, schemas, global classes, and variables. Write tools are not exposed here — mutations run through the governed MCP connection with snapshot-before-write and rollback.',
 		server,
 	} );
+
+	// Diagnostics. Registration is queued until the SDK's detector sees Angie
+	// answer its ready ping, and a queued-forever registration is otherwise
+	// indistinguishable from a successful one: nothing throws, nothing logs,
+	// the tools simply never appear. This handle makes the queue observable
+	// from the console. It exposes state, not authority — every tool call
+	// still goes through the REST routes and their permission callbacks.
+	window.emcpAngieBridgeDebug = {
+		isAngieReady: () => sdk.isAngieReady(),
+		registrations: () => sdk.getRegistrations(),
+		pending: () => sdk.getPendingRegistrations(),
+	};
 }
 
 function safeInit(): void {

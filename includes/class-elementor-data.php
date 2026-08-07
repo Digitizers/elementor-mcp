@@ -777,12 +777,24 @@ class Elementor_MCP_Data {
 	/**
 	 * Whether an element is an Elementor 4 atomic element.
 	 *
-	 * Structural, not registry-based: atomic types are namespaced `e-*` —
-	 * atomic widgets carry `elType: 'widget'` with an `e-*` widgetType
-	 * (`e-heading`, `e-image`, …), atomic containers carry the `e-*` name in
-	 * `elType` itself (`e-flexbox`, `e-div-block`). A registry lookup would
-	 * make the answer depend on a live Elementor being present, which the
-	 * write path must not.
+	 * Requires a POSITIVE atomic signal; the `e-*` naming convention alone is
+	 * not one. A registered classic/custom widget may legitimately use an
+	 * `e-`-prefixed slug, and misreading it as atomic reintroduces exactly the
+	 * data loss this gate prevents: its `styles` / `editor_settings` control
+	 * would be lifted out of `settings` and the widget would render its old
+	 * value forever.
+	 *
+	 * Signals, in order:
+	 *  1. Structural — the element already carries the atomic sibling-root keys
+	 *     (`styles` / `editor_settings`), or any of its settings is a typed
+	 *     `$$type` prop. Both are atomic-only shapes and need no registry.
+	 *  2. The registry — an atomic type declares `get_props_schema()`; classic
+	 *     widgets do not, so a non-empty prop schema is authoritative.
+	 *
+	 * When neither answers (e.g. Elementor unavailable), the result is FALSE:
+	 * not hoisting merely leaves the write on a dead `settings.styles` key —
+	 * the pre-hoisting behaviour — whereas hoisting wrongly destroys a real
+	 * control value. The unsure case must fail toward preserving data.
 	 *
 	 * @since 1.27.0
 	 *
@@ -790,13 +802,28 @@ class Elementor_MCP_Data {
 	 * @return bool
 	 */
 	private static function is_atomic_element( array $item ): bool {
-		$el_type = (string) ( $item['elType'] ?? '' );
-
-		if ( 'widget' === $el_type ) {
-			return 0 === strpos( (string) ( $item['widgetType'] ?? '' ), 'e-' );
+		foreach ( array( 'styles', 'editor_settings' ) as $atomic_key ) {
+			if ( array_key_exists( $atomic_key, $item ) && is_array( $item[ $atomic_key ] ) ) {
+				return true;
+			}
 		}
 
-		return 0 === strpos( $el_type, 'e-' );
+		if ( isset( $item['settings'] ) && is_array( $item['settings'] ) ) {
+			foreach ( $item['settings'] as $value ) {
+				if ( is_array( $value ) && isset( $value['$$type'] ) ) {
+					return true;
+				}
+			}
+		}
+
+		$el_type = (string) ( $item['elType'] ?? '' );
+		$type    = 'widget' === $el_type ? (string) ( $item['widgetType'] ?? '' ) : $el_type;
+
+		if ( '' === $type || ! class_exists( 'Elementor_MCP_Atomic_Props' ) ) {
+			return false;
+		}
+
+		return ! empty( Elementor_MCP_Atomic_Props::props_schema( $type ) );
 	}
 
 	/**

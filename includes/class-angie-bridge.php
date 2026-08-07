@@ -45,6 +45,15 @@ class Elementor_MCP_Angie_Bridge {
 	const SERVER_NAME = 'aura-design-engine';
 
 	/**
+	 * Whether the browser bundle was already enqueued this request.
+	 *
+	 * @since 1.27.1
+	 *
+	 * @var bool
+	 */
+	private $bridge_enqueued = false;
+
+	/**
 	 * Initializes hooks. Call once from the plugin bootstrap.
 	 *
 	 * @since 1.26.0
@@ -52,6 +61,14 @@ class Elementor_MCP_Angie_Bridge {
 	public function init(): void {
 		add_action( 'rest_api_init', array( $this, 'register_routes' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'maybe_enqueue_bridge' ), 20 );
+
+		// The Elementor editor is NOT an ordinary admin screen: it is rendered
+		// from `admin_action_elementor`, before admin-header.php, so
+		// `admin_enqueue_scripts` never fires there — and Elementor then calls
+		// remove_all_actions( 'wp_enqueue_scripts' ) and rebuilds a front-end
+		// style document. Its own editor hook is the only one that runs, and
+		// it is where Angie itself loads, so the bridge must ride it too.
+		add_action( 'elementor/editor/after_enqueue_scripts', array( $this, 'maybe_enqueue_bridge' ), 20 );
 	}
 
 	/**
@@ -390,6 +407,13 @@ class Elementor_MCP_Angie_Bridge {
 	 * @since 1.26.0
 	 */
 	public function maybe_enqueue_bridge(): void {
+		// Both hooks are registered because neither covers every surface Angie
+		// appears on; on a screen where both were to fire, the second pass must
+		// not print the localized config a second time.
+		if ( $this->bridge_enqueued ) {
+			return;
+		}
+
 		if ( ! is_admin() || ! self::is_enabled() || ! $this->current_user_can_access_bridge() ) {
 			return;
 		}
@@ -413,6 +437,8 @@ class Elementor_MCP_Angie_Bridge {
 			(string) filemtime( $script_path ),
 			true
 		);
+
+		$this->bridge_enqueued = true;
 
 		wp_localize_script(
 			'elementor-mcp-angie-bridge',

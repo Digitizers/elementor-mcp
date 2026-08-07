@@ -75,6 +75,9 @@ class AngieBridgeTest extends Ability_Test_Case {
 		$GLOBALS['_logged_in']       = true;
 		$GLOBALS['_is_admin']        = false;
 		$GLOBALS['_rest_routes']     = array();
+		$GLOBALS['_registered_actions'] = array();
+		$GLOBALS['_enqueued_scripts']   = array();
+		$GLOBALS['_localized_scripts']  = array();
 	}
 
 	protected function tearDown(): void {
@@ -339,5 +342,35 @@ class AngieBridgeTest extends Ability_Test_Case {
 		$this->enable_bridge();
 		$this->deny_all_caps();
 		$this->assertNull( $this->bridge->maybe_enqueue_bridge() );
+	}
+
+	public function test_bridge_rides_the_elementor_editor_hook_as_well_as_admin(): void {
+		$this->bridge->init();
+
+		$tags = array_column( $GLOBALS['_registered_actions'], 'tag' );
+
+		$this->assertContains(
+			'elementor/editor/after_enqueue_scripts',
+			$tags,
+			'The Elementor editor is rendered from admin_action_elementor, before admin-header.php, so admin_enqueue_scripts never fires there — a bridge registered only on that hook is silently absent from the editor, which is exactly where Angie lives.'
+		);
+		$this->assertContains( 'admin_enqueue_scripts', $tags, 'Ordinary admin screens still need the bundle.' );
+	}
+
+	public function test_bundle_is_localized_once_even_if_both_hooks_fire(): void {
+		$this->enable_bridge();
+		$GLOBALS['_is_admin'] = true;
+		define( 'ANGIE_VERSION', '1.1.11' );
+
+		$this->bridge->maybe_enqueue_bridge();
+		$this->bridge->maybe_enqueue_bridge();
+
+		$this->assertSame( array( 'elementor-mcp-angie-bridge' ), $GLOBALS['_enqueued_scripts'] );
+		$this->assertCount(
+			1,
+			$GLOBALS['_localized_scripts'],
+			'A second pass must not print the config again — wp_localize_script emits a script tag every time it is called.'
+		);
+		$this->assertSame( 'Aura Design Engine', $GLOBALS['_localized_scripts'][0]['data']['serverLabel'] );
 	}
 }

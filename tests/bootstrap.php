@@ -542,6 +542,56 @@ namespace {
 		}
 	}
 
+	if ( ! function_exists( 'add_action' ) ) {
+		/**
+		 * Records the registration so a test can assert WHICH hook a class
+		 * rides — the Elementor editor runs on its own hook, and a bundle
+		 * registered on the wrong one is silently absent there.
+		 */
+		function add_action( string $tag, $function_to_add, int $priority = 10, int $accepted_args = 1 ): bool {
+			$GLOBALS['_registered_actions'][] = array(
+				'tag'      => $tag,
+				'priority' => $priority,
+			);
+			return true;
+		}
+	}
+
+	if ( ! function_exists( 'wp_enqueue_script' ) ) {
+		function wp_enqueue_script( string $handle, string $src = '', array $deps = array(), $ver = false, $in_footer = false ): void {
+			$GLOBALS['_enqueued_scripts'][] = $handle;
+		}
+	}
+
+	if ( ! function_exists( 'wp_localize_script' ) ) {
+		function wp_localize_script( string $handle, string $object_name, array $l10n ): bool {
+			$GLOBALS['_localized_scripts'][] = array(
+				'handle' => $handle,
+				'object' => $object_name,
+				'data'   => $l10n,
+			);
+			return true;
+		}
+	}
+
+	if ( ! function_exists( 'plugins_url' ) ) {
+		function plugins_url( string $path = '', string $plugin = '' ): string {
+			return 'https://example.test/wp-content/plugins/elementor-mcp/' . ltrim( $path, '/' );
+		}
+	}
+
+	if ( ! function_exists( 'rest_url' ) ) {
+		function rest_url( string $path = '' ): string {
+			return 'https://example.test/wp-json/' . ltrim( $path, '/' );
+		}
+	}
+
+	if ( ! function_exists( 'wp_create_nonce' ) ) {
+		function wp_create_nonce( string $action = '-1' ): string {
+			return 'test-nonce-' . $action;
+		}
+	}
+
 	// -----------------------------------------------------------------------
 	// WP_Error stub
 	// -----------------------------------------------------------------------

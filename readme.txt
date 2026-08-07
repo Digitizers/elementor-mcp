@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.25.1
+Stable tag: 1.27.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,22 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.27.0 =
+New: Whole-tree atomic prop coercion (P3.3). Settings written through any tool are coerced against the widget's own prop schema before the save, so a plain value handed to an atomic prop is stored as the typed envelope Elementor expects instead of silently rendering as nothing.
+* Candidate envelopes come only from members the prop declared itself (get_key/get_prop_types/get_shape/get_item_type/aliases); the generic primitive fallback runs only for props that did not describe themselves. Elementor's primitive validation accepts an "empty" enveloped value for a non-required prop before the type/enum check, so guessing a foreign envelope stores a malformed prop that validates and then renders nothing.
+* Atomic style wiring: update-element-settings hoists root-level styles/editor_settings, deep-merges instead of replacing, and syncs local class references so a written style is actually referenced from settings.classes. Hoisting requires a positive atomic signal — the e- slug prefix is a convention, not an authority.
+* Shared convenience-param mapper (Elementor_MCP_Atomic_Widget_Map): the add-atomic-* tools and build-page now produce byte-identical settings for the same input; build-page previously passed settings through raw and an atomic widget given friendly params came out empty. Props the caller already typed pass through untouched rather than being sanitized to an empty string.
+Fixed (security): the attachment alt write (_wp_attachment_image_alt) implied by add-atomic-image/build-page is authorized against the attachment (edit_post on the attachment, not the page) and deferred until the page save succeeds; a media prop the caller typed itself cancels it, since the friendly image_id then names an attachment that is not on the page.
+* Upstream-correct media shapes: e-image emits an id-XOR-url image-src with an image-attachment-id envelope and the alt inside src; e-self-hosted-video's source is the video-src shape on 4.x, where a bare url envelope makes Elementor refuse the element outright.
+* The SEO content extractor descends through an atomic image's src, and for a media-library image the library's own alt is authoritative — Elementor renders _wp_attachment_image_alt and ignores src.alt, so an empty library alt is the real state.
+* Four upstream correctness ports: silent-save verification (a truthy Document::save() that persisted nothing now falls back to direct meta), local style classes re-minted on duplicate, fatal-proof ability registration, and structuredContent normalization for strict MCP clients.
+
+= 1.26.0 =
+New: Angie bridge (read-only v1) — an opt-in, off-by-default integration that registers "Aura Design Engine" as an MCP server inside Elementor's Angie assistant via the public @elementor/angie-sdk.
+* Exposes exactly six read-only inspection tools (list-widgets, get-widget-schema, get-page-structure, list-pages, list-global-classes, list-variables). No write tools: Angie is an agent, and this cookie/capability transport cannot carry the per-mutation human approval the governed write path requires — a mutating ability reached through the bridge returns bridge_writes_phase_b.
+* REST namespace emcp/angie/v1 with a cookie session + X-WP-Nonce, an edit_posts gate on the routes plus each ability's own permission callback on every call. The allowlist is enforced server-side with a read-only invariant, so a filtered-in or drifted mutating ability is rejected at runtime; anything outside the allowlist is a plain 404.
+* Admin toggle on the Connection tab, default off, stating exactly what is and is not exposed.
 
 = 1.25.1 =
 Changed: De-branded the leftover upstream links. The admin header's "Read the Docs" and "Get Support" buttons pointed at the original author's commercial site (emcp.msrbuilds.com/docs, support.msrbuilds.com), content this fork does not serve; they now point at the fork's own GitHub (README and Issues), as does the bin/ proxy README link. Attribution to the original author @msrbuilds (GPL-3.0) is unchanged.

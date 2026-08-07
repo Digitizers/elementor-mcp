@@ -244,6 +244,49 @@ final class Elementor_MCP_Content_Extractor {
 			return;
 		}
 
+		// Elementor's actual e-image shape nests the media reference one level
+		// deeper, under an `image-src` envelope: { value: { src: { $$type:
+		// 'image-src', value: { id, url, alt } } } }. Descend into it when
+		// present — without this, every atomic image written by the convenience
+		// tools / build-page was invisible to the SEO and accessibility reports
+		// (Codex retro-round). The flat { id, url } shape older writes produced
+		// is still read, so both round-trip.
+		$from_image_src = false;
+		if ( isset( $image['src'] ) ) {
+			$src = $image['src'];
+			if ( is_array( $src ) ) {
+				if ( isset( $src['$$type'] ) ) {
+					$src = is_array( $src['value'] ?? null ) ? $src['value'] : array();
+				}
+				if ( is_array( $src ) && ( isset( $src['id'] ) || isset( $src['url'] ) || isset( $src['alt'] ) ) ) {
+					// Keep any alt that lived at the outer level as a fallback.
+					$image          = $src + array_intersect_key( $image, array( 'alt' => null ) );
+					$from_image_src = true;
+				}
+			}
+		}
+
+		// ATOMIC ATTACHMENT ONLY: Elementor renders the media library's alt text
+		// for an attachment and ignores `src.alt` entirely (see
+		// Elementor_MCP_Atomic_Props::image()). Treating the payload alt as
+		// authoritative would let a stale — or never-persisted, e.g. an
+		// unauthorized alt write — value make the SEO/a11y audits pass while the
+		// rendered image carries a different or empty alt. So for this shape the
+		// library value wins, and the payload alt is not a fallback: an empty
+		// library alt IS the rendered state, and the audit must see it.
+		//
+		// Classic image widgets are untouched — their settings-level alt is
+		// their own long-standing behaviour, not the atomic contract.
+		if ( $from_image_src ) {
+			$attachment_ref = (int) self::scalar( $image['id'] ?? 0 );
+			if ( $attachment_ref > 0 ) {
+				$library_alt = function_exists( 'get_post_meta' )
+					? get_post_meta( $attachment_ref, '_wp_attachment_image_alt', true )
+					: '';
+				$image['alt'] = is_string( $library_alt ) ? $library_alt : '';
+			}
+		}
+
 		$attachment_id = (int) self::scalar( $image['id'] ?? 0 );
 		$url           = (string) self::scalar( $image['url'] ?? '' );
 		// Widget-level alt override wins; otherwise the media-library alt.

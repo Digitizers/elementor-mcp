@@ -709,8 +709,16 @@ class Elementor_MCP_Data {
 				// and deep-merge into the root so they actually persist instead
 				// of being written to a dead `settings.styles` key (upstream
 				// #72, #73).
+				//
+				// ATOMIC ONLY. On a classic/custom widget `styles` and
+				// `editor_settings` are ordinary control names — this repo's
+				// widget builder happily registers controls with those names —
+				// and hoisting them would delete the control's value from
+				// `settings` while reporting success, leaving the widget
+				// rendering its old value forever (Codex retro-round).
+				$is_atomic      = self::is_atomic_element( $item );
 				$touched_styles = false;
-				foreach ( array( 'styles', 'editor_settings' ) as $root_key ) {
+				foreach ( $is_atomic ? array( 'styles', 'editor_settings' ) : array() as $root_key ) {
 					if ( ! array_key_exists( $root_key, $settings ) ) {
 						continue;
 					}
@@ -764,6 +772,58 @@ class Elementor_MCP_Data {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Whether an element is an Elementor 4 atomic element.
+	 *
+	 * Requires a POSITIVE atomic signal; the `e-*` naming convention alone is
+	 * not one. A registered classic/custom widget may legitimately use an
+	 * `e-`-prefixed slug, and misreading it as atomic reintroduces exactly the
+	 * data loss this gate prevents: its `styles` / `editor_settings` control
+	 * would be lifted out of `settings` and the widget would render its old
+	 * value forever.
+	 *
+	 * Signals, in order:
+	 *  1. Structural — the element already carries the atomic sibling-root keys
+	 *     (`styles` / `editor_settings`), or any of its settings is a typed
+	 *     `$$type` prop. Both are atomic-only shapes and need no registry.
+	 *  2. The registry — an atomic type declares `get_props_schema()`; classic
+	 *     widgets do not, so a non-empty prop schema is authoritative.
+	 *
+	 * When neither answers (e.g. Elementor unavailable), the result is FALSE:
+	 * not hoisting merely leaves the write on a dead `settings.styles` key —
+	 * the pre-hoisting behaviour — whereas hoisting wrongly destroys a real
+	 * control value. The unsure case must fail toward preserving data.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array $item Element structure.
+	 * @return bool
+	 */
+	private static function is_atomic_element( array $item ): bool {
+		foreach ( array( 'styles', 'editor_settings' ) as $atomic_key ) {
+			if ( array_key_exists( $atomic_key, $item ) && is_array( $item[ $atomic_key ] ) ) {
+				return true;
+			}
+		}
+
+		if ( isset( $item['settings'] ) && is_array( $item['settings'] ) ) {
+			foreach ( $item['settings'] as $value ) {
+				if ( is_array( $value ) && isset( $value['$$type'] ) ) {
+					return true;
+				}
+			}
+		}
+
+		$el_type = (string) ( $item['elType'] ?? '' );
+		$type    = 'widget' === $el_type ? (string) ( $item['widgetType'] ?? '' ) : $el_type;
+
+		if ( '' === $type || ! class_exists( 'Elementor_MCP_Atomic_Props' ) ) {
+			return false;
+		}
+
+		return ! empty( Elementor_MCP_Atomic_Props::props_schema( $type ) );
 	}
 
 	/**

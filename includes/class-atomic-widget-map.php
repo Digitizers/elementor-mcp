@@ -11,9 +11,11 @@
  * no matching raw key).
  *
  * This class is the single source of that mapping so the individual tools and
- * build-page produce byte-identical settings for the same input. Each builder
- * is pure apart from `e-image`, which also writes an attachment's alt meta —
- * the one place Elementor reads alt for a media-library image.
+ * build-page produce byte-identical settings for the same input. Every builder
+ * is PURE; the one media side effect `e-image` implies (the attachment's alt
+ * meta, the only alt Elementor renders for a media-library image) is exposed
+ * as pending_alt_write() / apply_alt_write() so callers can authorize it
+ * against the attachment and defer it until the page save succeeded.
  *
  * Ported from upstream 3.6.2 (class-atomic-widget-map.php), adapted to the
  * fork's is_v4()-aware prop builders (3.x-experimental sites keep the shapes
@@ -163,10 +165,15 @@ class Elementor_MCP_Atomic_Widget_Map {
 	}
 
 	/**
-	 * Builds e-image settings. The one impure builder: for an attachment it
-	 * also writes `_wp_attachment_image_alt`, the only alt text Elementor
-	 * renders for a media-library image. There is no top-level `alt` prop on
-	 * `e-image` — writing one is silently discarded (upstream #102 class).
+	 * Builds e-image settings. PURE — like every other builder.
+	 *
+	 * For a media-library image Elementor renders the attachment's own alt
+	 * text (`_wp_attachment_image_alt`), so setting alt has an effect only
+	 * there; there is no top-level `alt` prop on `e-image` (upstream #102
+	 * class). That write is a mutation of a DIFFERENT post than the page
+	 * being edited, so it is NOT performed here — see pending_alt_write() /
+	 * apply_alt_write(), which the callers run after the page save succeeds
+	 * and only for a user who may edit that attachment.
 	 *
 	 * @param array $params Convenience params.
 	 * @return array
@@ -180,17 +187,76 @@ class Elementor_MCP_Atomic_Widget_Map {
 
 		if ( $image_id ) {
 			$settings['image'] = Elementor_MCP_Atomic_Props::image( $image_id, '', $alt );
-
-			// For an attachment Elementor renders the media library's own alt
-			// text, so that is the only place setting it has any effect.
-			if ( '' !== $alt ) {
-				update_post_meta( $image_id, '_wp_attachment_image_alt', $alt );
-			}
 		} elseif ( $image_url ) {
 			$settings['image'] = Elementor_MCP_Atomic_Props::image( 0, $image_url, $alt );
 		}
 
 		return self::finish( $settings, $params );
+	}
+
+	/**
+	 * The attachment alt-meta write a set of convenience params implies, or
+	 * null when there is none.
+	 *
+	 * Deliberately separate from settings(): it mutates an attachment post,
+	 * not the page, so it must be (a) authorized against that attachment and
+	 * (b) deferred until the page write actually succeeded — an invalid
+	 * parent id or a failed save must not leave a stray alt change behind.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param string $widget_type Widget type.
+	 * @param array  $params      Convenience params.
+	 * @return array{attachment_id:int,alt:string}|null
+	 */
+	public static function pending_alt_write( string $widget_type, array $params ): ?array {
+		if ( 'e-image' !== $widget_type ) {
+			return null;
+		}
+
+		$image_id = absint( $params['image_id'] ?? 0 );
+		$alt      = isset( $params['alt'] ) ? sanitize_text_field( $params['alt'] ) : '';
+
+		if ( $image_id < 1 || '' === $alt ) {
+			return null;
+		}
+
+		return array(
+			'attachment_id' => $image_id,
+			'alt'           => $alt,
+		);
+	}
+
+	/**
+	 * Applies a pending alt write — ONLY for a user who may edit that
+	 * attachment. Editing the page a media item is placed on does not grant
+	 * edit rights over the media item itself, so the page-level permission
+	 * check the tools already ran is not sufficient here.
+	 *
+	 * Silently skips an unauthorized write: the element itself was placed
+	 * successfully, and the alt text is an optional side effect.
+	 *
+	 * @since 1.27.0
+	 *
+	 * @param array|null $pending Output of pending_alt_write().
+	 * @return bool True when the meta was written.
+	 */
+	public static function apply_alt_write( ?array $pending ): bool {
+		if ( ! is_array( $pending ) || empty( $pending['attachment_id'] ) ) {
+			return false;
+		}
+
+		$attachment_id = absint( $pending['attachment_id'] );
+		if ( $attachment_id < 1 ) {
+			return false;
+		}
+
+		if ( function_exists( 'current_user_can' ) && ! current_user_can( 'edit_post', $attachment_id ) ) {
+			return false;
+		}
+
+		update_post_meta( $attachment_id, '_wp_attachment_image_alt', (string) $pending['alt'] );
+		return true;
 	}
 
 	/**

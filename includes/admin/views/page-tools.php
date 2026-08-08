@@ -59,6 +59,15 @@ $elementor_mcp_low_mode      = '1' === (string) get_option( Elementor_MCP_Admin:
 		?>
 	</p>
 
+	<p class="description elementor-mcp-tools-scope">
+		<?php
+		esc_html_e(
+			'These toggles control what the MCP server advertises to connected MCP clients: a tool switched off is not listed and cannot be called over the MCP connection. They are an exposure setting, not a kill switch — the underlying WordPress abilities stay registered, so code running on this site can still reach them, and each one enforces its own capability check when it does. The Angie bridge, for example, serves its own fixed read-only allowlist and is not affected by this page.',
+			'elementor-mcp'
+		);
+		?>
+	</p>
+
 	<div class="elementor-mcp-bulk-actions">
 		<button type="button" class="button elementor-mcp-enable-all"><?php esc_html_e( 'Enable All', 'elementor-mcp' ); ?></button>
 		<button type="button" class="button elementor-mcp-disable-all"><?php esc_html_e( 'Disable All', 'elementor-mcp' ); ?></button>

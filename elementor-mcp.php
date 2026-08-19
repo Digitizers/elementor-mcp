@@ -25,6 +25,15 @@ define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
 
+// GitHub self-updater: wired as early as the main file loads, so updates are
+// offered even when Elementor is missing or inactive. Degrades to a no-op when
+// the bundled checker library is absent (same quarantine-tolerance rationale
+// as elementor_mcp_require(), which is defined too late to use here).
+if ( file_exists( ELEMENTOR_MCP_DIR . 'includes/class-updater.php' ) ) {
+	require_once ELEMENTOR_MCP_DIR . 'includes/class-updater.php';
+	Elementor_MCP_Updater::init( __FILE__ );
+}
+
 /**
  * Whether the fork's premium-tier GPL tools are enabled.
  *

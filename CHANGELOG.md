@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## Unreleased
+
+- New: **GitHub self-updater.** The plugin now offers its own updates on the normal WordPress Plugins / Dashboard → Updates screens, pulled from this repository's tagged GitHub Releases (bundled Plugin Update Checker 5.6, wired in `includes/class-updater.php`; ported from the Digitizer Pro Tools updater). Detection is release-ONLY — a pushed version tag without a published Release never offers an update — and every request to GitHub (the check *and* the package download, across the release-asset redirect hosts) carries a neutral `elementor-mcp/<version>` user agent instead of WordPress's default, which would hand the site URL to GitHub. When a Release attaches a built `elementor-mcp*.zip` asset it is preferred; otherwise the tag's source archive is served. To ship an update: bump the plugin version, tag `v<version>`, publish the Release.
+
 ## 1.27.1 — 2026-08-08
 
 - Fixed: **the Angie bridge never loaded in the Elementor editor** — the one surface it exists for. Its bundle was registered on `admin_enqueue_scripts`, which the editor never fires: that screen is rendered from `admin_action_elementor`, before admin-header.php, and Elementor then calls `remove_all_actions( 'wp_enqueue_scripts' )` and rebuilds a front-end style document from its own hooks. The bridge now also rides `elementor/editor/after_enqueue_scripts`, the hook Angie's own editor integration uses, and guards against a double localize.

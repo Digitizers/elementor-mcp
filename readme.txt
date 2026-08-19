@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.27.1
+Stable tag: 1.28.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,12 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.28.0 =
+New: GitHub self-updater. Updates for this fork now appear on the normal Plugins and Dashboard > Updates screens, pulled from the repository's tagged GitHub Releases (bundled Plugin Update Checker 5.6).
+* Detection is release-only: a pushed version tag never offers an update until its Release is published.
+* Every request to GitHub — the update check and the package download, across the release-asset redirect hosts — carries a neutral elementor-mcp/<version> user agent instead of WordPress's default, which would send the site URL to GitHub.
+* A Release that attaches a built elementor-mcp*.zip asset is preferred; otherwise the tag's source archive is served.
 
 = 1.27.1 =
 Fixed: the Angie bridge never loaded in the Elementor editor — the one surface it exists for. Its bundle was registered on admin_enqueue_scripts, which the editor never fires: that screen is rendered from admin_action_elementor, before admin-header.php, and Elementor then calls remove_all_actions('wp_enqueue_scripts') and rebuilds a front-end style document from its own hooks. The bridge now also rides elementor/editor/after_enqueue_scripts, the hook Angie's own editor integration uses, and guards against a double localize.
@@ -421,6 +427,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.28.0 =
+Adds a self-updater, so future versions arrive through the normal WordPress update screens instead of a manual zip upload. Update checks are anonymous — the site URL is never sent to GitHub — and only published Releases are offered.
 
 = 1.27.1 =
 Fixes the Angie bridge in the Elementor editor, where its script never loaded at all — if you enabled the bridge and Angie showed none of its tools, this is why. Also adds a console handle for inspecting the registration state.

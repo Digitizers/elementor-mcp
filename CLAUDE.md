@@ -6,6 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MCP Tools for Elementor Plugin — a WordPress plugin that extends the official WordPress MCP Adapter to expose Elementor data, widgets, structures, and methods as MCP (Model Context Protocol) tools. This enables AI tools (Claude, Cursor, etc.) to create and manipulate Elementor page designs programmatically via up to 118 MCP tools (scales with environment).
 
+## Field reports — read these before changing a write path
+
+Reports from real client builds that used this plugin end to end. Each one was verified live against the plugin and Elementor source, not inferred, and each names the file and line it concerns. They are the record of how the tools actually behave under load, so **read the relevant one before touching the area it covers.**
+
+| Report | Covers |
+|---|---|
+| `FIELD-BUGREPORT-2-el4-schema.md` | Elementor 4 schema defects |
+| `FIELD-REPORT-3-premium-emcp-pro.md` | Pro-tier tooling |
+| `FIELD-REPORT-4-silent-failures-and-hidden-schema.md` | Three write paths that succeed and render nothing; ability schemas that hide `build_common_props()` capabilities; `font_family` emitted with the wrong `$$type` |
+| `FIELD-REPORT-5-stale-element-cache-and-tool-discovery.md` | `_elementor_element_cache` never invalidated on the fallback write; zero-tool installs with no diagnostic; tools that exist but aren't findable; `add-nav-menu` publishing the wrong menu-selector parameter. Corrects report #4's Part 4 recommendation |
+
+The recurring theme across all of them: **failures here are silent.** A tool returns success, the data changes, and the page looks the same. When adding a write path, prefer erroring loudly over accepting input you'll drop.
+
 ## Companion projects (sibling folders, edit from here)
 
 | Project | Path | What it is |

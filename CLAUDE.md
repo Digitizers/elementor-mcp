@@ -8,7 +8,9 @@ MCP Tools for Elementor Plugin — a WordPress plugin that extends the official 
 
 ## Field reports — read these before changing a write path
 
-Reports from real client builds that used this plugin end to end. Each one was verified live against the plugin and Elementor source, not inferred, and each names the file and line it concerns. They are the record of how the tools actually behave under load, so **read the relevant one before touching the area it covers.**
+Reports from real client builds that used this plugin end to end. Each one was verified live against the plugin and Elementor source, not inferred, and each names the file and line it concerns. They are the record of how the tools actually behave under load.
+
+**These files are deliberately untracked** — `.gitignore` excludes `FIELD-*REPORT-*.md` because they carry client build details; they live in the repo root on the machines that produced them, and their durable, shareable record is the fixes themselves (CHANGELOG entries + the PRs that cite them). So: **when a listed report is present locally, read the relevant one before touching the area it covers**; in a fresh clone use the "Covers" column below as the summary of what each found, and the CHANGELOG for what has been fixed since.
 
 | Report | Covers |
 |---|---|

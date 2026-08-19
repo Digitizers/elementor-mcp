@@ -39,6 +39,7 @@
             <file>tests/unit/WidgetGeneratorTest.php</file>
             <file>tests/unit/PremiumTierUnlockedTest.php</file>
             <file>tests/unit/AngieBridgeTest.php</file>
+            <file>tests/unit/UpdaterTest.php</file>
         </testsuite>
     </testsuites>
 

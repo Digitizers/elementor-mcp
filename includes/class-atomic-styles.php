@@ -836,8 +836,23 @@ class Elementor_MCP_Atomic_Styles {
 			? $variants[ $index ]['props']
 			: array();
 
-		// Incoming wins per key; untouched props survive.
-		$variants[ $index ]['props'] = array_merge( $existing, $props );
+		// Per-key merge is not enough for COMPOSITE props. On Elementor 4 the
+		// four padding sides collapse into ONE `padding` prop holding a
+		// `dimensions` shape, and `background` holds a nested colour plus any
+		// gradient overlay. Replacing the whole envelope when the caller
+		// touched one member would silently drop the other three sides — the
+		// same partial-update data loss this tool exists to end, one level
+		// down. Members are merged; LISTS (a box-shadow array, a gradient's
+		// colour stops) are replaced wholesale, since a new list is a new
+		// value rather than an edit.
+		$merged = $existing;
+		foreach ( $props as $key => $value ) {
+			$merged[ $key ] = ( isset( $existing[ $key ] ) && is_array( $existing[ $key ] ) && is_array( $value ) )
+				? self::merge_prop_value( $existing[ $key ], $value )
+				: $value;
+		}
+
+		$variants[ $index ]['props'] = $merged;
 
 		$style_def             = $target['style_def'];
 		$style_def['variants'] = $variants;
@@ -930,5 +945,64 @@ class Elementor_MCP_Atomic_Styles {
 			self::style_param_keys( false ),
 			array( 'font_size', 'font_size_unit', 'font_family', 'font_weight', 'line_height', 'line_height_unit', 'letter_spacing', 'letter_spacing_unit', 'text_align' )
 		);
+	}
+
+	/**
+	 * Merges one typed prop value into another, member-wise.
+	 *
+	 * Associative maps (a `dimensions` shape's sides, a `background`'s colour)
+	 * are merged key by key so a partial update keeps what it did not mention.
+	 * Lists are replaced: a box-shadow array or a gradient's colour stops is a
+	 * whole value, not a set of independently addressable members. Envelopes of
+	 * different `$$type` are replaced too — they are different kinds of value.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array $existing Stored prop value.
+	 * @param array $incoming Incoming prop value.
+	 * @return array
+	 */
+	private static function merge_prop_value( array $existing, array $incoming ): array {
+		$existing_type = $existing['$$type'] ?? null;
+		$incoming_type = $incoming['$$type'] ?? null;
+
+		if ( $existing_type !== $incoming_type ) {
+			return $incoming;
+		}
+
+		if ( ! isset( $existing['value'] ) || ! isset( $incoming['value'] ) || ! is_array( $existing['value'] ) || ! is_array( $incoming['value'] ) ) {
+			return $incoming;
+		}
+
+		if ( ! self::is_assoc( $existing['value'] ) || ! self::is_assoc( $incoming['value'] ) ) {
+			return $incoming;
+		}
+
+		$merged = $existing['value'];
+		foreach ( $incoming['value'] as $key => $value ) {
+			$merged[ $key ] = ( isset( $existing['value'][ $key ] ) && is_array( $existing['value'][ $key ] ) && is_array( $value ) )
+				? self::merge_prop_value( $existing['value'][ $key ], $value )
+				: $value;
+		}
+
+		$incoming['value'] = $merged;
+
+		return $incoming;
+	}
+
+	/**
+	 * Whether an array is associative. An empty array counts as a list.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array $arr Array to inspect.
+	 * @return bool
+	 */
+	private static function is_assoc( array $arr ): bool {
+		if ( array() === $arr ) {
+			return false;
+		}
+
+		return array_keys( $arr ) !== range( 0, count( $arr ) - 1 );
 	}
 }

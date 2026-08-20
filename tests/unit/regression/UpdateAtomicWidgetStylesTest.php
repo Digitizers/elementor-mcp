@@ -156,6 +156,76 @@ class UpdateAtomicWidgetStylesTest extends Ability_Test_Case {
 		$this->assertNotEmpty( $element['styles'] );
 	}
 
+	/**
+	 * On Elementor 4 the four padding sides collapse into ONE `padding` prop
+	 * holding a `dimensions` shape. A shallow merge would replace that whole
+	 * envelope when the caller touched a single side, silently dropping the
+	 * other three — the same partial-update data loss this tool exists to end,
+	 * one level down.
+	 */
+	public function test_updating_one_padding_side_keeps_the_others_on_v4(): void {
+		$GLOBALS['_elementor_version_override'] = '4.2.3';
+
+		try {
+			$seed = \Elementor_MCP_Atomic_Styles::create_local_class(
+				'abc1234',
+				\Elementor_MCP_Atomic_Styles::build_common_props( array(
+					'padding_top'    => 10,
+					'padding_right'  => 20,
+					'padding_bottom' => 30,
+					'padding_left'   => 40,
+				) )
+			);
+
+			// Sanity: the seed really is one composite prop, not four.
+			$this->assertSame( 'dimensions', $seed['style_def']['variants'][0]['props']['padding']['$$type'] );
+
+			$data = $this->make_data( array( $seed['class_id'] => $seed['style_def'] ) );
+
+			$this->ability( $data )->execute_update_atomic_widget( array(
+				'post_id'     => 3,
+				'element_id'  => 'abc1234',
+				'padding_top' => 99,
+			) );
+
+			$padding = $this->base_variant( $data->saved[0] )['props']['padding']['value'];
+
+			$this->assertSame( 99.0, $padding['block-start']['value']['size'], 'The requested side must change.' );
+			foreach ( array( 'inline-end' => 20.0, 'block-end' => 30.0, 'inline-start' => 40.0 ) as $side => $expected ) {
+				$this->assertSame(
+					$expected,
+					$padding[ $side ]['value']['size'] ?? null,
+					"Side `$side` was not mentioned and must survive."
+				);
+			}
+		} finally {
+			unset( $GLOBALS['_elementor_version_override'] );
+		}
+	}
+
+	/**
+	 * Lists are whole values, not addressable members: a new box-shadow
+	 * replaces the old one rather than merging into it.
+	 */
+	public function test_a_new_shadow_replaces_rather_than_merges(): void {
+		$seed = \Elementor_MCP_Atomic_Styles::create_local_class(
+			'abc1234',
+			\Elementor_MCP_Atomic_Styles::build_common_props( array( 'shadow_color' => 'rgba(0,0,0,1)', 'shadow_blur' => 4 ) )
+		);
+		$data = $this->make_data( array( $seed['class_id'] => $seed['style_def'] ) );
+
+		$this->ability( $data )->execute_update_atomic_widget( array(
+			'post_id'      => 3,
+			'element_id'   => 'abc1234',
+			'shadow_color' => 'rgba(255,0,0,1)',
+		) );
+
+		$shadows = $this->base_variant( $data->saved[0] )['props']['box-shadow']['value'];
+
+		$this->assertCount( 1, $shadows, 'A shadow list is replaced, not appended to.' );
+		$this->assertSame( 'rgba(255,0,0,1)', $shadows[0]['value']['color']['value'] );
+	}
+
 	public function test_an_empty_update_is_refused_rather_than_reported_successful(): void {
 		$data = $this->make_data();
 

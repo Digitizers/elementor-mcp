@@ -454,13 +454,30 @@ class Elementor_MCP_Atomic_Styles {
 
 		// Reuse this element's own local class if it already has one; global
 		// (`g-`) classes are shared and must not be rewritten from here.
-		$class_id = '';
-		foreach ( array_keys( $styles ) as $existing_id ) {
-			if ( '' !== $element_id && 0 === strpos( (string) $existing_id, 'e-' . $element_id . '-' ) ) {
-				$class_id = (string) $existing_id;
-				break;
+		//
+		// Prefer the class that ALREADY carries custom CSS. Picking merely the
+		// first id-matching class would, on an element with several local
+		// classes, edit an unrelated one — and because the styles patch is
+		// deep-merged, the original class keeps its CSS, so `replace = true`
+		// would add a rule instead of replacing one.
+		$owner    = '';
+		$fallback = '';
+		foreach ( $styles as $existing_id => $existing_def ) {
+			$existing_id = (string) $existing_id;
+			if ( '' === $element_id || 0 !== strpos( $existing_id, 'e-' . $element_id . '-' ) ) {
+				continue;
+			}
+
+			if ( '' === $fallback ) {
+				$fallback = $existing_id;
+			}
+
+			if ( '' === $owner && is_array( $existing_def ) && null !== self::find_base_variant_index( $existing_def, true ) ) {
+				$owner = $existing_id;
 			}
 		}
+
+		$class_id = $owner ?: $fallback;
 
 		if ( '' === $class_id ) {
 			$class_id = self::mint_class_id( $element_id );
@@ -476,17 +493,10 @@ class Elementor_MCP_Atomic_Styles {
 			? array_values( $style_def['variants'] )
 			: array();
 
-		// Target the desktop / no-state variant, the one create_local_class()
-		// makes and the one a plain `selector{...}` rule belongs in.
-		$index = null;
-		foreach ( $variants as $i => $variant ) {
-			$breakpoint = $variant['meta']['breakpoint'] ?? null;
-			$state      = $variant['meta']['state'] ?? null;
-			if ( 'desktop' === $breakpoint && null === $state ) {
-				$index = $i;
-				break;
-			}
-		}
+		// Target the base (desktop / no-state) variant — the one
+		// create_local_class() makes and where a plain `selector{...}` rule
+		// belongs.
+		$index = self::find_base_variant_index( array( 'variants' => $variants ) );
 
 		if ( null === $index ) {
 			$variants[] = array(
@@ -518,5 +528,51 @@ class Elementor_MCP_Atomic_Styles {
 			'styles'   => array( $class_id => $style_def ),
 			'css'      => $new_css,
 		);
+	}
+
+	/**
+	 * Index of a style def's base (desktop / no-state) variant.
+	 *
+	 * A base variant is stored with `breakpoint = 'desktop'`, but a persisted
+	 * one may carry `null` — this fork's own reads fold the two together
+	 * (`norm_breakpoint()` in the global-classes writer, which documents the
+	 * same equivalence). Matching only the literal 'desktop' would miss a
+	 * null-breakpoint base and append a SECOND base variant, leaving the
+	 * original rule in place: a `replace` that doesn't replace.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array $style_def       A style definition (or `[ 'variants' => [...] ]`).
+	 * @param bool  $require_css     Only match a base variant that already holds custom CSS.
+	 * @return int|null Index into the variants list, or null when absent.
+	 */
+	private static function find_base_variant_index( array $style_def, bool $require_css = false ): ?int {
+		$variants = ( isset( $style_def['variants'] ) && is_array( $style_def['variants'] ) )
+			? array_values( $style_def['variants'] )
+			: array();
+
+		foreach ( $variants as $i => $variant ) {
+			if ( ! is_array( $variant ) ) {
+				continue;
+			}
+
+			$breakpoint = $variant['meta']['breakpoint'] ?? null;
+			$state      = $variant['meta']['state'] ?? null;
+
+			$is_base = ( null === $breakpoint || '' === $breakpoint || 'desktop' === $breakpoint )
+				&& ( null === $state || '' === $state );
+
+			if ( ! $is_base ) {
+				continue;
+			}
+
+			if ( $require_css && empty( $variant['custom_css']['raw'] ) ) {
+				continue;
+			}
+
+			return (int) $i;
+		}
+
+		return null;
 	}
 }

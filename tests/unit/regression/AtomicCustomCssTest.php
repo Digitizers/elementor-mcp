@@ -218,6 +218,63 @@ class AtomicCustomCssTest extends TestCase {
 		$this->assertSame( 'selector{color:red;}', $data->saved[0]['settings']['custom_css'] );
 	}
 
+	/**
+	 * An element can carry several local classes. If the existing custom CSS
+	 * sits on one that isn't first in the map, picking by id-prefix alone edits
+	 * an unrelated class — and since the patch is deep-merged, the original
+	 * keeps its rule, so `replace = true` adds instead of replacing.
+	 */
+	public function test_replace_edits_the_class_that_owns_the_existing_css(): void {
+		$layout = \Elementor_MCP_Atomic_Styles::create_local_class( 'abc1234', array(
+			'display' => array( '$$type' => 'string', 'value' => 'flex' ),
+		) );
+		$owner = \Elementor_MCP_Atomic_Styles::build_custom_css_patch( $this->atomic_element(), 'selector{color:red;}' );
+
+		// Layout class first in the map, the CSS-carrying class second.
+		$styles = array_merge(
+			array( $layout['class_id'] => $layout['style_def'] ),
+			$owner['styles']
+		);
+
+		$patch = \Elementor_MCP_Atomic_Styles::build_custom_css_patch(
+			$this->atomic_element( $styles ),
+			'selector{margin:0;}',
+			true
+		);
+
+		$this->assertSame( $owner['class_id'], $patch['class_id'], 'Must edit the class that already holds the custom CSS.' );
+		$this->assertSame( 'selector{margin:0;}', $patch['css'], 'replace=true must not leave the old rule behind on another class.' );
+	}
+
+	/**
+	 * A persisted base variant may store `breakpoint = null` rather than
+	 * 'desktop'; this fork's own reads fold the two (`norm_breakpoint`).
+	 * Matching only the literal string appends a second base variant and leaves
+	 * the original rule live.
+	 */
+	public function test_null_breakpoint_base_variant_is_matched_not_duplicated(): void {
+		$styles = array(
+			'e-abc1234-legacy' => array(
+				'id'       => 'e-abc1234-legacy',
+				'label'    => 'local',
+				'type'     => 'class',
+				'variants' => array(
+					array(
+						'meta'       => array( 'breakpoint' => null, 'state' => null ),
+						'props'      => array(),
+						'custom_css' => array( 'raw' => base64_encode( 'selector{color:red;}' ) ),
+					),
+				),
+			),
+		);
+
+		$patch    = \Elementor_MCP_Atomic_Styles::build_custom_css_patch( $this->atomic_element( $styles ), 'selector{margin:0;}', true );
+		$variants = $patch['styles'][ $patch['class_id'] ]['variants'];
+
+		$this->assertCount( 1, $variants, 'A null-breakpoint base variant must be reused, not duplicated.' );
+		$this->assertSame( 'selector{margin:0;}', base64_decode( $variants[0]['custom_css']['raw'], true ) );
+	}
+
 	public function test_atomic_element_is_recognised(): void {
 		$this->assertTrue( \Elementor_MCP_Data::is_atomic_element( $this->atomic_element() ) );
 		$this->assertFalse(

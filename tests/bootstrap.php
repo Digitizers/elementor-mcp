@@ -1151,6 +1151,8 @@ namespace {
 			'Elementor_MCP_Page_Abilities'         => 'includes/abilities/class-page-abilities.php',
 			'Elementor_MCP_Svg_Icon_Abilities'     => 'includes/abilities/class-svg-icon-abilities.php',
 			'Elementor_MCP_Layout_Abilities'       => 'includes/abilities/class-layout-abilities.php',
+			'Elementor_MCP_Server_Info_Abilities'  => 'includes/abilities/class-server-info-abilities.php',
+			'Elementor_MCP_Ability_Registrar'      => 'includes/abilities/class-ability-registrar.php',
 			'Elementor_MCP_Query_Abilities'        => 'includes/abilities/class-query-abilities.php',
 			'Elementor_MCP_Global_Abilities'       => 'includes/abilities/class-global-abilities.php',
 			'Elementor_MCP_Template_Abilities'     => 'includes/abilities/class-template-abilities.php',

@@ -462,6 +462,8 @@ function elementor_mcp_init(): void {
 	elementor_mcp_require( 'includes/class-color-contrast.php' );
 	elementor_mcp_require( 'includes/class-content-extractor.php' );
 	elementor_mcp_require( 'includes/class-seo-meta.php' );
+	// Always-on diagnostic; first so it exists even if a later group fails.
+	elementor_mcp_require( 'includes/abilities/class-server-info-abilities.php' );
 	elementor_mcp_require( 'includes/abilities/class-query-abilities.php' );
 	elementor_mcp_require( 'includes/abilities/class-page-abilities.php' );
 	elementor_mcp_require( 'includes/abilities/class-layout-abilities.php' );

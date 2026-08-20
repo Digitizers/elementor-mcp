@@ -283,11 +283,29 @@ class Elementor_MCP_Plugin {
 			$disabled = array_merge( $disabled, array_diff( $names, self::get_essential_tool_slugs() ) );
 		}
 
+		// server-info is never suppressible. A diagnostic that the thing it
+		// diagnoses can switch off is no diagnostic at all — and "zero tools,
+		// no explanation" is exactly the state it exists to explain.
+		$always_on = class_exists( 'Elementor_MCP_Server_Info_Abilities' )
+			? array( Elementor_MCP_Server_Info_Abilities::ABILITY )
+			: array();
+
+		$disabled = array_diff( $disabled, $always_on );
+
 		if ( empty( $disabled ) ) {
 			return $names;
 		}
 
-		return array_values( array_diff( $names, $disabled ) );
+		$kept = array_values( array_diff( $names, $disabled ) );
+
+		// Re-add it if it was registered but trimmed by low-tools mode above.
+		foreach ( $always_on as $name ) {
+			if ( in_array( $name, $names, true ) && ! in_array( $name, $kept, true ) ) {
+				$kept[] = $name;
+			}
+		}
+
+		return $kept;
 	}
 
 	/**

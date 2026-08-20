@@ -273,10 +273,19 @@ namespace {
 
 	if ( ! function_exists( 'elementor_mcp_register_ability' ) ) {
 		// The ability groups register through this shim (real implementation in
-		// elementor-mcp.php, which sanitizes schemas then calls wp_register_ability).
-		// Unit tests only need it to exist so register() methods don't fatal;
-		// forward to the wp_register_ability stub.
+		// elementor-mcp.php, which sanitizes schemas, shields writes from foreign
+		// MCP servers, wraps governance, then calls wp_register_ability).
+		//
+		// Schema sanitizing and the governance wrap are deliberately left out —
+		// tests that care drive those directly. The foreign-server shield is NOT:
+		// it decides whether a write tool is reachable from a second MCP server on
+		// the site, and a shim that skipped it would let every registration test
+		// pass while the abilities went out exposed. It runs the same production
+		// method the real registrar calls.
 		function elementor_mcp_register_ability( string $name, array $args ): void {
+			if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
+				$args = Elementor_MCP_Call_Context::shield_write_from_foreign_servers( $args, $name );
+			}
 			wp_register_ability( $name, $args );
 		}
 	}
@@ -342,13 +351,27 @@ namespace {
 	}
 
 	if ( ! function_exists( 'apply_filters' ) ) {
-		function apply_filters( string $hook_name, $value ) {
+		/**
+		 * Forwards the extra arguments, and honours each callback's registered
+		 * accepted_args, exactly as WordPress does. A stub that dropped them
+		 * would let a filter with a second parameter pass its tests and then
+		 * receive null in production — the hook fires either way, so nothing
+		 * fails loudly.
+		 */
+		function apply_filters( string $hook_name, $value, ...$args ) {
 			$callbacks = $GLOBALS['_filters'][ $hook_name ] ?? [];
 			ksort( $callbacks );
 
 			foreach ( $callbacks as $at_priority ) {
-				foreach ( $at_priority as $callback ) {
-					$value = call_user_func( $callback, $value );
+				foreach ( $at_priority as $registered ) {
+					$callback = is_array( $registered ) && isset( $registered['callback'] )
+						? $registered['callback']
+						: $registered;
+					$accepted = is_array( $registered ) && isset( $registered['accepted_args'] )
+						? (int) $registered['accepted_args']
+						: 1;
+					$passed   = array_slice( array_merge( array( $value ), $args ), 0, max( 1, $accepted ) );
+					$value    = call_user_func_array( $callback, $passed );
 				}
 			}
 
@@ -556,7 +579,10 @@ namespace {
 	// empty registry the behaviour is identical to the old stubs.
 	if ( ! function_exists( 'add_filter' ) ) {
 		function add_filter( string $tag, $function_to_add, int $priority = 10, int $accepted_args = 1 ): bool {
-			$GLOBALS['_filters'][ $tag ][ $priority ][] = $function_to_add;
+			$GLOBALS['_filters'][ $tag ][ $priority ][] = array(
+				'callback'      => $function_to_add,
+				'accepted_args' => $accepted_args,
+			);
 			return true;
 		}
 	}
@@ -564,7 +590,10 @@ namespace {
 	if ( ! function_exists( 'remove_filter' ) ) {
 		function remove_filter( string $tag, $function_to_remove, int $priority = 10 ): bool {
 			foreach ( $GLOBALS['_filters'][ $tag ][ $priority ] ?? [] as $i => $registered ) {
-				if ( $registered === $function_to_remove ) {
+				$callback = is_array( $registered ) && isset( $registered['callback'] )
+					? $registered['callback']
+					: $registered;
+				if ( $callback === $function_to_remove ) {
 					unset( $GLOBALS['_filters'][ $tag ][ $priority ][ $i ] );
 					return true;
 				}
@@ -1192,6 +1221,7 @@ namespace {
 			'Elementor_MCP_Widget_Loader'          => 'includes/class-widget-loader.php',
 			'Elementor_MCP_Widget_Generator'       => 'includes/class-widget-generator.php',
 			// SiteAgent governance bridge
+			'Elementor_MCP_Call_Context'           => 'includes/class-call-context.php',
 			'Elementor_MCP_Governance'             => 'includes/class-governance.php',
 		];
 
@@ -1336,9 +1366,14 @@ namespace {
 		class WP_REST_Request {
 			private $params;
 			private $json;
-			public function __construct( array $params = array(), $json = null ) {
+			private $route;
+			public function __construct( array $params = array(), $json = null, string $route = '' ) {
 				$this->params = $params;
 				$this->json   = $json;
+				$this->route  = $route;
+			}
+			public function get_route(): string {
+				return $this->route;
 			}
 			public function get_param( string $key ) {
 				return $this->params[ $key ] ?? null;

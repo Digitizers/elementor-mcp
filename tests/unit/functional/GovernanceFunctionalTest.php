@@ -42,6 +42,12 @@ class GovernanceFunctionalTest extends TestCase {
 
 	protected function tearDown(): void {
 		unset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] );
+		// The kit doubles this class installs answer get_id() and nothing else;
+		// suites that hand their kit to code calling get_settings() fatal on one
+		// left behind. Latent until a second class started setting it too, and
+		// visible only in some orders — which is why it is cleared here rather
+		// than worked around there.
+		unset( $GLOBALS['_active_kit'] );
 		\Elementor_MCP_Governance::reset_state();
 		parent::tearDown();
 	}

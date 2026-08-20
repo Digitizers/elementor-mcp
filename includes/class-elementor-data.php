@@ -807,11 +807,13 @@ class Elementor_MCP_Data {
 	 * control value. The unsure case must fail toward preserving data.
 	 *
 	 * @since 1.27.0
+	 * @since 1.28.1 Public — the custom-CSS ability needs the same verdict to
+	 *                decide between a style variant and `settings.custom_css`.
 	 *
 	 * @param array $item Element structure.
 	 * @return bool
 	 */
-	private static function is_atomic_element( array $item ): bool {
+	public static function is_atomic_element( array $item ): bool {
 		foreach ( array( 'styles', 'editor_settings' ) as $atomic_key ) {
 			if ( array_key_exists( $atomic_key, $item ) && is_array( $item[ $atomic_key ] ) ) {
 				return true;

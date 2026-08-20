@@ -418,4 +418,161 @@ class Elementor_MCP_Atomic_Styles {
 		}
 		$element['styles'][ $class_id ] = $style_def;
 	}
+
+	/**
+	 * Builds a `styles`-map patch that carries per-element custom CSS on an
+	 * atomic element.
+	 *
+	 * Atomic elements never read `settings.custom_css` — that is the Elementor
+	 * 3.x Pro control. Their CSS comes from `styles[].variants[]`, compiled by
+	 * the atomic CSS engine, and a variant carries free-form CSS in
+	 * `custom_css.raw`.
+	 *
+	 * **That value must be base64.** Elementor validates it with
+	 * `Utils::decode_string()` = `base64_decode( $raw, true )` and sanitizes
+	 * with the same call (`modules/atomic-widgets/parsers/style-parser.php`).
+	 * A plain CSS string contains characters outside the base64 alphabet, so
+	 * strict decoding returns `false` — which is not `null`, so validation
+	 * passes — and the rule is then dropped to nothing. Success is reported,
+	 * the data is stored, and no CSS renders (field report #4, parts 1.1/1.3).
+	 *
+	 * Reuses the element's existing local class when it has one, so repeated
+	 * calls don't pile up classes, and edits the desktop/no-state variant.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array  $element The target element (read-only).
+	 * @param string $css     Raw CSS to store.
+	 * @param bool   $replace Replace existing custom CSS instead of appending.
+	 * @return array { class_id: string, styles: array, css: string } — `styles`
+	 *               is the patch to hand to update_element_settings(), and
+	 *               `css` the resulting decoded CSS.
+	 */
+	public static function build_custom_css_patch( array $element, string $css, bool $replace = false ): array {
+		$element_id = isset( $element['id'] ) ? (string) $element['id'] : '';
+		$styles     = ( isset( $element['styles'] ) && is_array( $element['styles'] ) ) ? $element['styles'] : array();
+
+		// Reuse this element's own local class if it already has one; global
+		// (`g-`) classes are shared and must not be rewritten from here.
+		//
+		// Prefer the class that ALREADY carries custom CSS. Picking merely the
+		// first id-matching class would, on an element with several local
+		// classes, edit an unrelated one — and because the styles patch is
+		// deep-merged, the original class keeps its CSS, so `replace = true`
+		// would add a rule instead of replacing one.
+		$owner    = '';
+		$fallback = '';
+		foreach ( $styles as $existing_id => $existing_def ) {
+			$existing_id = (string) $existing_id;
+			if ( '' === $element_id || 0 !== strpos( $existing_id, 'e-' . $element_id . '-' ) ) {
+				continue;
+			}
+
+			if ( '' === $fallback ) {
+				$fallback = $existing_id;
+			}
+
+			if ( '' === $owner && is_array( $existing_def ) && null !== self::find_base_variant_index( $existing_def, true ) ) {
+				$owner = $existing_id;
+			}
+		}
+
+		$class_id = $owner ?: $fallback;
+
+		if ( '' === $class_id ) {
+			$class_id = self::mint_class_id( $element_id );
+		}
+
+		$style_def = isset( $styles[ $class_id ] ) && is_array( $styles[ $class_id ] )
+			? $styles[ $class_id ]
+			: self::create_local_class( $element_id, array() )['style_def'];
+
+		$style_def['id'] = $class_id;
+
+		$variants = ( isset( $style_def['variants'] ) && is_array( $style_def['variants'] ) )
+			? array_values( $style_def['variants'] )
+			: array();
+
+		// Target the base (desktop / no-state) variant — the one
+		// create_local_class() makes and where a plain `selector{...}` rule
+		// belongs.
+		$index = self::find_base_variant_index( array( 'variants' => $variants ) );
+
+		if ( null === $index ) {
+			$variants[] = array(
+				'meta'       => array(
+					'breakpoint' => 'desktop',
+					'state'      => null,
+				),
+				'props'      => array(),
+				'custom_css' => null,
+			);
+			$index      = count( $variants ) - 1;
+		}
+
+		$existing_raw = $variants[ $index ]['custom_css']['raw'] ?? '';
+		$existing_css = '';
+		if ( is_string( $existing_raw ) && '' !== $existing_raw ) {
+			$decoded      = base64_decode( $existing_raw, true );
+			$existing_css = is_string( $decoded ) ? $decoded : '';
+		}
+
+		$new_css = $replace ? $css : trim( $existing_css . "\n" . $css );
+
+		$variants[ $index ]['custom_css'] = array( 'raw' => base64_encode( $new_css ) );
+
+		$style_def['variants'] = $variants;
+
+		return array(
+			'class_id' => $class_id,
+			'styles'   => array( $class_id => $style_def ),
+			'css'      => $new_css,
+		);
+	}
+
+	/**
+	 * Index of a style def's base (desktop / no-state) variant.
+	 *
+	 * A base variant is stored with `breakpoint = 'desktop'`, but a persisted
+	 * one may carry `null` — this fork's own reads fold the two together
+	 * (`norm_breakpoint()` in the global-classes writer, which documents the
+	 * same equivalence). Matching only the literal 'desktop' would miss a
+	 * null-breakpoint base and append a SECOND base variant, leaving the
+	 * original rule in place: a `replace` that doesn't replace.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array $style_def       A style definition (or `[ 'variants' => [...] ]`).
+	 * @param bool  $require_css     Only match a base variant that already holds custom CSS.
+	 * @return int|null Index into the variants list, or null when absent.
+	 */
+	private static function find_base_variant_index( array $style_def, bool $require_css = false ): ?int {
+		$variants = ( isset( $style_def['variants'] ) && is_array( $style_def['variants'] ) )
+			? array_values( $style_def['variants'] )
+			: array();
+
+		foreach ( $variants as $i => $variant ) {
+			if ( ! is_array( $variant ) ) {
+				continue;
+			}
+
+			$breakpoint = $variant['meta']['breakpoint'] ?? null;
+			$state      = $variant['meta']['state'] ?? null;
+
+			$is_base = ( null === $breakpoint || '' === $breakpoint || 'desktop' === $breakpoint )
+				&& ( null === $state || '' === $state );
+
+			if ( ! $is_base ) {
+				continue;
+			}
+
+			if ( $require_css && empty( $variant['custom_css']['raw'] ) ) {
+				continue;
+			}
+
+			return (int) $i;
+		}
+
+		return null;
+	}
 }

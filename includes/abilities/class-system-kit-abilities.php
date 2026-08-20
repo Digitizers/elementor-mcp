@@ -150,7 +150,7 @@ class Elementor_MCP_System_Kit_Abilities {
 			'elementor-mcp/replace-system-colors',
 			array(
 				'label'               => __( 'Replace System Colors', 'elementor-mcp' ),
-				'description'         => __( 'Replaces all four Elementor system color slots (primary, secondary, text, accent) atomically. All four must be provided. Propagates site-wide via global color tokens.', 'elementor-mcp' ),
+				'description'         => __( 'Sets the site\'s brand palette: replaces all four Elementor SYSTEM color slots (primary, secondary, text, accent) atomically — the roles every widget\'s Global Color picker references. All four must be provided. Propagates site-wide via global color tokens. The name reads destructive, but this is the tool you want when setting up a kit; update-global-colors only appends to the custom palette and leaves these roles untouched.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_replace_system_colors' ),
 				'permission_callback' => array( $this, 'check_manage_permission' ),
@@ -211,7 +211,7 @@ class Elementor_MCP_System_Kit_Abilities {
 			'elementor-mcp/replace-system-typography',
 			array(
 				'label'               => __( 'Replace System Typography', 'elementor-mcp' ),
-				'description'         => __( 'Replaces all four Elementor system typography slots atomically with a full per-field reset. All four must be provided. Use master-file typography shape (font_family, font_weight, font_size {size,unit}, etc.).', 'elementor-mcp' ),
+				'description'         => __( 'Sets the site\'s brand typography: replaces all four Elementor SYSTEM typography slots atomically with a full per-field reset — the slots widgets reference by default. All four must be provided. Use master-file typography shape (font_family, font_weight, font_size {size,unit}, etc.). Reach for this when setting up a kit; update-global-typography only appends to the custom list.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_replace_system_typography' ),
 				'permission_callback' => array( $this, 'check_manage_permission' ),

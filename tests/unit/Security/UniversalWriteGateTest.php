@@ -208,6 +208,91 @@ class UniversalWriteGateTest extends TestCase {
 		);
 	}
 
+	public function test_a_grant_is_only_accepted_when_something_will_verify_it(): void {
+		// This gate deliberately does not verify — that happens once,
+		// downstream, because verifying twice burns the single-use nonce. Which
+		// makes "is there a downstream" load-bearing: with the governance
+		// wrapper absent, nothing ever calls the verifier, and accepting a
+		// non-empty header would admit a fabricated one. The verifier class
+		// merely existing is not the same question, and the loader treats
+		// class-governance.php as optional.
+		$this->assertSame(
+			'no_verifier',
+			\Elementor_MCP_Call_Context::write_permission_decision( false, false, true ),
+			'A header nothing will check is not a credential.'
+		);
+	}
+
+	public function test_the_gate_asks_whether_verification_will_run_not_whether_a_class_exists(): void {
+		// The decision function refuses correctly when told there is no
+		// downstream — but that only helps if the gate feeds it the right fact.
+		// `class_exists( 'Aura_Worker_Grant' )` is the WRONG one: the verifier
+		// class can be present while the governance wrapper that calls it is
+		// not, and then a fabricated header passes on the strength of being
+		// non-empty. A suite cannot unload a class to catch that at runtime, so
+		// the wiring is pinned at the source.
+		$source = file_get_contents( dirname( __DIR__, 3 ) . '/includes/class-call-context.php' );
+		$gate   = substr(
+			$source,
+			strpos( $source, 'public static function write_permission_gate()' ),
+			1200
+		);
+
+		$this->assertStringContainsString( 'self::grant_verification_will_run()', $gate );
+		$this->assertStringNotContainsString(
+			"class_exists( '\\\\Aura_Worker_Grant' )",
+			$gate,
+			'The verifier class existing is not the same question as it being called.'
+		);
+	}
+
+	public function test_verification_downstream_needs_the_wrapper_to_be_active(): void {
+		// In this suite SiteAgent's stubs are present, so the answer is true —
+		// which is what makes the grant-accepted test above meaningful rather
+		// than vacuous.
+		$this->assertTrue( \Elementor_MCP_Call_Context::grant_verification_will_run() );
+		$this->assertTrue( \Elementor_MCP_Governance::is_active() );
+	}
+
+	public function test_the_documented_exposure_opt_out_is_honoured(): void {
+		// `elementor_mcp_expose_writes_to_foreign_mcp` is a published contract
+		// meaning "I want this write reachable from other MCP servers". Gating
+		// it anyway would leave the operator with a tool that is advertised,
+		// reported as exposed, and refuses every call — a filter that silently
+		// stops working is worse than one never offered.
+		add_filter( 'elementor_mcp_expose_writes_to_foreign_mcp', static fn() => true );
+		$this->arrive_on( '/mcp/angie' );
+		$args = $this->write_args( $inner_ran );
+
+		$gated = \Elementor_MCP_Call_Context::gate_write_permission( $args );
+
+		$this->assertSame( $args, $gated, 'Not even wrapped — the operator asked for this.' );
+	}
+
+	public function test_the_opt_out_is_read_per_ability(): void {
+		// The shield consults the same filter with the same args, so a caller
+		// that opens one write tool and closes the rest gets exactly that from
+		// both. Drifting here would advertise a tool the gate then refuses.
+		add_filter(
+			'elementor_mcp_expose_writes_to_foreign_mcp',
+			static fn( $expose, $args ) => 'Update element' === ( $args['label'] ?? '' ) ? true : $expose,
+			10,
+			2
+		);
+		$this->arrive_on( '/mcp/angie' );
+
+		$opened          = $this->write_args();
+		$closed          = $this->write_args();
+		$closed['label'] = 'Delete element';
+
+		$this->assertSame( $opened, \Elementor_MCP_Call_Context::gate_write_permission( $opened ) );
+		$this->assertNotSame(
+			$closed['permission_callback'],
+			\Elementor_MCP_Call_Context::gate_write_permission( $closed )['permission_callback'],
+			'The one the operator did not open is still gated.'
+		);
+	}
+
 	public function test_the_decision_covers_every_combination(): void {
 		$decide = array( \Elementor_MCP_Call_Context::class, 'write_permission_decision' );
 

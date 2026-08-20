@@ -576,6 +576,55 @@ class ForeignMcpTransportTest extends TestCase {
 		$this->assertFalse( \Elementor_MCP_Server_Info_Abilities::execution_guard_active( false, true, true ) );
 	}
 
+	public function test_a_fork_only_site_is_reported_as_closed_not_as_exposed(): void {
+		// Before 1.31.0 the absence of SiteAgent meant no execution-side check at
+		// all, and the report said a metadata-ignoring server "would not be
+		// stopped a second time". The transport gate now stops it at the
+		// permission stage on every site, so that sentence described a closed
+		// site as open — the exact false security state this tool exists to
+		// prevent. The two guards are reported separately now.
+		$info = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertTrue(
+			$info['write_exposure']['foreign_writes_refused_at_permission'],
+			'The transport gate needs only the context class, which is loaded here.'
+		);
+		$this->assertArrayHasKey( 'governed_writes_require_grant_off_own_server', $info['write_exposure'] );
+		$this->assertEmpty(
+			array_filter(
+				$info['notes'],
+				static fn( $note ) => false !== strpos( $note, 'would not be stopped a second time' )
+			),
+			'That sentence is gone; it was only ever true before the gate existed.'
+		);
+	}
+
+	public function test_a_fork_only_site_is_described_as_closed_not_as_exposed(): void {
+		// The wording this replaced said a metadata-ignoring server "would not be
+		// stopped a second time" — which, once the transport gate exists,
+		// describes a closed site as open. Injected state: a suite with
+		// SiteAgent's stubs loaded cannot reach the fork-only combination.
+		$notes = \Elementor_MCP_Server_Info_Abilities::guard_notes( true, false );
+
+		$this->assertCount( 1, $notes );
+		$this->assertStringContainsString( 'refused outright at the permission stage', $notes[0] );
+		$this->assertStringNotContainsString( 'would not be stopped a second time', $notes[0] );
+	}
+
+	public function test_a_fully_guarded_site_gets_no_note_at_all(): void {
+		$this->assertSame( array(), \Elementor_MCP_Server_Info_Abilities::guard_notes( true, true ) );
+	}
+
+	public function test_a_missing_transport_gate_is_the_only_cause_reported(): void {
+		// One cause per state, as elsewhere in this report: with the gate not
+		// running, the grant-verification detail is noise on top of the thing
+		// the operator must fix.
+		$notes = \Elementor_MCP_Server_Info_Abilities::guard_notes( false, false );
+
+		$this->assertCount( 1, $notes );
+		$this->assertStringContainsString( 'transport gate is NOT running', $notes[0] );
+	}
+
 	public function test_grant_status_is_reported_from_the_live_state(): void {
 		// The suite stubs SiteAgent, so the guard is genuinely active here — this
 		// pins the wiring between the predicate and the report.

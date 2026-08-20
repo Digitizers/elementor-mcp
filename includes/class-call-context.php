@@ -350,7 +350,7 @@ class Elementor_MCP_Call_Context {
 	public static function write_permission_gate() {
 		$reason = self::write_permission_decision(
 			self::is_trusted_for_writes(),
-			class_exists( '\\Aura_Worker_Grant' ),
+			self::grant_verification_will_run(),
 			'' !== ( isset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] ) ? (string) $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] : '' )
 		);
 		if ( null === $reason ) {
@@ -393,7 +393,7 @@ class Elementor_MCP_Call_Context {
 	 * @since 1.31.0
 	 *
 	 * @param bool $trusted            Whether the transport may write on its own authority.
-	 * @param bool $verifier_available Whether SiteAgent's grant verifier is installed.
+	 * @param bool $verifier_available Whether a grant presented here will actually be verified downstream.
 	 * @param bool $grant_present      Whether a grant header was sent.
 	 * @return string|null Refusal reason, or null to allow.
 	 */
@@ -402,16 +402,41 @@ class Elementor_MCP_Call_Context {
 			return null;
 		}
 		if ( ! $verifier_available ) {
-			// Nothing on this site could validate a grant, so a foreign write is
-			// refused outright rather than waved through on an unverifiable
-			// header. This is the fork-only case: no gateway, no approval
-			// possible, no reason to accept the attempt.
+			// Nothing downstream will check the grant, so accepting one here
+			// would let a fabricated header through on the strength of being
+			// non-empty. Refuse outright instead. This covers the fork-only case
+			// AND the partial install where the verifier class exists but the
+			// governance wrapper that calls it does not.
 			return 'no_verifier';
 		}
 		if ( ! $grant_present ) {
 			return 'no_grant';
 		}
 		return null;
+	}
+
+	/**
+	 * Will a grant presented at this gate actually be verified later?
+	 *
+	 * This gate deliberately does not verify — that happens once, downstream,
+	 * because verifying twice burns the grant's single-use nonce. Which makes
+	 * "is there a downstream" the load-bearing question: if the governance
+	 * wrapper is absent, nothing ever calls `Aura_Worker_Grant::verify()`, and
+	 * accepting a non-empty header here would admit a fabricated one.
+	 *
+	 * So the verifier class existing is not enough. `wrap_ability()` returns
+	 * abilities untouched without SiteAgent's snapshot engine, and the loader
+	 * treats `class-governance.php` itself as optional — a quarantined file
+	 * would otherwise turn this gate from a lock into a doorbell.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @return bool
+	 */
+	public static function grant_verification_will_run(): bool {
+		return class_exists( '\\Aura_Worker_Grant' )
+			&& class_exists( 'Elementor_MCP_Governance' )
+			&& Elementor_MCP_Governance::is_active();
 	}
 
 	/**
@@ -451,6 +476,17 @@ class Elementor_MCP_Call_Context {
 	 */
 	public static function gate_write_permission( array $args ): array {
 		if ( ! self::ability_writes( $args ) ) {
+			return $args;
+		}
+
+		// Honour the documented escape hatch. `elementor_mcp_expose_writes_to_foreign_mcp`
+		// is a published contract meaning "I want this write reachable from other
+		// MCP servers"; gating it here anyway would leave the operator with a
+		// tool that is advertised, appears in `server-info` as exposed, and then
+		// refuses every call — a filter that silently stops working is worse
+		// than one that was never offered. The same filter, with the same args,
+		// decides both, so the two cannot drift.
+		if ( apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args ) ) {
 			return $args;
 		}
 

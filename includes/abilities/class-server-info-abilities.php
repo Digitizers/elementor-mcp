@@ -149,6 +149,39 @@ class Elementor_MCP_Server_Info_Abilities {
 	}
 
 	/**
+	 * What to tell an operator about the two write guards, given their state.
+	 *
+	 * Pure, and takes the state as arguments, because both facts come from
+	 * `class_exists()` — the fork-only combination, which is the one this
+	 * wording was corrected for, is unreachable from inside a suite that has
+	 * SiteAgent's stubs loaded.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param bool $transport_gate_active  Foreign writes refused at the permission stage.
+	 * @param bool $execution_guard_active Grants verified at execute time (needs SiteAgent).
+	 * @return string[]
+	 */
+	public static function guard_notes( bool $transport_gate_active, bool $execution_guard_active ): array {
+		if ( ! $transport_gate_active ) {
+			return array(
+				__( 'The transport gate is NOT running: Elementor_MCP_Call_Context did not load, so a foreign MCP server is not refused at the permission stage. Reinstall the plugin.', 'elementor-mcp' ),
+			);
+		}
+		if ( ! $execution_guard_active ) {
+			// Not a warning: a fork-only site IS closed. The transport gate
+			// refuses foreign writes at the permission stage. What it cannot do
+			// is let an APPROVED one through, because nothing here can verify a
+			// grant. The note this replaced said such a server "would not be
+			// stopped a second time", which described a closed site as open.
+			return array(
+				__( 'SiteAgent is not installed, so no approval grant can be verified on this site. Foreign MCP servers are refused outright at the permission stage rather than being able to present a grant — writes work from this plugin\'s own MCP server, WP-CLI and the admin, and nowhere else.', 'elementor-mcp' ),
+			);
+		}
+		return array();
+	}
+
+	/**
 	 * Is the execution-side guard actually running?
 	 *
 	 * It lives inside the governance wrapper, and `wrap_ability()` returns every
@@ -444,9 +477,16 @@ class Elementor_MCP_Server_Info_Abilities {
 			$governance_loaded && Elementor_MCP_Governance::is_active()
 		);
 		$writes_shielded        = self::writes_are_shielded( $guards_loaded, count( $exposed_writes ) );
+		// Two different guards, and conflating them is how this report starts
+		// lying. The TRANSPORT gate runs at the permission stage on every site
+		// (1.31.0) and stops a foreign caller outright. The GRANT check runs at
+		// execute time inside the governance wrapper, so it needs SiteAgent —
+		// and it is the one that lets an approved foreign call through.
+		$transport_gate_active  = $guards_loaded;
 		$write_exposure         = array(
 			'writes_hidden_from_other_mcp_servers' => $writes_shielded,
 			'exposed_write_tools'                  => $exposed_writes,
+			'foreign_writes_refused_at_permission' => $transport_gate_active,
 			'governed_writes_require_grant_off_own_server' => $execution_guard_active,
 			'own_server_route'                     => $guards_loaded
 				? Elementor_MCP_Call_Context::own_server_route()
@@ -457,9 +497,7 @@ class Elementor_MCP_Server_Info_Abilities {
 
 		$notes = array_merge( $notes, self::exposure_notes( $guards_loaded, $exposed_writes ) );
 
-		if ( $guards_loaded && ! $execution_guard_active ) {
-			$notes[] = __( 'The transport check on governed writes is NOT running: it lives in the governance wrapper, which only engages when SiteAgent is installed. Write tools are still withheld from other MCP servers at registration, but a server that ignores that metadata would not be stopped a second time.', 'elementor-mcp' );
-		}
+		$notes = array_merge( $notes, self::guard_notes( $transport_gate_active, $execution_guard_active ) );
 
 		if ( ! empty( $servers_with_us ) ) {
 			// Established, not inferred: these servers name our abilities in their

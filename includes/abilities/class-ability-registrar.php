@@ -182,6 +182,11 @@ class Elementor_MCP_Ability_Registrar {
 		// documented hook. Counting only our pre-filter names would then report
 		// more exposed than registered and make the suppressed arithmetic
 		// nonsense, so anything that came out counts as registered too.
+		// Deduplicate both: two integrations can append the same registered
+		// tool, and the adapter stores tools by name — so counting duplicates
+		// would report more exposed than exist.
+		$this->ability_names = array_values( array_unique( $this->ability_names ) );
+
 		self::$registered_names = array_values( array_unique( array_merge( $before, $this->ability_names ) ) );
 		self::$exposed_names    = $this->ability_names;
 
@@ -199,9 +204,18 @@ class Elementor_MCP_Ability_Registrar {
 	protected function register_groups(): void {
 		// Always first, and never suppressible: when everything else is
 		// withheld this is the tool that says so.
-		$info = new Elementor_MCP_Server_Info_Abilities();
-		$info->register();
-		$this->ability_names = array_merge( $this->ability_names, $info->get_ability_names() );
+		//
+		// GUARDED, because the loader treats every source file as optional (a
+		// host malware scanner quarantining one is upstream #100, the reason
+		// elementor_mcp_require() exists). An unguarded `new` here would throw
+		// before any other group had registered, and register_all()'s catch
+		// would then keep nothing at all — turning a missing diagnostic into
+		// total tool loss, which is the opposite of the point.
+		if ( class_exists( 'Elementor_MCP_Server_Info_Abilities' ) ) {
+			$info = new Elementor_MCP_Server_Info_Abilities();
+			$info->register();
+			$this->ability_names = array_merge( $this->ability_names, $info->get_ability_names() );
+		}
 
 		// Phase 1: Query/discovery abilities (P0 — read-only).
 		$query = new Elementor_MCP_Query_Abilities( $this->data, $this->schema_generator );

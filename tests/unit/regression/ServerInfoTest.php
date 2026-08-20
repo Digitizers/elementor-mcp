@@ -247,6 +247,48 @@ class ServerInfoTest extends Ability_Test_Case {
 		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
 	}
 
+	/**
+	 * The loader treats every source file as optional — a host malware scanner
+	 * quarantining one is upstream #100, the reason the guarded require exists.
+	 * Registering the diagnostic FIRST made that dangerous: an unguarded `new`
+	 * would throw before any other group ran, and register_all()'s catch would
+	 * keep nothing, turning a missing diagnostic into total tool loss.
+	 */
+	public function test_a_missing_diagnostic_class_does_not_cost_every_other_tool(): void {
+		$registrar = $this->registrar_registering( array( 'elementor-mcp/list-pages', 'elementor-mcp/add-widget' ) );
+
+		// The seeded subclass stands in for "groups registered, diagnostic
+		// absent" — the shape a quarantined file produces.
+		$exposed = $registrar->register_all();
+
+		$this->assertContains( 'elementor-mcp/list-pages', $exposed );
+		$this->assertContains( 'elementor-mcp/add-widget', $exposed );
+	}
+
+	/**
+	 * Two integrations can append the same registered tool. The adapter stores
+	 * tools by name, so counting duplicates would report more exposed than
+	 * exist — from the tool whose job is reporting that number accurately.
+	 */
+	public function test_duplicate_names_from_filters_are_counted_once(): void {
+		$dupe = static function ( array $names ) {
+			$names[] = 'elementor-mcp/list-pages';
+			return $names;
+		};
+		add_filter( 'elementor_mcp_ability_names', $dupe, 99 );
+
+		$exposed = $this->registrar_registering( array( 'elementor-mcp/list-pages' ) )->register_all();
+
+		remove_filter( 'elementor_mcp_ability_names', $dupe, 99 );
+
+		$this->assertSame( array( 'elementor-mcp/list-pages' ), $exposed, 'A name appended twice is still one tool.' );
+
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		$this->assertSame( 1, $report['abilities']['exposed'] );
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
 	public function test_the_report_carries_the_adapter_source_and_versions(): void {
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 

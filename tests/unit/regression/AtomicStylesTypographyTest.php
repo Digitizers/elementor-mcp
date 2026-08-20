@@ -41,13 +41,27 @@ class AtomicStylesTypographyTest extends TestCase {
 		$this->assertSame( 'px', $props['letter-spacing']['value']['unit'] );
 	}
 
+	/**
+	 * Regression — field report #4, part 3.
+	 *
+	 * `font-family` was emitted as a `string` prop. Elementor types it as
+	 * Font_Family_Prop_Type (key `font-family`), and the atomic CSS engine
+	 * silently drops props whose $$type doesn't match the style schema — so
+	 * every font set through an MCP tool was discarded without an error.
+	 */
+	public function test_font_family_uses_its_own_prop_type_not_string(): void {
+		$props = \Elementor_MCP_Atomic_Styles::build_typography_props( [ 'font_family' => 'Hanken Grotesk' ] );
+		$this->assertSame( 'font-family', $props['font-family']['$$type'] );
+		$this->assertSame( 'Hanken Grotesk', $props['font-family']['value'] );
+	}
+
 	public function test_string_props_map_to_string_type(): void {
 		$props = \Elementor_MCP_Atomic_Styles::build_typography_props( [
 			'font_family' => 'Rubik',
 			'font_weight' => '700',
 			'text_align'  => 'center',
 		] );
-		$this->assertSame( 'string', $props['font-family']['$$type'] );
+		$this->assertSame( 'font-family', $props['font-family']['$$type'] );
 		$this->assertSame( 'Rubik', $props['font-family']['value'] );
 		$this->assertSame( '700', $props['font-weight']['value'] );
 		$this->assertSame( 'center', $props['text-align']['value'] );

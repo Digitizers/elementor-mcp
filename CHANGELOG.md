@@ -2,7 +2,7 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
-## Unreleased
+## 1.31.0 — 2026-08-20
 
 - New (**security**): **the transport guard no longer depends on SiteAgent being installed.** 1.30.0 shipped two guards, and neither covered a fork-only site on its own. The registration shield (`meta.mcp.type = 'private'`) works only for as long as a co-installed server keeps honouring that convention — Angie 1.1.12 compares the raw value, but the bundled adapter's own helper coerces anything outside `tool|resource|prompt` back to `tool`, so if Angie ever adopts it the shield silently reopens. The execution guard closes that, but it lives inside `Governance::run_governed()`, and `wrap_ability()` returns every ability untouched when SiteAgent's snapshot engine is absent. On a site running this fork **without** SiteAgent — a configuration this plugin is meant to support — the entire protection therefore rested on another plugin's continued good behaviour. A write-capable ability's `permission_callback` is now wrapped with a transport check that runs on **every** site: a caller that cannot present gateway context is refused before the ability is reached, with a 403 rather than a fatal.
   - **Presence, not verification.** The grant is checked for existence here and verified once, later, by the governance layer. Verifying it twice would burn its single-use nonce and reject the second check — the legitimate call would fail on its own approval.

@@ -204,19 +204,13 @@ class Elementor_MCP_Ability_Registrar {
 
 		$registered = array_unique( array_merge( $before, $this->ability_names, $removed_by_settings ) );
 
-		// A callback can also append a typo, or the name of an optional ability
-		// whose registration failed. The adapter resolves tools with
-		// wp_get_ability() and skips what it cannot find, so counting those
-		// would overstate both numbers — from the tool whose job is stating
-		// them accurately.
-		if ( function_exists( 'wp_get_ability' ) ) {
-			$resolves   = static function ( string $name ): bool {
-				return null !== wp_get_ability( $name );
-			};
-			$registered = array_filter( $registered, $resolves );
-
-			$this->ability_names = array_values( array_filter( $this->ability_names, $resolves ) );
-		}
+		// NOTE: resolvability is deliberately NOT checked here. Registration
+		// runs during wp_abilities_api_init, and another plugin may register
+		// its hook-added ability later in that same action — at priority 20, or
+		// simply after this callback. wp_get_ability() would return null for a
+		// perfectly legitimate name and we would drop it. The report resolves
+		// names when it is generated instead, which is long after every
+		// registration has run.
 
 		self::$registered_names = array_values( $registered );
 		self::$exposed_names    = $this->ability_names;

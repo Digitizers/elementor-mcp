@@ -106,7 +106,7 @@ class ServerInfoTest extends Ability_Test_Case {
 		$GLOBALS['_options']['elementor_mcp_disabled_tools'] = array( 'elementor-mcp/b', 'elementor-mcp/c' );
 		$exposed = $this->plugin()->filter_disabled_tools( $registered );
 
-		\Elementor_MCP_Ability_Registrar::__set_names_for_test( $registered, $exposed );
+		$this->seed_names( $registered, $exposed );
 
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 
@@ -132,7 +132,7 @@ class ServerInfoTest extends Ability_Test_Case {
 
 		// Our filter removed nothing; something else did.
 		$this->plugin()->filter_disabled_tools( $registered );
-		\Elementor_MCP_Ability_Registrar::__set_names_for_test( $registered, array( 'elementor-mcp/a' ) );
+		$this->seed_names( $registered, array( 'elementor-mcp/a' ) );
 
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 		$notes  = implode( ' ', $report['notes'] );
@@ -150,10 +150,7 @@ class ServerInfoTest extends Ability_Test_Case {
 	}
 
 	public function test_exposed_is_zero_when_the_server_endpoint_is_off(): void {
-		\Elementor_MCP_Ability_Registrar::__set_names_for_test(
-			array( 'elementor-mcp/a', 'elementor-mcp/b' ),
-			array( 'elementor-mcp/a', 'elementor-mcp/b' )
-		);
+		$this->seed_names( array( 'elementor-mcp/a', 'elementor-mcp/b'), array( 'elementor-mcp/a', 'elementor-mcp/b' ) );
 		$GLOBALS['_options'][ \Elementor_MCP_Plugin::OPTION_SERVER_ENABLED ] = '0';
 
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
@@ -167,10 +164,7 @@ class ServerInfoTest extends Ability_Test_Case {
 	}
 
 	public function test_exposed_matches_the_filtered_list_when_the_server_is_on(): void {
-		\Elementor_MCP_Ability_Registrar::__set_names_for_test(
-			array( 'elementor-mcp/a', 'elementor-mcp/b' ),
-			array( 'elementor-mcp/a' )
-		);
+		$this->seed_names( array( 'elementor-mcp/a', 'elementor-mcp/b'), array( 'elementor-mcp/a' ) );
 
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 
@@ -188,6 +182,22 @@ class ServerInfoTest extends Ability_Test_Case {
 	 * @param string[] $names Names the "groups" register.
 	 * @return \Elementor_MCP_Ability_Registrar
 	 */
+	/**
+	 * Seeds the registrar's lists AND the ability lookup, so the seeded names
+	 * resolve the way real registrations do — the report drops names that
+	 * resolve to nothing, because the MCP adapter skips those too.
+	 *
+	 * @param string[] $registered Registered names.
+	 * @param string[] $exposed    Exposed names.
+	 */
+	private function seed_names( array $registered, array $exposed ): void {
+		foreach ( array_merge( $registered, $exposed ) as $name ) {
+			$GLOBALS['_abilities'][ $name ] = (object) array( 'name' => $name );
+		}
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( $registered, $exposed );
+	}
+
 	private function registrar_registering( array $names ) {
 		// The names must actually resolve through wp_get_ability(): the
 		// registrar now drops ones that don't, because the adapter skips them
@@ -355,11 +365,44 @@ class ServerInfoTest extends Ability_Test_Case {
 
 		remove_filter( 'elementor_mcp_ability_names', $typo, 99 );
 
-		$this->assertNotContains( 'elementor-mcp/lst-pages', $exposed, 'The adapter would skip it; the report must not count it.' );
+		// The registrar deliberately does NOT drop it: registration runs during
+		// wp_abilities_api_init and a legitimate name may not resolve yet. The
+		// adapter skips unresolvable names on its own; only the REPORT has to
+		// exclude them, and by then every registration has run.
+		$this->assertContains( 'elementor-mcp/lst-pages', $exposed, 'Registration must not second-guess names that may resolve later.' );
 
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 		$this->assertSame( 1, $report['abilities']['exposed'] );
 		$this->assertSame( 1, $report['abilities']['registered'] );
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
+	/**
+	 * Registration runs during wp_abilities_api_init, and another plugin may
+	 * register its hook-added ability later in that same action. Resolving at
+	 * registration time would discard a perfectly legitimate name; the report
+	 * resolves instead, long after every registration has run.
+	 */
+	public function test_an_ability_registered_after_us_is_not_discarded(): void {
+		$late = static function ( array $names ) {
+			$names[] = 'other-plugin/registers-later';
+			return $names;
+		};
+		add_filter( 'elementor_mcp_ability_names', $late, 99 );
+
+		$exposed = $this->registrar_registering( array( 'elementor-mcp/list-pages' ) )->register_all();
+
+		remove_filter( 'elementor_mcp_ability_names', $late, 99 );
+
+		$this->assertContains( 'other-plugin/registers-later', $exposed, 'A name that has not registered YET must not be dropped at registration time.' );
+
+		// It registers after us, as a priority-20 callback would.
+		$GLOBALS['_abilities']['other-plugin/registers-later'] = (object) array( 'name' => 'other-plugin/registers-later' );
+
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertSame( 2, $report['abilities']['exposed'], 'By report time it resolves, so it counts.' );
 
 		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
 	}

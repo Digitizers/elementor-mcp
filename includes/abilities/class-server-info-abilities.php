@@ -102,8 +102,27 @@ class Elementor_MCP_Server_Info_Abilities {
 	 * @return array
 	 */
 	public function execute_server_info(): array {
-		$registered = Elementor_MCP_Ability_Registrar::get_registered_names();
-		$surviving  = Elementor_MCP_Ability_Registrar::get_exposed_names();
+		// Resolve names HERE, not at registration. A third party may register
+		// its hook-added ability later in the same wp_abilities_api_init action
+		// than this plugin's callback, so checking during registration would
+		// discard a legitimate name. By the time this report is generated every
+		// registration has run — and a name that still resolves to nothing is
+		// one the MCP adapter skips too, so counting it would overstate.
+		$resolves = static function ( array $names ): array {
+			if ( ! function_exists( 'wp_get_ability' ) ) {
+				return $names;
+			}
+
+			return array_values( array_filter(
+				$names,
+				static function ( $name ) {
+					return null !== wp_get_ability( (string) $name );
+				}
+			) );
+		};
+
+		$registered = $resolves( Elementor_MCP_Ability_Registrar::get_registered_names() );
+		$surviving  = $resolves( Elementor_MCP_Ability_Registrar::get_exposed_names() );
 		$suppressed = array_values( array_diff( $registered, $surviving ) );
 
 		// The Connection toggle is a bigger switch than the disabled-tools

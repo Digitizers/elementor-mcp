@@ -238,7 +238,7 @@ class Elementor_MCP_Call_Context {
 	 * @param array $args Ability args (as passed to wp_register_ability()).
 	 * @return array The args, with meta.mcp.type set when the ability writes.
 	 */
-	public static function shield_write_from_foreign_servers( array $args, string $name = '' ): array {
+	public static function shield_write_from_foreign_servers( array $args, string $name = '', ?bool $operator_opted_in = null ): array {
 		if ( ! self::ability_writes( $args ) ) {
 			return $args;
 		}
@@ -256,7 +256,14 @@ class Elementor_MCP_Call_Context {
 		 * @param bool  $expose Whether to leave write tools exposed. Default false.
 		 * @param array $args   The ability args.
 		 */
-		$filter_opens = (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
+		// The decision may be handed in by apply_write_guards(), which asks once
+		// for both guards. Asking again here would ask a DIFFERENT question: by
+		// the time the gate looks, this method has injected `type = private`, so
+		// a filter keyed on meta.mcp.type answers about a different ability than
+		// the one it was first shown.
+		$filter_opens = null !== $operator_opted_in
+			? $operator_opted_in
+			: (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
 		// An ability that already declares a type keeps it either way: the
 		// declaration is the author's, and 'resource'/'prompt' are equally not
 		// 'tool' for this purpose. Which means the filter cannot expose such an
@@ -440,6 +447,62 @@ class Elementor_MCP_Call_Context {
 	}
 
 	/**
+	 * Apply both write guards to an ability, from a single decision.
+	 *
+	 * The shield and the permission gate answer to the same operator opt-out,
+	 * and the opt-out is evaluated exactly **once**, here, before either has
+	 * touched the args. That ordering is the point: the shield injects
+	 * `meta.mcp.type = 'private'`, so a filter keyed on that meta sees a
+	 * different ability afterwards and can legitimately answer differently.
+	 * Asking twice let a callback decline to expose an untyped ability and then
+	 * accept the plugin-injected one — suppressing the gate on precisely the
+	 * ability it had refused to open.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param array  $args Ability args.
+	 * @param string $name Ability name (recorded for diagnostics).
+	 * @return array
+	 */
+	public static function apply_write_guards( array $args, string $name = '' ): array {
+		if ( ! self::ability_writes( $args ) ) {
+			return $args;
+		}
+
+		/**
+		 * Filters whether this plugin's write tools stay visible to MCP servers
+		 * other than this plugin's own. Evaluated once per ability.
+		 *
+		 * @since 1.30.0
+		 *
+		 * @param bool  $expose Whether to leave write tools exposed. Default false.
+		 * @param array $args   The ability args, as registered.
+		 */
+		$opted_in = (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
+
+		$args = self::shield_write_from_foreign_servers( $args, $name, $opted_in );
+		return self::gate_write_permission( $args, $opted_in );
+	}
+
+	/**
+	 * Is this a dry-run preview — a preview-capable tool invoked with `apply`
+	 * falsy, which writes nothing?
+	 *
+	 * Shared with the governance layer so the permission gate and the execute
+	 * guard cannot disagree about what a preview is. They already share the
+	 * definition of a write for the same reason.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param bool  $preview_capable Whether the tool's schema declares `apply`.
+	 * @param mixed $input           The ability input.
+	 * @return bool
+	 */
+	public static function is_preview_call( bool $preview_capable, $input ): bool {
+		return $preview_capable && ( ! is_array( $input ) || empty( $input['apply'] ) );
+	}
+
+	/**
 	 * Does this ability declare that it writes?
 	 *
 	 * One definition, shared by the registration shield, the permission gate and
@@ -474,7 +537,7 @@ class Elementor_MCP_Call_Context {
 	 * @param array $args Ability args.
 	 * @return array
 	 */
-	public static function gate_write_permission( array $args ): array {
+	public static function gate_write_permission( array $args, ?bool $operator_opted_in = null ): array {
 		if ( ! self::ability_writes( $args ) ) {
 			return $args;
 		}
@@ -484,15 +547,38 @@ class Elementor_MCP_Call_Context {
 		// MCP servers"; gating it here anyway would leave the operator with a
 		// tool that is advertised, appears in `server-info` as exposed, and then
 		// refuses every call — a filter that silently stops working is worse
-		// than one that was never offered. The same filter, with the same args,
-		// decides both, so the two cannot drift.
-		if ( apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args ) ) {
+		// than one that was never offered.
+		//
+		// The answer is taken from ONE evaluation, made before the shield
+		// mutates anything (see apply_write_guards). Re-asking here would ask
+		// about an ability that now carries `type = private`, and a filter
+		// keyed on that meta could answer differently — opening the gate on an
+		// ability it had just declined to expose.
+		$opted_in = null !== $operator_opted_in
+			? $operator_opted_in
+			: (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
+		if ( $opted_in ) {
 			return $args;
 		}
 
 		$inner = isset( $args['permission_callback'] ) ? $args['permission_callback'] : null;
+		// A preview-capable tool is one whose schema declares an `apply` flag —
+		// the same signal the governance layer reads.
+		$preview_capable = isset( $args['input_schema']['properties']['apply'] );
 
-		$args['permission_callback'] = static function () use ( $inner ) {
+		$args['permission_callback'] = static function ( $input = null ) use ( $inner, $preview_capable ) {
+			// A dry run writes nothing, so there is nothing for a gateway to
+			// approve — governance exempts exactly this call, and refusing it
+			// here would take the documented preview mode away from foreign
+			// callers (or, on a site with no verifier, from everyone but us).
+			// `WP_Ability::check_permissions()` hands the input to this closure,
+			// which is why it can be asked at all.
+			if ( self::is_preview_call( $preview_capable, $input ) ) {
+				return null === $inner || ! is_callable( $inner )
+					? true
+					: call_user_func_array( $inner, func_get_args() );
+			}
+
 			$gate = self::write_permission_gate();
 			if ( is_wp_error( $gate ) ) {
 				return $gate;

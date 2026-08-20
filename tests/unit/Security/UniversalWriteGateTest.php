@@ -246,6 +246,103 @@ class UniversalWriteGateTest extends TestCase {
 		);
 	}
 
+	public function test_the_opt_out_is_evaluated_once_before_either_guard_mutates_anything(): void {
+		// The shield injects `meta.mcp.type = 'private'`. A filter keyed on that
+		// meta therefore sees a DIFFERENT ability afterwards, and can answer
+		// differently — this callback declines an untyped ability and accepts a
+		// typed one. Asked twice, it closed the shield and then opened the gate,
+		// leaving the write both advertised as private and executable from a
+		// foreign server: the exact combination the gate exists to prevent.
+		$calls = array();
+		add_filter(
+			'elementor_mcp_expose_writes_to_foreign_mcp',
+			static function ( $expose, $args ) use ( &$calls ) {
+				$calls[] = $args['meta']['mcp']['type'] ?? 'none';
+				return isset( $args['meta']['mcp']['type'] );
+			},
+			10,
+			2
+		);
+		$this->arrive_on( '/mcp/angie' );
+
+		$guarded = \Elementor_MCP_Call_Context::apply_write_guards( $this->write_args(), 'x/write' );
+
+		$this->assertSame( array( 'none' ), $calls, 'Asked exactly once, before the shield wrote anything.' );
+		$this->assertSame( 'private', $guarded['meta']['mcp']['type'] ?? null, 'Shield applied…' );
+		$this->assertInstanceOf(
+			\WP_Error::class,
+			call_user_func( $guarded['permission_callback'] ),
+			'…and the gate applied too, on the same answer.'
+		);
+	}
+
+	public function test_a_foreign_dry_run_preview_is_allowed_through(): void {
+		// Governance exempts a preview-capable tool invoked with apply falsy —
+		// it writes nothing, so there is nothing to approve. Refusing it here
+		// would take the documented dry-run mode away from foreign callers, and
+		// on a site with no verifier from everyone.
+		$this->arrive_on( '/mcp/angie' );
+		$args                  = $this->write_args( $inner_ran );
+		$args['input_schema']  = array( 'properties' => array( 'apply' => array( 'type' => 'boolean' ) ) );
+
+		$gated = \Elementor_MCP_Call_Context::gate_write_permission( $args );
+
+		$this->assertTrue( call_user_func( $gated['permission_callback'], array( 'apply' => false ) ) );
+		$this->assertTrue( $inner_ran, 'And the capability check still runs.' );
+	}
+
+	public function test_the_same_tool_applying_changes_is_still_refused(): void {
+		$this->arrive_on( '/mcp/angie' );
+		$args                 = $this->write_args( $inner_ran );
+		$args['input_schema'] = array( 'properties' => array( 'apply' => array( 'type' => 'boolean' ) ) );
+
+		$gated  = \Elementor_MCP_Call_Context::gate_write_permission( $args );
+		$result = call_user_func( $gated['permission_callback'], array( 'apply' => true ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertFalse( $inner_ran );
+	}
+
+	public function test_a_tool_without_an_apply_flag_is_never_a_preview(): void {
+		// Otherwise every write called with no input would exempt itself.
+		$this->arrive_on( '/mcp/angie' );
+		$gated = \Elementor_MCP_Call_Context::gate_write_permission( $this->write_args() );
+
+		$this->assertInstanceOf( \WP_Error::class, call_user_func( $gated['permission_callback'], array() ) );
+		$this->assertInstanceOf( \WP_Error::class, call_user_func( $gated['permission_callback'] ) );
+	}
+
+	public function test_the_preview_rule_is_shared_with_governance(): void {
+		// One exempts a preview before the tool is reached, the other exempts it
+		// from needing a grant. A disagreement shows up as a tool that is
+		// permitted and then denied.
+		$this->assertTrue( \Elementor_MCP_Call_Context::is_preview_call( true, array( 'apply' => false ) ) );
+		$this->assertTrue( \Elementor_MCP_Call_Context::is_preview_call( true, null ) );
+		$this->assertFalse( \Elementor_MCP_Call_Context::is_preview_call( true, array( 'apply' => true ) ) );
+		$this->assertFalse( \Elementor_MCP_Call_Context::is_preview_call( false, array() ) );
+
+		$GLOBALS['_aura_snap'] = array(
+			'fail_snapshot'  => false,
+			'fail_restore'   => false,
+			'snapshot_calls' => array(),
+			'restore_calls'  => array(),
+			'seq'            => 0,
+		);
+		$GLOBALS['_aura_grant']          = array( 'enforced' => true, 'verify_result' => true, 'verify_calls' => array() );
+		$GLOBALS['_emcp_require_grants'] = true;
+		\Elementor_MCP_Governance::reset_state();
+
+		$result = \Elementor_MCP_Governance::run_governed(
+			'elementor-mcp/audit-seo',
+			static fn() => array( 'findings' => array() ),
+			array( 'apply' => false ),
+			true
+		);
+
+		$this->assertSame( array( 'findings' => array() ), $result, 'Governance exempts the same call.' );
+		\Elementor_MCP_Governance::reset_state();
+	}
+
 	public function test_verification_downstream_needs_the_wrapper_to_be_active(): void {
 		// In this suite SiteAgent's stubs are present, so the answer is true —
 		// which is what makes the grant-accepted test above meaningful rather

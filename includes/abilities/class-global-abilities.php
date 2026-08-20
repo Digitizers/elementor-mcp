@@ -80,7 +80,7 @@ class Elementor_MCP_Global_Abilities {
 			'elementor-mcp/update-global-colors',
 			array(
 				'label'               => __( 'Update Global Colors', 'elementor-mcp' ),
-				'description'         => __( 'Updates the site-wide color palette in the Elementor kit. Provide an array of color objects with id, title, and color (hex).', 'elementor-mcp' ),
+				'description'         => __( 'Adds or updates entries in the kit\'s CUSTOM color palette (custom_colors). This does NOT touch the four system color slots — primary, secondary, text, accent — which are what every widget\'s Global Color picker references, so setting a brand palette here leaves Elementor\'s stock colours still bound to those roles. Use replace-system-colors for the system slots. Provide an array of color objects with _id, title, and color (hex).', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_update_global_colors' ),
 				'permission_callback' => array( $this, 'check_manage_permission' ),
@@ -205,7 +205,7 @@ class Elementor_MCP_Global_Abilities {
 			'elementor-mcp/update-global-typography',
 			array(
 				'label'               => __( 'Update Global Typography', 'elementor-mcp' ),
-				'description'         => __( 'Updates the site-wide typography settings in the Elementor kit.', 'elementor-mcp' ),
+				'description'         => __( 'Adds or updates entries in the kit\'s CUSTOM typography list (custom_typography). This does NOT touch the system typography slots that widgets reference by default — use replace-system-typography for those.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_update_global_typography' ),
 				'permission_callback' => array( $this, 'check_manage_permission' ),

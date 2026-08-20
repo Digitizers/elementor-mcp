@@ -807,7 +807,7 @@ class Elementor_MCP_Data {
 	 * control value. The unsure case must fail toward preserving data.
 	 *
 	 * @since 1.27.0
-	 * @since 1.28.1 Public — the custom-CSS ability needs the same verdict to
+	 * @since 1.29.0 Public — the custom-CSS ability needs the same verdict to
 	 *                decide between a style variant and `settings.custom_css`.
 	 *
 	 * @param array $item Element structure.

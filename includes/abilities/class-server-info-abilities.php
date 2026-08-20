@@ -17,7 +17,7 @@
  * switched off by the thing it diagnoses is no diagnostic at all.
  *
  * @package Elementor_MCP
- * @since   1.28.1
+ * @since   1.29.0
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -27,7 +27,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Registers the always-on server-info ability.
  *
- * @since 1.28.1
+ * @since 1.29.0
  */
 class Elementor_MCP_Server_Info_Abilities {
 
@@ -45,7 +45,7 @@ class Elementor_MCP_Server_Info_Abilities {
 	/**
 	 * Registers the ability.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 */
 	public function register(): void {
 		$this->ability_names[] = self::ABILITY;
@@ -86,7 +86,7 @@ class Elementor_MCP_Server_Info_Abilities {
 	/**
 	 * Read-only diagnostic; the same capability the other read tools use.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @return bool
 	 */
@@ -97,7 +97,7 @@ class Elementor_MCP_Server_Info_Abilities {
 	/**
 	 * Builds the report.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @return array
 	 */

@@ -49,7 +49,7 @@ class Elementor_MCP_Atomic_Props {
 	 * Falls back to the `string` envelope when the prop type is absent, so
 	 * builds predating it are left as they were.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param string $value The font family, e.g. "Hanken Grotesk".
 	 * @return array Typed prop: { $$type: "font-family", value: "..." }

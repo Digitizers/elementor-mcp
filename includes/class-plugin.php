@@ -282,7 +282,7 @@ class Elementor_MCP_Plugin {
 	 * disabled-tools option would send an operator hunting slugs that are not
 	 * in it, so the diagnostic distinguishes the two.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @return string[]
 	 */
@@ -293,7 +293,7 @@ class Elementor_MCP_Plugin {
 	/**
 	 * Clears the record before a registration pass.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @return void
 	 */

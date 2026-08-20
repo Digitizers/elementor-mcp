@@ -77,7 +77,10 @@ class StyleSchemaExposureTest extends TestCase {
 		// `_unit` keys and the gradient partners only take effect alongside
 		// their principal, so probe them as pairs.
 		if ( '_unit' === substr( $key, -5 ) ) {
-			$principal            = substr( $key, 0, -5 );
+			// `shadow_unit` has no same-named principal: it scales whichever
+			// shadow members are set. A unit on its own must NOT conjure a
+			// shadow, so pair it with one that would.
+			$principal            = 'shadow_unit' === $key ? 'shadow_blur' : substr( $key, 0, -5 );
 			$params[ $principal ] = $this->probe_value( $principal );
 		}
 		if ( 0 === strpos( $key, 'gradient_' ) ) {
@@ -195,6 +198,45 @@ class StyleSchemaExposureTest extends TestCase {
 			substr_count( $source, 'style_param_keys(' ),
 			'Both execute paths must derive their forwarding allowlist from the schema too — publishing a param the execute path drops is an advertised no-op.'
 		);
+	}
+
+	/**
+	 * A unit or an offset on its own must not invent a rule: Elementor requires
+	 * every shadow member, and an offset without a non-static position does
+	 * nothing. Emitting either from a stray param would be a silent surprise in
+	 * the other direction.
+	 */
+	public function test_partial_input_does_not_invent_a_shadow(): void {
+		$this->assertSame(
+			array(),
+			\Elementor_MCP_Atomic_Styles::build_common_props( array( 'shadow_unit' => 'px' ) ),
+			'A unit alone describes nothing to render.'
+		);
+	}
+
+	public function test_a_single_shadow_param_emits_a_complete_shadow(): void {
+		$props = \Elementor_MCP_Atomic_Styles::build_common_props( array( 'shadow_color' => 'rgba(0,0,0,.25)' ) );
+
+		$shadow = $props['box-shadow']['value'][0]['value'];
+
+		// Elementor rejects a partial shadow: hOffset, vOffset, blur, spread
+		// and color are all required.
+		foreach ( array( 'hOffset', 'vOffset', 'blur', 'spread', 'color' ) as $member ) {
+			$this->assertArrayHasKey( $member, $shadow, "Elementor requires `$member` on every shadow." );
+		}
+		$this->assertSame( 'rgba(0,0,0,.25)', $shadow['color']['value'] );
+	}
+
+	public function test_css_position_is_distinct_from_the_insert_index(): void {
+		$schema = \Elementor_MCP_Atomic_Styles::style_props_schema();
+
+		$this->assertArrayHasKey( 'css_position', $schema );
+		$this->assertArrayNotHasKey(
+			'position',
+			$schema,
+			'`position` is the layout tools\' insert index; publishing the CSS property under that name would forward an integer into a string enum.'
+		);
+		$this->assertNotContains( 'position', \Elementor_MCP_Atomic_Styles::style_param_keys(), 'The insert index must never be forwarded as a style param.' );
 	}
 
 	public function test_flex_params_are_excluded_for_non_flex_containers(): void {

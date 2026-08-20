@@ -271,6 +271,9 @@ class Elementor_MCP_Atomic_Styles {
 		$props += self::build_spacing( 'padding', $params );
 		$props += self::build_spacing( 'margin', $params );
 
+		$props += self::build_position_props( $params );
+		$props += self::build_box_shadow_props( $params );
+
 		// Atomic's CSS engine validates every style prop against its style-schema
 		// and silently drops invalid keys. `background-color` is NOT a valid key —
 		// atomic uses `background` (Background_Prop_Type, shape { color, ... }).
@@ -660,6 +663,33 @@ class Elementor_MCP_Atomic_Styles {
 			'margin_right'         => $size( __( 'Margin, right.', 'elementor-mcp' ) ),
 			'margin_bottom'        => $size( __( 'Margin, bottom.', 'elementor-mcp' ) ),
 			'margin_left'          => $size( __( 'Margin, left.', 'elementor-mcp' ) ),
+
+			// Positioning. NOTE the name: the layout tools publish `position`
+			// as the insert index, so the CSS property is `css_position`.
+			'css_position'         => array(
+				'type'        => 'string',
+				'enum'        => array( 'static', 'relative', 'absolute', 'fixed', 'sticky' ),
+				'description' => __( 'CSS position. Use with offset_* to place an element out of flow. (Named css_position because `position` is this tool\'s insert index.)', 'elementor-mcp' ),
+			),
+			'offset_top'           => $size( __( 'Offset from the top; needs a non-static css_position.', 'elementor-mcp' ) ),
+			'offset_top_unit'      => $unit( 'offset_top' ),
+			'offset_right'         => $size( __( 'Offset from the right; needs a non-static css_position.', 'elementor-mcp' ) ),
+			'offset_right_unit'    => $unit( 'offset_right' ),
+			'offset_bottom'        => $size( __( 'Offset from the bottom; needs a non-static css_position.', 'elementor-mcp' ) ),
+			'offset_bottom_unit'   => $unit( 'offset_bottom' ),
+			'offset_left'          => $size( __( 'Offset from the left; needs a non-static css_position.', 'elementor-mcp' ) ),
+			'offset_left_unit'     => $unit( 'offset_left' ),
+			'z_index'              => array( 'type' => 'integer', 'description' => __( 'Stacking order.', 'elementor-mcp' ) ),
+
+			// Box shadow. Setting any one of these emits a complete shadow;
+			// Elementor requires every member, so the rest take its defaults.
+			'shadow_color'         => array( 'type' => 'string', 'description' => __( 'Shadow colour (hex/rgba). Default: rgba(0, 0, 0, 1).', 'elementor-mcp' ) ),
+			'shadow_x'             => $size( __( 'Shadow horizontal offset. Default: 0.', 'elementor-mcp' ) ),
+			'shadow_y'             => $size( __( 'Shadow vertical offset. Default: 0.', 'elementor-mcp' ) ),
+			'shadow_blur'          => $size( __( 'Shadow blur. Default: 10.', 'elementor-mcp' ) ),
+			'shadow_spread'        => $size( __( 'Shadow spread. Default: 0.', 'elementor-mcp' ) ),
+			'shadow_unit'          => $unit( 'the shadow offsets, blur and spread' ),
+			'shadow_inset'         => array( 'type' => 'boolean', 'description' => __( 'Render the shadow inside the element.', 'elementor-mcp' ) ),
 		);
 
 		if ( ! $include_flex ) {
@@ -706,5 +736,120 @@ class Elementor_MCP_Atomic_Styles {
 		}
 
 		return array_values( array_unique( $keys ) );
+	}
+
+	/**
+	 * CSS positioning props.
+	 *
+	 * Elementor's style schema types `position` as a String enum
+	 * (static/relative/absolute/fixed/sticky) with Size offsets under the
+	 * logical property names, plus a Number `z-index`
+	 * (`modules/atomic-widgets/styles/style-schema.php`). None of it was
+	 * mapped, so absolutely-positioned compositions could not be expressed at
+	 * all — on the build behind field report #4 the design's four orbiting
+	 * badges were shipped as a row and eventually replaced by a Lottie to get
+	 * the arrangement back.
+	 *
+	 * The input key is `css_position`, NOT `position`: the layout tools already
+	 * publish `position` as the INSERT INDEX (-1 = append). Reusing the name
+	 * would forward an integer into a string enum and store `"-1"` as a CSS
+	 * position.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array $params Flat style params.
+	 * @return array CSS props in $$type format.
+	 */
+	private static function build_position_props( array $params ): array {
+		$props = array();
+
+		if ( isset( $params['css_position'] ) ) {
+			$props['position'] = Elementor_MCP_Atomic_Props::string( (string) $params['css_position'] );
+		}
+
+		// Logical inset names, as the schema declares them. Offsets only apply
+		// to a non-static position — Elementor declares that dependency itself,
+		// so a caller that sets one without the other simply gets no offset
+		// rather than a broken rule.
+		$offsets = array(
+			'offset_top'    => 'inset-block-start',
+			'offset_right'  => 'inset-inline-end',
+			'offset_bottom' => 'inset-block-end',
+			'offset_left'   => 'inset-inline-start',
+		);
+
+		foreach ( $offsets as $input_key => $css_prop ) {
+			if ( isset( $params[ $input_key ] ) ) {
+				$unit               = $params[ $input_key . '_unit' ] ?? 'px';
+				$props[ $css_prop ] = Elementor_MCP_Atomic_Props::size( (float) $params[ $input_key ], $unit );
+			}
+		}
+
+		if ( isset( $params['z_index'] ) ) {
+			$props['z-index'] = Elementor_MCP_Atomic_Props::number( (int) $params['z_index'] );
+		}
+
+		return $props;
+	}
+
+	/**
+	 * A single box-shadow.
+	 *
+	 * `box-shadow` is an ARRAY of `shadow` objects, and every shadow requires
+	 * hOffset, vOffset, blur, spread and color — a partial shape is rejected
+	 * (`modules/atomic-widgets/prop-types/{box-shadow,shadow}-prop-type.php`).
+	 * The defaults here match Elementor's own initial values, so a caller can
+	 * set just a colour and get a usable shadow.
+	 *
+	 * Unmapped until now: the design behind field report #4 used seven distinct
+	 * shadows and all of them were dropped.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array $params Flat style params.
+	 * @return array CSS props in $$type format.
+	 */
+	private static function build_box_shadow_props( array $params ): array {
+		$keys = array( 'shadow_color', 'shadow_x', 'shadow_y', 'shadow_blur', 'shadow_spread', 'shadow_inset' );
+
+		$requested = false;
+		foreach ( $keys as $key ) {
+			if ( isset( $params[ $key ] ) ) {
+				$requested = true;
+				break;
+			}
+		}
+
+		if ( ! $requested ) {
+			return array();
+		}
+
+		$unit  = $params['shadow_unit'] ?? 'px';
+		$value = array(
+			'hOffset' => Elementor_MCP_Atomic_Props::size( (float) ( $params['shadow_x'] ?? 0 ), $unit ),
+			'vOffset' => Elementor_MCP_Atomic_Props::size( (float) ( $params['shadow_y'] ?? 0 ), $unit ),
+			'blur'    => Elementor_MCP_Atomic_Props::size( (float) ( $params['shadow_blur'] ?? 10 ), $unit ),
+			'spread'  => Elementor_MCP_Atomic_Props::size( (float) ( $params['shadow_spread'] ?? 0 ), $unit ),
+			'color'   => array(
+				'$$type' => 'color',
+				'value'  => (string) ( $params['shadow_color'] ?? 'rgba(0, 0, 0, 1)' ),
+			),
+		);
+
+		if ( ! empty( $params['shadow_inset'] ) ) {
+			$value['position'] = Elementor_MCP_Atomic_Props::string( 'inset' );
+		}
+
+		return array(
+			'box-shadow' => array(
+				'$$type' => 'box-shadow',
+				'value'  => array(
+					array(
+						'$$type' => 'shadow',
+						'value'  => $value,
+					),
+				),
+			),
+		);
 	}
 }

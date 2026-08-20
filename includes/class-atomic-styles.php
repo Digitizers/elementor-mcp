@@ -575,4 +575,109 @@ class Elementor_MCP_Atomic_Styles {
 
 		return null;
 	}
+
+	/**
+	 * JSON-schema properties for everything build_common_props() and
+	 * build_flex_props() actually accept.
+	 *
+	 * The abilities that reach those builders published a much smaller list —
+	 * `add-flexbox` advertised 14 params and silently accepted borders, radii,
+	 * widths and gradients besides. Agents read the schema, concluded the
+	 * engine could not express those, and shipped a flattened design; on the
+	 * build behind field report #4 those apparent limitations became the
+	 * primary evidence in a recommendation to build the client's site on
+	 * Elementor 3.x containers instead of 4.x atomic. Three of the four cited
+	 * blockers were schema-discovery failures, not engine limits.
+	 *
+	 * Published from one place so the schema cannot drift from the builder
+	 * again: an agent's entire model of a tool is its schema.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param bool $include_flex Include the flex-container params.
+	 * @return array JSON-schema property map.
+	 */
+	public static function style_props_schema( bool $include_flex = true ): array {
+		$size = static function ( string $label ): array {
+			return array(
+				'type'        => 'number',
+				'description' => $label,
+			);
+		};
+		$unit = static function ( string $for ): array {
+			return array(
+				'type'        => 'string',
+				'description' => sprintf(
+					/* translators: %s: the parameter the unit applies to. */
+					__( 'CSS unit for %s (px, em, rem, %%, vw, vh). Default: px.', 'elementor-mcp' ),
+					$for
+				),
+			);
+		};
+
+		$props = array(
+			// Box size.
+			'width'                => $size( __( 'Width.', 'elementor-mcp' ) ),
+			'width_unit'           => $unit( 'width' ),
+			'max_width'            => $size( __( 'Maximum width.', 'elementor-mcp' ) ),
+			'max_width_unit'       => $unit( 'max_width' ),
+			'height'               => $size( __( 'Height.', 'elementor-mcp' ) ),
+			'height_unit'          => $unit( 'height' ),
+			'min_height'           => $size( __( 'Minimum height.', 'elementor-mcp' ) ),
+			'min_height_unit'      => $unit( 'min_height' ),
+
+			// Border.
+			'border_radius'        => $size( __( 'Corner radius.', 'elementor-mcp' ) ),
+			'border_radius_unit'   => $unit( 'border_radius' ),
+			'border_width'         => $size( __( 'Border width. Set border_style too — a width alone renders nothing.', 'elementor-mcp' ) ),
+			'border_width_unit'    => $unit( 'border_width' ),
+			'border_color'         => array( 'type' => 'string', 'description' => __( 'Border colour (hex).', 'elementor-mcp' ) ),
+			'border_style'         => array( 'type' => 'string', 'description' => __( 'Border style: solid, dashed, dotted, none.', 'elementor-mcp' ) ),
+
+			// Colour + background.
+			'color'                => array( 'type' => 'string', 'description' => __( 'Text colour (hex).', 'elementor-mcp' ) ),
+			'background_color'     => array( 'type' => 'string', 'description' => __( 'Background colour (hex).', 'elementor-mcp' ) ),
+
+			// Gradient background. from + to are both required to emit one.
+			'gradient_from'        => array( 'type' => 'string', 'description' => __( 'Gradient start colour (hex). Requires gradient_to.', 'elementor-mcp' ) ),
+			'gradient_to'          => array( 'type' => 'string', 'description' => __( 'Gradient end colour (hex). Requires gradient_from.', 'elementor-mcp' ) ),
+			'gradient_type'        => array( 'type' => 'string', 'description' => __( 'Gradient type: linear (default) or radial.', 'elementor-mcp' ) ),
+			'gradient_angle'       => array( 'type' => 'number', 'description' => __( 'Linear gradient angle in degrees. Default: 135.', 'elementor-mcp' ) ),
+			'gradient_position'    => array( 'type' => 'string', 'description' => __( 'Radial gradient position, e.g. "center center".', 'elementor-mcp' ) ),
+			'gradient_from_offset' => array( 'type' => 'number', 'description' => __( 'Start colour stop offset (%). Default: 0.', 'elementor-mcp' ) ),
+			'gradient_to_offset'   => array( 'type' => 'number', 'description' => __( 'End colour stop offset (%). Default: 100.', 'elementor-mcp' ) ),
+
+			// Spacing: uniform value or per-side.
+			'padding'              => $size( __( 'Uniform padding. Use the per-side keys for different sides.', 'elementor-mcp' ) ),
+			'padding_unit'         => $unit( 'padding' ),
+			'padding_top'          => $size( __( 'Padding, top.', 'elementor-mcp' ) ),
+			'padding_right'        => $size( __( 'Padding, right.', 'elementor-mcp' ) ),
+			'padding_bottom'       => $size( __( 'Padding, bottom.', 'elementor-mcp' ) ),
+			'padding_left'         => $size( __( 'Padding, left.', 'elementor-mcp' ) ),
+			'margin'               => $size( __( 'Uniform margin. Use the per-side keys for different sides.', 'elementor-mcp' ) ),
+			'margin_unit'          => $unit( 'margin' ),
+			'margin_top'           => $size( __( 'Margin, top.', 'elementor-mcp' ) ),
+			'margin_right'         => $size( __( 'Margin, right.', 'elementor-mcp' ) ),
+			'margin_bottom'        => $size( __( 'Margin, bottom.', 'elementor-mcp' ) ),
+			'margin_left'          => $size( __( 'Margin, left.', 'elementor-mcp' ) ),
+		);
+
+		if ( ! $include_flex ) {
+			return $props;
+		}
+
+		return array_merge(
+			$props,
+			array(
+				'direction'       => array( 'type' => 'string', 'description' => __( 'Flex direction: row, column, row-reverse, column-reverse.', 'elementor-mcp' ) ),
+				'justify'         => array( 'type' => 'string', 'description' => __( 'justify-content value.', 'elementor-mcp' ) ),
+				'align'           => array( 'type' => 'string', 'description' => __( 'align-items value.', 'elementor-mcp' ) ),
+				'wrap'            => array( 'type' => 'string', 'description' => __( 'flex-wrap: wrap or nowrap.', 'elementor-mcp' ) ),
+				'gap'             => $size( __( 'Gap between children.', 'elementor-mcp' ) ),
+				'gap_unit'        => $unit( 'gap' ),
+				'row_gap'         => $size( __( 'Row gap (overrides gap for rows).', 'elementor-mcp' ) ),
+				'column_gap'      => $size( __( 'Column gap (overrides gap for columns).', 'elementor-mcp' ) ),
+			)
+		);
+	}
 }

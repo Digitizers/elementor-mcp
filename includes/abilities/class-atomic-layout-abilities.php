@@ -108,7 +108,15 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 						'padding'         => array( 'type' => 'number', 'description' => __( 'Padding on all sides (px by default).', 'elementor-mcp' ) ),
 						'background_color' => array( 'type' => 'string', 'description' => __( 'Background color (hex/rgba).', 'elementor-mcp' ) ),
 						'min_height'      => array( 'type' => 'number', 'description' => __( 'Minimum height (px by default).', 'elementor-mcp' ) ),
-					),
+					)
+					// Everything else build_common_props()/build_flex_props()
+					// accept — borders, radii, widths, gradients, per-side
+					// spacing. These always worked; they were simply not
+					// advertised, so agents concluded the engine could not do
+					// them (field report #4, part 2). The entries above stay
+					// authoritative: they carry enums and tool-specific wording
+					// this generic map does not.
+					+ Elementor_MCP_Atomic_Styles::style_props_schema(),
 					'required'   => array( 'post_id' ),
 				),
 				'output_schema'       => array(
@@ -214,7 +222,11 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 						'css_id'           => array( 'type' => 'string', 'description' => __( 'Optional CSS ID.', 'elementor-mcp' ) ),
 						'padding'          => array( 'type' => 'number', 'description' => __( 'Padding on all sides (px by default).', 'elementor-mcp' ) ),
 						'background_color' => array( 'type' => 'string', 'description' => __( 'Background color (hex/rgba).', 'elementor-mcp' ) ),
-					),
+					)
+					// See add-flexbox: publish everything the builders accept.
+					// A div-block is not a flex container, so the flex params
+					// are excluded rather than advertised and ignored.
+					+ Elementor_MCP_Atomic_Styles::style_props_schema( false ),
 					'required'   => array( 'post_id' ),
 				),
 				'output_schema'       => array(

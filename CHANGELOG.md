@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## Unreleased
+
+- Fixed: **the fallback write path never invalidated Elementor's rendered-element cache** (field report #5, part 1). Elementor caches each element's rendered HTML in `_elementor_element_cache` and clears it on every native save (`Document::save()` → `delete_cache()`); the fork's direct-meta fallback dropped `_elementor_css` and the generated CSS file but left the HTML cache alone. That fallback is exactly the path taken in non-browser contexts (CLI, REST proxy) — i.e. how the MCP writes — so a correct write served the pre-change markup until the cache TTL expired. Indistinguishable from a failed write, and intermittent, which is the combination that had agents rebuilding elements that were never broken. Both fallback sites (`save_page_data()` and `save_page_settings()`) now delete it alongside the CSS. The kit writer was already covered: it calls `files_manager->clear_cache()`, which drops the key site-wide.
+
 ## 1.28.0 — 2026-08-19
 
 - New: **GitHub self-updater.** The plugin now offers its own updates on the normal WordPress Plugins / Dashboard → Updates screens, pulled from this repository's tagged GitHub Releases (bundled Plugin Update Checker 5.6, wired in `includes/class-updater.php`; ported from the Digitizer Pro Tools updater). Detection is release-ONLY — a pushed version tag without a published Release never offers an update — and every request to GitHub (the check *and* the package download, across the release-asset redirect hosts) carries a neutral `elementor-mcp/<version>` user agent instead of WordPress's default, which would hand the site URL to GitHub. When a Release attaches a built `elementor-mcp*.zip` asset it is preferred; otherwise the tag's source archive is served. To ship an update: bump the plugin version, tag `v<version>`, publish the Release.

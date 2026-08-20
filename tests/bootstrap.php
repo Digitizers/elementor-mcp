@@ -195,6 +195,20 @@ namespace {
 		}
 	}
 
+	if ( ! function_exists( 'wp_get_nav_menus' ) ) {
+		/**
+		 * Registered nav menus. Tests set $GLOBALS['_nav_menus'] to a list of
+		 * slugs; default is none, which is the "site has no menus yet" case.
+		 */
+		function wp_get_nav_menus( array $args = [] ): array {
+			$menus = [];
+			foreach ( $GLOBALS['_nav_menus'] ?? [] as $slug ) {
+				$menus[] = (object) [ 'slug' => $slug, 'name' => $slug ];
+			}
+			return $menus;
+		}
+	}
+
 	if ( ! function_exists( 'delete_post_meta' ) ) {
 		function delete_post_meta( int $post_id, string $meta_key, $meta_value = '' ): bool {
 			$GLOBALS['_wp_meta_calls'][] = [
@@ -243,8 +257,13 @@ namespace {
 	}
 
 	if ( ! function_exists( 'wp_register_ability' ) ) {
+		/**
+		 * Records the registration so tests can assert a published schema —
+		 * a wrong parameter name is more dangerous than a missing one, because
+		 * the agent has no reason to doubt it.
+		 */
 		function wp_register_ability( string $name, array $args ): void {
-			// No-op in unit tests.
+			$GLOBALS['_registered_abilities'][ $name ] = $args;
 		}
 	}
 

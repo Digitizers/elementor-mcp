@@ -2067,13 +2067,61 @@ class Elementor_MCP_Widget_Abilities {
 		);
 	}
 
+	/**
+	 * The two nav-menu parameters that agents confuse, built in one place so a
+	 * test can assert what is published without needing Elementor Pro active.
+	 *
+	 * `menu` is the SELECT that chooses which registered menu renders;
+	 * `menu_name` is the widget's own TEXT control, rendered as the nav's
+	 * aria-label. Publishing `menu_name` as "the menu name" wrote the label and
+	 * left the widget on its default menu — invisible on a one-menu site, and
+	 * the wrong navigation everywhere else (field report #5, part 5).
+	 *
+	 * @since 1.28.1
+	 *
+	 * @return array Two published props, keyed by parameter name.
+	 */
+	public static function nav_menu_selector_props(): array {
+		$menu_slugs = array();
+		if ( function_exists( 'wp_get_nav_menus' ) ) {
+			foreach ( wp_get_nav_menus() as $menu ) {
+				if ( isset( $menu->slug ) ) {
+					$menu_slugs[] = (string) $menu->slug;
+				}
+			}
+		}
+
+		$menu_prop = array(
+			'type'        => 'string',
+			'description' => __( 'Which registered menu to display — the menu SLUG (this is the selector). Omit to use the widget default (the site\'s first menu), which is rarely what you want on a site with more than one menu.', 'elementor-mcp' ),
+		);
+
+		// Only attach the enum when the site actually has menus: an empty enum
+		// would reject every value, making the parameter unusable rather than
+		// merely unhelpful.
+		if ( ! empty( $menu_slugs ) ) {
+			$menu_prop['enum'] = $menu_slugs;
+		}
+
+		return array(
+			'menu'      => $menu_prop,
+			'menu_name' => array(
+				'type'        => 'string',
+				'description' => __( 'Accessible label for the nav (rendered as aria-label). NOT the menu selector — use `menu` for that.', 'elementor-mcp' ),
+			),
+		);
+	}
+
 	private function register_add_nav_menu(): void {
+		$selector_props = self::nav_menu_selector_props();
+
 		$this->register_convenience_tool(
 			'add-nav-menu',
 			__( 'Add Navigation Menu', 'elementor-mcp' ),
-			__( 'Adds a WordPress navigation menu widget (Pro).', 'elementor-mcp' ),
+			__( 'Adds a WordPress navigation menu widget (Pro). Choose the menu with `menu` (its slug); `menu_name` only sets the accessible label.', 'elementor-mcp' ),
 			array(
-				'menu_name'     => array( 'type' => 'string', 'description' => __( 'Menu name (as registered in WP Menus).', 'elementor-mcp' ) ),
+				'menu'          => $selector_props['menu'],
+				'menu_name'     => $selector_props['menu_name'],
 				'layout'        => array( 'type' => 'string', 'enum' => array( 'horizontal', 'vertical', 'dropdown' ), 'description' => __( 'Menu layout. Default: horizontal.', 'elementor-mcp' ) ),
 				'align_items'   => array( 'type' => 'string', 'enum' => array( 'start', 'center', 'end', 'justify' ), 'description' => __( 'Menu alignment.', 'elementor-mcp' ) ),
 				'pointer'       => array( 'type' => 'string', 'enum' => array( 'none', 'underline', 'overline', 'double-line', 'framed', 'background', 'text' ), 'description' => __( 'Hover pointer style. Default: underline.', 'elementor-mcp' ) ),

@@ -27,6 +27,11 @@ class GlobalInputTest extends Ability_Test_Case {
 	protected function setUp(): void {
 		parent::setUp();
 		// Global abilities access Plugin::$instance->kits_manager (stubbed in bootstrap).
+		// "kit not found" is this class's precondition, so it states it rather
+		// than inheriting whatever the previous test left in the global. Another
+		// suite's kit double reaching this one turns a clean assertion into a
+		// fatal, in some orders only.
+		unset( $GLOBALS['_active_kit'] );
 		$data          = $this->createStub( \Elementor_MCP_Data::class );
 		$this->ability = new \Elementor_MCP_Global_Abilities( $data );
 		$this->allow_all_caps();

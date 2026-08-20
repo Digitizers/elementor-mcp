@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.30.0
+Stable tag: 1.31.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,16 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.31.0 =
+Fixed (security): the protection added in 1.30.0 did not fully cover a site running this plugin WITHOUT SiteAgent. A write-capable tool is now refused at the permission stage on every site when the caller is not on this plugin's own MCP server.
+* 1.30.0 kept write tools out of another MCP server's menu by declaring mcp.type = private, and refused an ungranted foreign write at execute time. The second of those lives in the SiteAgent governance wrapper, which does nothing when SiteAgent is absent — so on a standalone site the metadata was the only protection, and it depended on the other plugin continuing to honour that convention.
+* The gate checks that a grant is PRESENT and lets the governance layer verify it once. Verifying in both places would burn the grant's single-use nonce and reject the legitimate call on its own approval. Where no verifier is installed, a foreign write is refused outright rather than accepted on a header nothing can check.
+* It wraps rather than replaces: the tool's own capability check still runs, and runs last, so this can only ever deny more than before.
+* Dry runs are exempt, as they already are at execute time — a preview-capable tool called with apply falsy writes nothing, so there is nothing to approve.
+* Read-only tools are not gated. An assistant on another server answering questions from this plugin's data is the point of the read-only bridge.
+* The elementor_mcp_expose_writes_to_foreign_mcp filter still works exactly as documented: a write you open through it stays reachable from other servers, and server-info names the ones you opened.
+* server-info reports both guards separately, so a standalone site is described as closed rather than exposed.
 
 = 1.30.0 =
 Fixed (security): this plugin's write tools were reachable from any OTHER MCP server installed on the same site — a transport with no approval queue, no audit and no fleet visibility behind it.
@@ -447,6 +457,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.31.0 =
+Recommended for every site, and important if you run this plugin WITHOUT SiteAgent. 1.30.0's protection against other MCP servers on the same site relied, on standalone installs, on metadata that another plugin has to keep honouring. Write tools are now refused at the permission stage whenever the caller is not on this plugin's own MCP server, independently of any other plugin. Read tools, the documented exposure filter and dry-run previews are unaffected.
 
 = 1.30.0 =
 Security fix, recommended for every site — especially one running Elementor's Angie. This plugin's write tools were reachable from any other MCP server installed on the same site, bypassing the approval, snapshot and audit path entirely. They are now withheld from other servers, and a governed write arriving from one is refused unless it carries a valid approval grant. Read tools are unaffected. Also adds write-exposure reporting to server-info, so you can see whether a second MCP server is present on a site and whether the protection is in force there.

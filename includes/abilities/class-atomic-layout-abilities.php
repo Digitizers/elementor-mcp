@@ -154,7 +154,9 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 
 		// Style props extracted from input.
 		$style_params = array();
-		$style_keys   = array( 'direction', 'flex_direction', 'justify', 'justify_content', 'align', 'align_items', 'wrap', 'flex_wrap', 'gap', 'gap_unit', 'row_gap', 'column_gap', 'padding', 'padding_unit', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'margin_top', 'margin_bottom', 'background_color', 'color', 'min_height', 'width', 'border_radius' );
+		// Derived from the published schema: a hand-maintained list here is
+		// what dropped borders and gradients before they reached the builders.
+		$style_keys   = Elementor_MCP_Atomic_Styles::style_param_keys();
 
 		foreach ( $style_keys as $key ) {
 			if ( isset( $input[ $key ] ) ) {
@@ -263,7 +265,8 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 		}
 
 		$style_params = array();
-		$style_keys   = array( 'padding', 'padding_unit', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'margin_top', 'margin_bottom', 'background_color', 'color', 'min_height', 'width', 'border_radius' );
+		// See execute_add_flexbox(); a div-block takes no flex params.
+		$style_keys   = Elementor_MCP_Atomic_Styles::style_param_keys( false );
 
 		foreach ( $style_keys as $key ) {
 			if ( isset( $input[ $key ] ) ) {

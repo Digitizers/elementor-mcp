@@ -680,4 +680,31 @@ class Elementor_MCP_Atomic_Styles {
 			)
 		);
 	}
+
+	/**
+	 * Input keys the execute paths must forward to the style builders.
+	 *
+	 * Derived from the published schema plus the accepted aliases, so the
+	 * allowlist cannot drift from what the tools advertise. It drifted once
+	 * already, in the opposite direction from the schema: `add-flexbox`
+	 * filtered input through a hand-maintained list that omitted borders and
+	 * gradients, so those params were dropped before ever reaching
+	 * build_common_props(). Publishing them without this would have advertised
+	 * a no-op — the same lie as hiding a capability, inverted.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param bool $include_flex Include the flex-container params.
+	 * @return string[]
+	 */
+	public static function style_param_keys( bool $include_flex = true ): array {
+		$keys = array_keys( self::style_props_schema( $include_flex ) );
+
+		if ( $include_flex ) {
+			// build_flex_props() accepts these alongside the published names.
+			$keys = array_merge( $keys, array( 'flex_direction', 'justify_content', 'align_items', 'flex_wrap', 'row_gap_unit', 'column_gap_unit' ) );
+		}
+
+		return array_values( array_unique( $keys ) );
+	}
 }

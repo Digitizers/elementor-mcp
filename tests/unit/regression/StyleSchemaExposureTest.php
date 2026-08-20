@@ -131,6 +131,56 @@ class StyleSchemaExposureTest extends TestCase {
 		);
 	}
 
+	/**
+	 * The execute paths must forward every published parameter.
+	 *
+	 * The builders accepting a key is not enough: `execute_add_flexbox()`
+	 * filters input through an allowlist first, and that list was
+	 * hand-maintained — it omitted borders and gradients, so publishing them
+	 * without widening it would have advertised a no-op. Testing the builders
+	 * in isolation cannot see this; only the tool call can.
+	 *
+	 * @dataProvider published_style_params
+	 */
+	public function test_the_flexbox_tool_forwards_every_published_param( string $key ): void {
+		$captured = null;
+
+		$factory = new class( $captured ) extends \Elementor_MCP_Element_Factory {
+			public $seen = array();
+			public function __construct( &$captured ) {}
+			public function create_flexbox( array $settings = array(), array $children = array(), array $style_props = array() ): array {
+				$this->seen = $style_props;
+				return parent::create_flexbox( $settings, $children, $style_props );
+			}
+		};
+
+		$data = new class extends \Elementor_MCP_Data {
+			public function __construct() {}
+			public function get_page_data( int $post_id ): array {
+				return array();
+			}
+			public function save_page_data( int $post_id, array $data ) {
+				return true;
+			}
+		};
+
+		$ability = new \Elementor_MCP_Atomic_Layout_Abilities( $data, $factory );
+
+		$input = array( 'post_id' => 5, $key => $this->probe_value( $key ) );
+		if ( '_unit' === substr( $key, -5 ) ) {
+			$principal          = substr( $key, 0, -5 );
+			$input[ $principal ] = $this->probe_value( $principal );
+		}
+
+		$ability->execute_add_flexbox( $input );
+
+		$this->assertArrayHasKey(
+			$key,
+			$factory->seen,
+			"`$key` is published by add-flexbox but dropped before the style builders — the allowlist in the execute path must be derived from the schema, not hand-maintained."
+		);
+	}
+
 	public function test_both_container_tools_publish_the_shared_schema(): void {
 		$source = file_get_contents( ELEMENTOR_MCP_DIR . 'includes/abilities/class-atomic-layout-abilities.php' );
 
@@ -139,6 +189,11 @@ class StyleSchemaExposureTest extends TestCase {
 			2,
 			substr_count( $source, 'style_props_schema(' ),
 			'add-flexbox and add-div-block must both publish the shared schema, or one of them drifts again.'
+		);
+		$this->assertSame(
+			2,
+			substr_count( $source, 'style_param_keys(' ),
+			'Both execute paths must derive their forwarding allowlist from the schema too — publishing a param the execute path drops is an advertised no-op.'
 		);
 	}
 

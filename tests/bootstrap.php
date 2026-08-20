@@ -785,6 +785,25 @@ namespace Elementor {
 // State is per-process static; functional tests reset it via ::__reset().
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Atomic prop types. Only the key matters here: Elementor types `font-family`
+// as its own prop type (extending String_Prop_Type but NOT sharing its key),
+// and the atomic CSS engine drops props whose $$type doesn't match the schema.
+// Stubbed so the tests exercise the real path rather than the absent-class
+// fallback.
+// ---------------------------------------------------------------------------
+
+namespace Elementor\Modules\AtomicWidgets\PropTypes {
+
+	if ( ! class_exists( 'Elementor\\Modules\\AtomicWidgets\\PropTypes\\Font_Family_Prop_Type' ) ) {
+		class Font_Family_Prop_Type {
+			public static function get_key(): string {
+				return 'font-family';
+			}
+		}
+	}
+}
+
 namespace Elementor\Modules\GlobalClasses {
 
 	if ( ! class_exists( 'Elementor\\Modules\\GlobalClasses\\Global_Classes_Repository' ) ) {

@@ -14,6 +14,9 @@ composer.lock
 .DS_Store
 Thumbs.db
 
+# Build output (bin/build-zip.sh)
+dist/
+
 # PHPUnit cache
 .phpunit.cache/
 .phpunit.result.cache

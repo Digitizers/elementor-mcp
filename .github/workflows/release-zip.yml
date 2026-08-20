@@ -1,0 +1,59 @@
+name: Release ZIP
+
+# Attaches an installable plugin ZIP to every published Release.
+#
+# Two consumers need it, and both silently degraded without it (FIELD-REPORT-6):
+#   - the bundled updater asks PUC for a release asset matching
+#     /elementor-mcp.*\.zip/i and falls back to GitHub's source archive,
+#   - Digitizer Pro Tools' onboarding installer prefers a .zip asset and falls
+#     back to zipball_url,
+# so client sites were installing the repository — tests, CI config and internal
+# docs included — instead of a plugin build.
+#
+# Runs on release publication rather than on tag push: the updater is
+# release-only by design (a bare tag must not offer an update), so the asset has
+# to exist by the time the Release does.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and attach the ZIP to"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and attach elementor-mcp.zip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Build the ZIP
+        run: bin/build-zip.sh
+
+      # The ZIP is built from the checked-out tag, so a mismatch means the tag
+      # was cut without the version bump — the update would install a plugin
+      # that reports an older version and offers itself the same update forever.
+      - name: Check the built version matches the tag
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          built="$(grep -m1 '^ \* Version:' elementor-mcp.php | tr -d ' ' | cut -d: -f2)"
+          if [ "${tag#v}" != "$built" ]; then
+            echo "tag ${tag} does not match the plugin header version ${built}" >&2
+            exit 1
+          fi
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name || inputs.tag }}" \
+            dist/elementor-mcp.zip --clobber --repo "$GITHUB_REPOSITORY"

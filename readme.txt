@@ -137,6 +137,12 @@ MCP (Model Context Protocol) is an open standard that allows AI tools to interac
 
 Yes. Core widget tools work with free Elementor. Pro widget shortcuts (form, posts grid, countdown, price table, flip box, animated headline) only register when Elementor Pro is active.
 
+= Why does the plugins screen not offer me an update? =
+
+Because the plugin is deactivated. Updates for this plugin come from its own bundled update checker, which runs inside the plugin — and WordPress does not load the code of an inactive plugin, so nothing checks and nothing is offered. Plugins installed from the WordPress.org directory behave differently: there, WordPress itself asks about every installed plugin, active or not.
+
+Activate it and the update offer appears on the next check. While it is inactive it does nothing at all, so being out of date is the least of it.
+
 = Can I disable specific tools? =
 
 Yes. Open the **EMCP Tools** top-level admin menu and use the **Tools** screen to toggle individual tools on or off. If your MCP client has a strict tool cap (e.g. Antigravity's 100-tool limit), flip on **Low-tools mode** at the top of that screen to expose only a curated set of essentials.

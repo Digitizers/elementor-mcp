@@ -163,6 +163,12 @@ class Elementor_MCP_Ability_Registrar {
 		// Keep BOTH lists. `server-info` reports registered-vs-exposed, and a
 		// gap that nothing can observe is what made "zero tools" undiagnosable
 		// (field report #5, part 2a).
+		// One well-defined point to clear the per-pass record the diagnostic
+		// reads, so a previous pass can't be blamed for this one's gaps.
+		if ( class_exists( 'Elementor_MCP_Plugin' ) ) {
+			Elementor_MCP_Plugin::reset_removed_by_settings();
+		}
+
 		$before = $this->ability_names;
 
 		$this->ability_names = apply_filters( 'elementor_mcp_ability_names', $this->ability_names );
@@ -187,7 +193,32 @@ class Elementor_MCP_Ability_Registrar {
 		// would report more exposed than exist.
 		$this->ability_names = array_values( array_unique( $this->ability_names ) );
 
-		self::$registered_names = array_values( array_unique( array_merge( $before, $this->ability_names ) ) );
+		// A callback running BEFORE this plugin's priority-10 filter can add an
+		// ability that our own settings then remove. Such a name is in neither
+		// $before nor the final list, so it would vanish from the accounting
+		// entirely — reported as neither registered nor withheld. Our filter
+		// records what it removed, which covers exactly that case.
+		$removed_by_settings = class_exists( 'Elementor_MCP_Plugin' )
+			? Elementor_MCP_Plugin::get_removed_by_settings()
+			: array();
+
+		$registered = array_unique( array_merge( $before, $this->ability_names, $removed_by_settings ) );
+
+		// A callback can also append a typo, or the name of an optional ability
+		// whose registration failed. The adapter resolves tools with
+		// wp_get_ability() and skips what it cannot find, so counting those
+		// would overstate both numbers — from the tool whose job is stating
+		// them accurately.
+		if ( function_exists( 'wp_get_ability' ) ) {
+			$resolves   = static function ( string $name ): bool {
+				return null !== wp_get_ability( $name );
+			};
+			$registered = array_filter( $registered, $resolves );
+
+			$this->ability_names = array_values( array_filter( $this->ability_names, $resolves ) );
+		}
+
+		self::$registered_names = array_values( $registered );
 		self::$exposed_names    = $this->ability_names;
 
 		return $this->ability_names;

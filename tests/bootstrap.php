@@ -264,6 +264,10 @@ namespace {
 		 */
 		function wp_register_ability( string $name, array $args ): void {
 			$GLOBALS['_registered_abilities'][ $name ] = $args;
+			// Keep wp_get_ability() coherent with what was registered: code that
+			// asks "does this name resolve?" must get the same answer here as in
+			// production, or an existence check looks like it drops everything.
+			$GLOBALS['_abilities'][ $name ] = (object) array( 'name' => $name );
 		}
 	}
 

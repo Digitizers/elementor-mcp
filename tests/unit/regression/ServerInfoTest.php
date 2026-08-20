@@ -24,8 +24,16 @@ use Elementor_MCP\Tests\Ability_Test_Case;
 
 class ServerInfoTest extends Ability_Test_Case {
 
+	protected function setUp(): void {
+		parent::setUp();
+		// The record is additive within a request and cleared at the start of a
+		// registration pass; a test that calls the filter directly gets the
+		// same clean slate.
+		\Elementor_MCP_Plugin::reset_removed_by_settings();
+	}
+
 	protected function tearDown(): void {
-		unset( $GLOBALS['_options'] );
+		unset( $GLOBALS['_options'], $GLOBALS['_abilities'] );
 		parent::tearDown();
 	}
 
@@ -181,6 +189,13 @@ class ServerInfoTest extends Ability_Test_Case {
 	 * @return \Elementor_MCP_Ability_Registrar
 	 */
 	private function registrar_registering( array $names ) {
+		// The names must actually resolve through wp_get_ability(): the
+		// registrar now drops ones that don't, because the adapter skips them
+		// too and counting them would overstate the report.
+		foreach ( $names as $name ) {
+			$GLOBALS['_abilities'][ $name ] = (object) array( 'name' => $name );
+		}
+
 		$schema = new \Elementor_MCP_Schema_Generator();
 
 		return new class( $this->make_data_stub(), $this->make_factory(), $schema, new \Elementor_MCP_Settings_Validator( $schema ), $names ) extends \Elementor_MCP_Ability_Registrar {
@@ -285,6 +300,66 @@ class ServerInfoTest extends Ability_Test_Case {
 
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 		$this->assertSame( 1, $report['abilities']['exposed'] );
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
+	/**
+	 * A callback running before this plugin's priority-10 filter can add an
+	 * ability that our own settings then remove. Such a name is in neither the
+	 * pre-filter snapshot nor the final list, so it would vanish from the
+	 * accounting entirely — counted as neither registered nor withheld.
+	 */
+	public function test_an_addition_our_settings_then_remove_is_still_accounted_for(): void {
+		$GLOBALS['_abilities']['other-plugin/added-then-disabled'] = (object) array( 'name' => 'other-plugin/added-then-disabled' );
+		$GLOBALS['_options']['elementor_mcp_disabled_tools']       = array( 'other-plugin/added-then-disabled' );
+
+		$add = static function ( array $names ) {
+			$names[] = 'other-plugin/added-then-disabled';
+			return $names;
+		};
+		add_filter( 'elementor_mcp_ability_names', $add, 5 );
+		add_filter( 'elementor_mcp_ability_names', array( $this->plugin(), 'filter_disabled_tools' ), 10 );
+
+		$this->registrar_registering( array( 'elementor-mcp/list-pages' ) )->register_all();
+
+		remove_filter( 'elementor_mcp_ability_names', $add, 5 );
+		remove_filter( 'elementor_mcp_ability_names', array( $this->plugin(), 'filter_disabled_tools' ), 10 );
+
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertContains(
+			'other-plugin/added-then-disabled',
+			$report['abilities']['withheld_by']['plugin_settings'],
+			'An ability our settings removed must be reported as withheld, whoever added it.'
+		);
+		$this->assertSame( 2, $report['abilities']['registered'] );
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
+	/**
+	 * A callback can append a typo, or the name of an optional ability whose
+	 * registration failed. The adapter resolves tools with wp_get_ability() and
+	 * skips what it cannot find, so counting them would overstate both numbers
+	 * — from the tool whose job is stating them accurately.
+	 */
+	public function test_a_name_that_resolves_to_nothing_is_not_counted(): void {
+		$typo = static function ( array $names ) {
+			$names[] = 'elementor-mcp/lst-pages';
+			return $names;
+		};
+		add_filter( 'elementor_mcp_ability_names', $typo, 99 );
+
+		$exposed = $this->registrar_registering( array( 'elementor-mcp/list-pages' ) )->register_all();
+
+		remove_filter( 'elementor_mcp_ability_names', $typo, 99 );
+
+		$this->assertNotContains( 'elementor-mcp/lst-pages', $exposed, 'The adapter would skip it; the report must not count it.' );
+
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		$this->assertSame( 1, $report['abilities']['exposed'] );
+		$this->assertSame( 1, $report['abilities']['registered'] );
 
 		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
 	}

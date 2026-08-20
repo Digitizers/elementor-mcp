@@ -290,6 +290,32 @@ class Elementor_MCP_Plugin {
 		return self::$removed_by_settings;
 	}
 
+	/**
+	 * Clears the record before a registration pass.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @return void
+	 */
+	public static function reset_removed_by_settings(): void {
+		self::$removed_by_settings = array();
+	}
+
+	/**
+	 * Records names this callback removed, additively.
+	 *
+	 * The callback can legitimately run more than once in a request (it is
+	 * registered once, but nothing stops another pass over the same hook), and
+	 * overwriting would let a later no-op pass erase what an earlier one
+	 * removed — leaving the diagnostic reporting no cause for a real gap.
+	 *
+	 * @param string[] $removed Names removed this pass.
+	 * @return void
+	 */
+	private static function record_removed( array $removed ): void {
+		self::$removed_by_settings = array_values( array_unique( array_merge( self::$removed_by_settings, $removed ) ) );
+	}
+
 	public function filter_disabled_tools( array $names ): array {
 		$disabled = get_option( 'elementor_mcp_disabled_tools', array() );
 		if ( ! is_array( $disabled ) ) {
@@ -312,7 +338,6 @@ class Elementor_MCP_Plugin {
 		$disabled = array_diff( $disabled, $always_on );
 
 		if ( empty( $disabled ) ) {
-			self::$removed_by_settings = array();
 			return $names;
 		}
 
@@ -325,7 +350,7 @@ class Elementor_MCP_Plugin {
 			}
 		}
 
-		self::$removed_by_settings = array_values( array_diff( $names, $kept ) );
+		self::record_removed( array_diff( $names, $kept ) );
 
 		return $kept;
 	}

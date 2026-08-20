@@ -72,6 +72,7 @@ class Elementor_MCP_Server_Info_Abilities {
 						'abilities'         => array( 'type' => 'object' ),
 						'mcp_adapter'       => array( 'type' => 'object' ),
 						'server_enabled'    => array( 'type' => 'boolean' ),
+						'write_exposure'    => array( 'type' => 'object' ),
 						'notes'             => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
@@ -81,6 +82,40 @@ class Elementor_MCP_Server_Info_Abilities {
 				),
 			)
 		);
+	}
+
+	/**
+	 * MCP servers on this site that are not ours, by server id.
+	 *
+	 * Read from the adapter's own registry rather than probing for a specific
+	 * plugin: Angie's `/mcp/angie` is the one that exists today, but the exposure
+	 * belongs to the shared ability registry, not to Angie — the next plugin to
+	 * create a server inherits it, and a hardcoded Angie check would report a
+	 * clean site.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @return string[]
+	 */
+	private static function foreign_mcp_servers(): array {
+		if ( ! class_exists( '\\WP\\MCP\\Core\\McpAdapter' ) ) {
+			return array();
+		}
+		$adapter = \WP\MCP\Core\McpAdapter::instance();
+		if ( ! is_object( $adapter ) || ! method_exists( $adapter, 'get_servers' ) ) {
+			return array();
+		}
+		$ours   = class_exists( 'Elementor_MCP_Plugin' ) ? Elementor_MCP_Plugin::SERVER_ROUTE : '';
+		$others = array();
+		foreach ( (array) $adapter->get_servers() as $id => $server ) {
+			$id = is_string( $id ) ? $id : '';
+			if ( '' === $id || $id === $ours ) {
+				continue;
+			}
+			$others[] = $id;
+		}
+		sort( $others );
+		return $others;
 	}
 
 	/**
@@ -180,6 +215,33 @@ class Elementor_MCP_Server_Info_Abilities {
 		// upgrade on a site that had cleared the list by hand.
 		$defaults_applied = get_option( 'elementor_mcp_defaults_applied', 0 );
 
+		// Is there a second MCP server on this site, and are our write tools
+		// withheld from it? An operator auditing a managed site cannot see this
+		// from anywhere else: the other server registers its own routes and
+		// enumerates the shared ability registry without telling anyone.
+		$foreign_servers = self::foreign_mcp_servers();
+		$writes_shielded = ! apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, array() );
+		$write_exposure  = array(
+			'writes_hidden_from_other_mcp_servers' => $writes_shielded,
+			'governed_writes_require_grant_off_own_server' => class_exists( 'Elementor_MCP_Call_Context' ),
+			'own_server_route'                     => class_exists( 'Elementor_MCP_Call_Context' )
+				? Elementor_MCP_Call_Context::own_server_route()
+				: '',
+			'other_mcp_servers'                    => $foreign_servers,
+		);
+
+		if ( ! empty( $foreign_servers ) ) {
+			$notes[] = sprintf(
+				/* translators: %s: comma-separated list of other MCP server ids. */
+				__( 'Another MCP server is active on this site (%s). It can reach any ability registered on the site, over a transport the Aura gateway never sees. This plugin\'s write tools are withheld from it and a governed write arriving from it must carry an approval grant; read tools remain available to it by design.', 'elementor-mcp' ),
+				implode( ', ', $foreign_servers )
+			);
+		}
+
+		if ( ! $writes_shielded ) {
+			$notes[] = __( 'Write tools are exposed to OTHER MCP servers on this site: the elementor_mcp_expose_writes_to_foreign_mcp filter has been turned on. Those servers authenticate their own callers; approval and audit on the Aura side do not apply to them.', 'elementor-mcp' );
+		}
+
 		return array(
 			'plugin_version'    => defined( 'ELEMENTOR_MCP_VERSION' ) ? ELEMENTOR_MCP_VERSION : '',
 			'elementor_version' => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : '',
@@ -210,6 +272,7 @@ class Elementor_MCP_Server_Info_Abilities {
 				'version' => defined( 'WP_MCP_VERSION' ) ? WP_MCP_VERSION : '',
 			),
 			'server_enabled'    => $server_enabled,
+			'write_exposure'    => $write_exposure,
 			'notes'             => $notes,
 		);
 	}

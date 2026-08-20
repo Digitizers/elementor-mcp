@@ -234,8 +234,18 @@ class Elementor_MCP_Governance {
 		// verify the grant. Skipped only for a dry-run preview (a preview-capable
 		// tool invoked with apply falsy writes nothing), which never needs approval.
 		$is_preview = self::is_preview_call( $preview_capable, $input );
-		if ( self::grants_required() && ! $is_preview ) {
-			$grant = self::verify_grant( $name, $input );
+		// A call that did not arrive on our own MCP server route came in through
+		// a transport the gateway never saw — most concretely Angie's /mcp/angie
+		// server, whose execute-ability proxy runs any third-party ability by
+		// name. Approval, audit and fleet visibility all live on the gateway
+		// side, so such a call must carry the one piece of gateway context that
+		// travels with the request: a valid approval grant. That holds whether or
+		// not grant enforcement is switched on for this plugin — enforcement is
+		// opt-in so our OWN path keeps working before the gateway mints Elementor
+		// grants, which is no reason to leave a foreign door open.
+		$foreign = ! self::call_context_trusted();
+		if ( ( self::grants_required() || $foreign ) && ! $is_preview ) {
+			$grant = self::verify_grant( $name, $input, $foreign );
 			if ( is_wp_error( $grant ) ) {
 				return $grant;
 			}
@@ -684,6 +694,27 @@ class Elementor_MCP_Governance {
 	 *
 	 * @return bool
 	 */
+	/**
+	 * Whether the transport this call arrived on may run a governed write on its
+	 * own authority (i.e. without an approval grant).
+	 *
+	 * Fails CLOSED when the context class is missing: an unclassifiable caller is
+	 * exactly the case this guard exists for, and treating "we could not tell"
+	 * as "trusted" would reopen the door on any install where the file failed to
+	 * load. The loader treats every include as optional by design, so this is a
+	 * reachable state, not a theoretical one.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @return bool
+	 */
+	public static function call_context_trusted(): bool {
+		if ( ! class_exists( 'Elementor_MCP_Call_Context' ) ) {
+			return false;
+		}
+		return Elementor_MCP_Call_Context::is_trusted_for_writes();
+	}
+
 	public static function grants_required(): bool {
 		if ( ! class_exists( '\\Aura_Worker_Grant' ) || ! \Aura_Worker_Grant::is_enforced() ) {
 			return false;
@@ -863,15 +894,45 @@ class Elementor_MCP_Governance {
 	 * Aura_Worker_Grant::verify() checks the signature, tool/params/site binding,
 	 * validity window and single-use nonce.
 	 *
-	 * @param string $name  Ability name (bound into the grant).
-	 * @param mixed  $input The ability input (bound into the grant as params).
+	 * @param string $name    Ability name (bound into the grant).
+	 * @param mixed  $input   The ability input (bound into the grant as params).
+	 * @param bool   $foreign Whether the call arrived on a transport that is not
+	 *                        this plugin's own MCP server — which changes only
+	 *                        the wording of a denial, never the verification.
 	 * @return true|\WP_Error
 	 */
-	private static function verify_grant( string $name, $input ) {
+	private static function verify_grant( string $name, $input, bool $foreign = false ) {
+		// A grant can only be verified by SiteAgent's verifier. If it is absent
+		// there is no way to authorize anything, so a foreign call is refused
+		// rather than waved through — the whole point is that this transport has
+		// no gateway behind it.
+		if ( ! class_exists( '\\Aura_Worker_Grant' ) ) {
+			return new \WP_Error(
+				'governance_untrusted_transport',
+				sprintf(
+					/* translators: 1: tool name, 2: transport description */
+					__( '%1$s is a governed write and cannot run on %2$s: approval grants cannot be verified on this site.', 'elementor-mcp' ),
+					$name,
+					Elementor_MCP_Call_Context::describe()
+				)
+			);
+		}
+
 		// $_SERVER header values are not slash-escaped by WP (unlike GET/POST), and
 		// a grant is base64url.base64url, so a plain string cast is sufficient.
 		$header = isset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] ) ? (string) $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] : '';
 		if ( '' === $header ) {
+			if ( $foreign ) {
+				return new \WP_Error(
+					'governance_untrusted_transport',
+					sprintf(
+						/* translators: 1: tool name, 2: transport description */
+						__( '%1$s is a governed write and was called on %2$s, which the Aura gateway does not see. Calls from outside this plugin\'s own MCP server must carry an approval grant (X-Aura-Approval-Grant).', 'elementor-mcp' ),
+						$name,
+						Elementor_MCP_Call_Context::describe()
+					)
+				);
+			}
 			return new \WP_Error(
 				'governance_grant_required',
 				sprintf(

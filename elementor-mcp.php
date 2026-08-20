@@ -318,6 +318,12 @@ function elementor_mcp_register_ability( string $name, array $args ) {
 	if ( isset( $args['output_schema'] ) && is_array( $args['output_schema'] ) ) {
 		$args['output_schema'] = elementor_mcp_sanitize_schema( $args['output_schema'] );
 	}
+	// Keep write tools out of any MCP server but our own. See the method's
+	// docblock — this is the only protection on a site without SiteAgent, where
+	// governance wraps nothing.
+	if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
+		$args = Elementor_MCP_Call_Context::shield_write_from_foreign_servers( $args );
+	}
 	// When SiteAgent is installed alongside us, bring destructive page writes
 	// under its capture-before-write governance. No-op when SiteAgent is absent.
 	if ( class_exists( 'Elementor_MCP_Governance' ) ) {
@@ -446,6 +452,7 @@ function elementor_mcp_init(): void {
 	$core_ok = elementor_mcp_require( 'includes/class-elementor-data.php' ) && $core_ok;
 	// SiteAgent governance bridge — must load before abilities register so
 	// elementor_mcp_register_ability() can wrap destructive page writes.
+	elementor_mcp_require( 'includes/class-call-context.php' );
 	elementor_mcp_require( 'includes/class-governance.php' );
 	$core_ok = elementor_mcp_require( 'includes/class-element-factory.php' ) && $core_ok;
 	$core_ok = elementor_mcp_require( 'includes/schemas/class-control-mapper.php' ) && $core_ok;

@@ -111,6 +111,14 @@ class Elementor_MCP_Plugin {
 			$this->admin->init();
 		}
 
+		// Record which transport this request arrived on, before anything can
+		// execute. Abilities live in a site-wide registry, so a co-installed MCP
+		// server can reach this plugin's tools without our knowledge; governance
+		// asks this class whether the caller is one of ours.
+		if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
+			Elementor_MCP_Call_Context::init();
+		}
+
 		// Register hooks.
 		add_action( 'wp_abilities_api_categories_init', array( $this, 'register_category' ) );
 		add_action( 'wp_abilities_api_init', array( $this, 'register_abilities' ) );
@@ -456,6 +464,26 @@ class Elementor_MCP_Plugin {
 	const OPTION_SERVER_ENABLED = 'elementor_mcp_server_enabled';
 
 	/**
+	 * REST namespace and route of this plugin's own MCP server.
+	 *
+	 * Constants rather than literals because two places need the same answer:
+	 * `register_mcp_server()`, which creates the route, and
+	 * `Elementor_MCP_Call_Context`, which decides whether an incoming call
+	 * arrived on it. A drifted copy there would classify our own server as
+	 * foreign and deny every governed write.
+	 *
+	 * @since 1.30.0
+	 * @var string
+	 */
+	const SERVER_ROUTE_NAMESPACE = 'mcp';
+
+	/**
+	 * @since 1.30.0
+	 * @var string
+	 */
+	const SERVER_ROUTE = 'elementor-mcp-server';
+
+	/**
 	 * Whether the MCP server should be exposed. On by default; the Connection
 	 * tab toggle writes '0' to switch it off.
 	 *
@@ -518,8 +546,8 @@ class Elementor_MCP_Plugin {
 
 		$mcp_adapter->create_server(
 			'elementor-mcp-server',                                   // server_id
-			'mcp',                                                    // route_namespace
-			'elementor-mcp-server',                                   // route
+			self::SERVER_ROUTE_NAMESPACE,                             // route_namespace
+			self::SERVER_ROUTE,                                       // route
 			__( 'MCP Tools for Elementor Server', 'elementor-mcp' ),            // server_name
 			__( 'Exposes Elementor data and design tools as MCP tools for AI agents.', 'elementor-mcp' ), // description
 			'v' . ELEMENTOR_MCP_VERSION,                              // version

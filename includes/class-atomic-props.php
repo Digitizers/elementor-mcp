@@ -35,6 +35,42 @@ class Elementor_MCP_Atomic_Props {
 	}
 
 	/**
+	 * Wraps a font family into its own typed prop.
+	 *
+	 * Elementor types `font-family` as `Font_Family_Prop_Type`, whose
+	 * `get_key()` returns `font-family` — it extends `String_Prop_Type` but
+	 * does NOT share its key. The atomic style engine validates every prop
+	 * against the style schema and silently drops the ones whose `$$type`
+	 * does not match, so a `string` envelope here means no typography call
+	 * ever applies a font (field report #4, part 3). Same failure class as
+	 * the earlier `background-color` → `background` and `color` → Color
+	 * corrections documented in class-atomic-styles.php.
+	 *
+	 * Falls back to the `string` envelope when the prop type is absent, so
+	 * builds predating it are left as they were.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param string $value The font family, e.g. "Hanken Grotesk".
+	 * @return array Typed prop: { $$type: "font-family", value: "..." }
+	 */
+	public static function font_family( string $value ): array {
+		$type = 'string';
+
+		if ( class_exists( '\Elementor\Modules\AtomicWidgets\PropTypes\Font_Family_Prop_Type' ) ) {
+			$key = \Elementor\Modules\AtomicWidgets\PropTypes\Font_Family_Prop_Type::get_key();
+			if ( is_string( $key ) && '' !== $key ) {
+				$type = $key;
+			}
+		}
+
+		return array(
+			'$$type' => $type,
+			'value'  => $value,
+		);
+	}
+
+	/**
 	 * Wraps a number into a typed prop.
 	 *
 	 * @param int|float $value The numeric value.

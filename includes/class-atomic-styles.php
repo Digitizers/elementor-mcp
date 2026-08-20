@@ -373,9 +373,17 @@ class Elementor_MCP_Atomic_Styles {
 			}
 		}
 
+		// `font-family` is NOT a plain string prop: Elementor types it as
+		// Font_Family_Prop_Type, whose key is `font-family`. The atomic CSS
+		// engine validates each prop against the style schema and silently
+		// drops any whose $$type doesn't match — so emitting `string` here
+		// meant no font set through any tool ever applied (field report #4).
+		if ( isset( $params['font_family'] ) ) {
+			$props['font-family'] = Elementor_MCP_Atomic_Props::font_family( (string) $params['font_family'] );
+		}
+
 		// string-typed props: input key => css prop.
 		$string_props = array(
-			'font_family' => 'font-family',
 			'font_weight' => 'font-weight',
 			'text_align'  => 'text-align',
 		);

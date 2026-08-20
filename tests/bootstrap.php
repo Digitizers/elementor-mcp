@@ -264,6 +264,10 @@ namespace {
 		 */
 		function wp_register_ability( string $name, array $args ): void {
 			$GLOBALS['_registered_abilities'][ $name ] = $args;
+			// Keep wp_get_ability() coherent with what was registered: code that
+			// asks "does this name resolve?" must get the same answer here as in
+			// production, or an existence check looks like it drops everything.
+			$GLOBALS['_abilities'][ $name ] = (object) array( 'name' => $name );
 		}
 	}
 
@@ -339,6 +343,15 @@ namespace {
 
 	if ( ! function_exists( 'apply_filters' ) ) {
 		function apply_filters( string $hook_name, $value ) {
+			$callbacks = $GLOBALS['_filters'][ $hook_name ] ?? [];
+			ksort( $callbacks );
+
+			foreach ( $callbacks as $at_priority ) {
+				foreach ( $at_priority as $callback ) {
+					$value = call_user_func( $callback, $value );
+				}
+			}
+
 			return $value;
 		}
 	}
@@ -537,15 +550,26 @@ namespace {
 		}
 	}
 
+	// A real (if tiny) filter registry. These were no-ops, which meant no test
+	// could exercise a filter at all — including `elementor_mcp_ability_names`,
+	// the documented hook other plugins use to add or remove abilities. With an
+	// empty registry the behaviour is identical to the old stubs.
 	if ( ! function_exists( 'add_filter' ) ) {
 		function add_filter( string $tag, $function_to_add, int $priority = 10, int $accepted_args = 1 ): bool {
+			$GLOBALS['_filters'][ $tag ][ $priority ][] = $function_to_add;
 			return true;
 		}
 	}
 
 	if ( ! function_exists( 'remove_filter' ) ) {
 		function remove_filter( string $tag, $function_to_remove, int $priority = 10 ): bool {
-			return true;
+			foreach ( $GLOBALS['_filters'][ $tag ][ $priority ] ?? [] as $i => $registered ) {
+				if ( $registered === $function_to_remove ) {
+					unset( $GLOBALS['_filters'][ $tag ][ $priority ][ $i ] );
+					return true;
+				}
+			}
+			return false;
 		}
 	}
 
@@ -1151,6 +1175,8 @@ namespace {
 			'Elementor_MCP_Page_Abilities'         => 'includes/abilities/class-page-abilities.php',
 			'Elementor_MCP_Svg_Icon_Abilities'     => 'includes/abilities/class-svg-icon-abilities.php',
 			'Elementor_MCP_Layout_Abilities'       => 'includes/abilities/class-layout-abilities.php',
+			'Elementor_MCP_Server_Info_Abilities'  => 'includes/abilities/class-server-info-abilities.php',
+			'Elementor_MCP_Ability_Registrar'      => 'includes/abilities/class-ability-registrar.php',
 			'Elementor_MCP_Query_Abilities'        => 'includes/abilities/class-query-abilities.php',
 			'Elementor_MCP_Global_Abilities'       => 'includes/abilities/class-global-abilities.php',
 			'Elementor_MCP_Template_Abilities'     => 'includes/abilities/class-template-abilities.php',

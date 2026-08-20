@@ -48,9 +48,13 @@ class Elementor_MCP_Ability_Registrar {
 	/**
 	 * All registered ability names.
 	 *
+	 * Protected to match register_groups(): a subclass that overrides the one
+	 * must be able to see the other, or it silently writes a dynamic property
+	 * and its registrations vanish.
+	 *
 	 * @var string[]
 	 */
-	private $ability_names = array();
+	protected $ability_names = array();
 
 	/**
 	 * Constructor.
@@ -83,6 +87,52 @@ class Elementor_MCP_Ability_Registrar {
 	 *
 	 * @return string[] Array of registered ability names.
 	 */
+	/** @var string[] Ability names registered with the Abilities API. */
+	private static $registered_names = array();
+
+	/** @var string[] Ability names actually handed to the MCP server. */
+	private static $exposed_names = array();
+
+	/**
+	 * Everything registered with the Abilities API this request.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @return string[]
+	 */
+	public static function get_registered_names(): array {
+		return self::$registered_names;
+	}
+
+	/**
+	 * What survived the disabled-tools filter and reached the MCP server.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @return string[]
+	 */
+	public static function get_exposed_names(): array {
+		return self::$exposed_names;
+	}
+
+	/**
+	 * Seeds the registered/exposed lists.
+	 *
+	 * Test-only: the real values are produced by a full registration pass,
+	 * which a unit test cannot run. Named with the double underscore so it
+	 * reads as a seam, not API.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param string[] $registered Registered names.
+	 * @param string[] $exposed    Exposed names.
+	 * @return void
+	 */
+	public static function __set_names_for_test( array $registered, array $exposed ): void {
+		self::$registered_names = $registered;
+		self::$exposed_names    = $exposed;
+	}
+
 	public function register_all(): array {
 		try {
 			$this->register_groups();
@@ -110,7 +160,70 @@ class Elementor_MCP_Ability_Registrar {
 		 *
 		 * @param string[] $ability_names The registered ability names.
 		 */
+		// Keep BOTH lists. `server-info` reports registered-vs-exposed, and a
+		// gap that nothing can observe is what made "zero tools" undiagnosable
+		// (field report #5, part 2a).
+		// One well-defined point to clear the per-pass record the diagnostic
+		// reads, so a previous pass can't be blamed for this one's gaps.
+		if ( class_exists( 'Elementor_MCP_Plugin' ) ) {
+			Elementor_MCP_Plugin::reset_removed_by_settings();
+		}
+
+		$before = $this->ability_names;
+
 		$this->ability_names = apply_filters( 'elementor_mcp_ability_names', $this->ability_names );
+
+		// The exemption has to hold against the WHOLE chain, not just our own
+		// callback: a later callback returning a curated allowlist would
+		// otherwise drop the diagnostic — leaving exactly the silent
+		// "zero tools" state it exists to explain.
+		if ( class_exists( 'Elementor_MCP_Server_Info_Abilities' ) ) {
+			$info = Elementor_MCP_Server_Info_Abilities::ABILITY;
+			if ( in_array( $info, $before, true ) && ! in_array( $info, $this->ability_names, true ) ) {
+				$this->ability_names[] = $info;
+			}
+		}
+
+		// A third party may ADD one of its own abilities through the same
+		// documented hook. Counting only our pre-filter names would then report
+		// more exposed than registered and make the suppressed arithmetic
+		// nonsense, so anything that came out counts as registered too.
+		// Anything can come back from a public hook. Keep strings only: a
+		// callback that appends an object or an array would make array_unique()
+		// throw "Object could not be converted to string" and abort
+		// registration — a third party crashing the tool surface, which is the
+		// failure mode elementor_mcp_require()'s guards exist to prevent.
+		$this->ability_names = array_values( array_filter( $this->ability_names, 'is_string' ) );
+
+		// Deduplicate: two integrations can append the same registered tool, and
+		// the adapter stores tools by name — so counting duplicates would
+		// report more exposed than exist.
+		$this->ability_names = array_values( array_unique( $this->ability_names ) );
+
+		// A callback running BEFORE this plugin's priority-10 filter can add an
+		// ability that our own settings then remove. Such a name is in neither
+		// $before nor the final list, so it would vanish from the accounting
+		// entirely — reported as neither registered nor withheld. Our filter
+		// records what it removed, which covers exactly that case.
+		$removed_by_settings = class_exists( 'Elementor_MCP_Plugin' )
+			? Elementor_MCP_Plugin::get_removed_by_settings()
+			: array();
+
+		$registered = array_unique( array_filter(
+			array_merge( $before, $this->ability_names, $removed_by_settings ),
+			'is_string'
+		) );
+
+		// NOTE: resolvability is deliberately NOT checked here. Registration
+		// runs during wp_abilities_api_init, and another plugin may register
+		// its hook-added ability later in that same action — at priority 20, or
+		// simply after this callback. wp_get_ability() would return null for a
+		// perfectly legitimate name and we would drop it. The report resolves
+		// names when it is generated instead, which is long after every
+		// registration has run.
+
+		self::$registered_names = array_values( $registered );
+		self::$exposed_names    = $this->ability_names;
 
 		return $this->ability_names;
 	}
@@ -124,6 +237,21 @@ class Elementor_MCP_Ability_Registrar {
 	 * @return void
 	 */
 	protected function register_groups(): void {
+		// Always first, and never suppressible: when everything else is
+		// withheld this is the tool that says so.
+		//
+		// GUARDED, because the loader treats every source file as optional (a
+		// host malware scanner quarantining one is upstream #100, the reason
+		// elementor_mcp_require() exists). An unguarded `new` here would throw
+		// before any other group had registered, and register_all()'s catch
+		// would then keep nothing at all — turning a missing diagnostic into
+		// total tool loss, which is the opposite of the point.
+		if ( class_exists( 'Elementor_MCP_Server_Info_Abilities' ) ) {
+			$info = new Elementor_MCP_Server_Info_Abilities();
+			$info->register();
+			$this->ability_names = array_merge( $this->ability_names, $info->get_ability_names() );
+		}
+
 		// Phase 1: Query/discovery abilities (P0 — read-only).
 		$query = new Elementor_MCP_Query_Abilities( $this->data, $this->schema_generator );
 		$query->register();

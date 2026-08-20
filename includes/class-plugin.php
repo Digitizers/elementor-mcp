@@ -271,6 +271,51 @@ class Elementor_MCP_Plugin {
 	 * @param string[] $names The registered ability names.
 	 * @return string[] Ability names with disabled tools removed.
 	 */
+	/** @var string[] Names THIS callback removed, for the server-info report. */
+	private static $removed_by_settings = array();
+
+	/**
+	 * Ability names removed by this plugin's own settings.
+	 *
+	 * `elementor_mcp_ability_names` is a documented public hook, so another
+	 * plugin may remove abilities too. Attributing every removal to the local
+	 * disabled-tools option would send an operator hunting slugs that are not
+	 * in it, so the diagnostic distinguishes the two.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @return string[]
+	 */
+	public static function get_removed_by_settings(): array {
+		return self::$removed_by_settings;
+	}
+
+	/**
+	 * Clears the record before a registration pass.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @return void
+	 */
+	public static function reset_removed_by_settings(): void {
+		self::$removed_by_settings = array();
+	}
+
+	/**
+	 * Records names this callback removed, additively.
+	 *
+	 * The callback can legitimately run more than once in a request (it is
+	 * registered once, but nothing stops another pass over the same hook), and
+	 * overwriting would let a later no-op pass erase what an earlier one
+	 * removed — leaving the diagnostic reporting no cause for a real gap.
+	 *
+	 * @param string[] $removed Names removed this pass.
+	 * @return void
+	 */
+	private static function record_removed( array $removed ): void {
+		self::$removed_by_settings = array_values( array_unique( array_merge( self::$removed_by_settings, $removed ) ) );
+	}
+
 	public function filter_disabled_tools( array $names ): array {
 		$disabled = get_option( 'elementor_mcp_disabled_tools', array() );
 		if ( ! is_array( $disabled ) ) {
@@ -283,11 +328,31 @@ class Elementor_MCP_Plugin {
 			$disabled = array_merge( $disabled, array_diff( $names, self::get_essential_tool_slugs() ) );
 		}
 
+		// server-info is never suppressible. A diagnostic that the thing it
+		// diagnoses can switch off is no diagnostic at all — and "zero tools,
+		// no explanation" is exactly the state it exists to explain.
+		$always_on = class_exists( 'Elementor_MCP_Server_Info_Abilities' )
+			? array( Elementor_MCP_Server_Info_Abilities::ABILITY )
+			: array();
+
+		$disabled = array_diff( $disabled, $always_on );
+
 		if ( empty( $disabled ) ) {
 			return $names;
 		}
 
-		return array_values( array_diff( $names, $disabled ) );
+		$kept = array_values( array_diff( $names, $disabled ) );
+
+		// Re-add it if it was registered but trimmed by low-tools mode above.
+		foreach ( $always_on as $name ) {
+			if ( in_array( $name, $names, true ) && ! in_array( $name, $kept, true ) ) {
+				$kept[] = $name;
+			}
+		}
+
+		self::record_removed( array_diff( $names, $kept ) );
+
+		return $kept;
 	}
 
 	/**

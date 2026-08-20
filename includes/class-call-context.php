@@ -239,16 +239,7 @@ class Elementor_MCP_Call_Context {
 	 * @return array The args, with meta.mcp.type set when the ability writes.
 	 */
 	public static function shield_write_from_foreign_servers( array $args, string $name = '' ): array {
-		$annotations = ( isset( $args['meta']['annotations'] ) && is_array( $args['meta']['annotations'] ) )
-			? $args['meta']['annotations']
-			: null;
-		// Same classification as the governance wrapper: an explicit readonly=false.
-		// Annotations we cannot classify are left alone — an unclassifiable ability
-		// is not known to write, and hiding a read tool costs a real capability.
-		$writes = null !== $annotations
-			&& array_key_exists( 'readonly', $annotations )
-			&& false === $annotations['readonly'];
-		if ( ! $writes ) {
+		if ( ! self::ability_writes( $args ) ) {
 			return $args;
 		}
 		self::$writes_seen[] = $name;
@@ -322,6 +313,164 @@ class Elementor_MCP_Call_Context {
 	 */
 	public static function writes_left_exposed(): array {
 		return self::$writes_left_exposed;
+	}
+
+	/**
+	 * Decide whether a write-capable ability may even be *attempted* on this
+	 * transport, before its own permission check runs.
+	 *
+	 * The registration-time shield (`shield_write_from_foreign_servers()`) keeps
+	 * write tools out of another server's menu, and the governance layer refuses
+	 * an ungranted foreign write at execute time. Neither is sufficient alone on
+	 * the site this exists for: **a fork-only install has no governance layer**
+	 * — `Governance::wrap_ability()` returns every ability untouched without
+	 * SiteAgent's snapshot engine — so the metadata was the only thing standing
+	 * between a co-installed server and a published page. That made the whole
+	 * protection depend on another plugin continuing to honour a convention.
+	 *
+	 * This gate does not. It runs on every site, for every write-capable
+	 * ability, at the permission stage: a caller that cannot present gateway
+	 * context is refused before the tool is reached.
+	 *
+	 * **Presence, not verification.** A grant is checked for existence here and
+	 * verified once, later, by the governance layer. Verifying it twice would
+	 * burn its single-use nonce and reject the second check — the legitimate
+	 * call would fail on its own approval. Presence is the right question at
+	 * this stage anyway: it separates "a gateway sent this" from "something else
+	 * did", and the signature decides the rest.
+	 *
+	 * Without SiteAgent's verifier installed there is nothing that *could*
+	 * validate a grant, so a foreign write is refused outright rather than
+	 * waved through on an unverifiable header.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @return true|\WP_Error True when the attempt may proceed.
+	 */
+	public static function write_permission_gate() {
+		$reason = self::write_permission_decision(
+			self::is_trusted_for_writes(),
+			class_exists( '\\Aura_Worker_Grant' ),
+			'' !== ( isset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] ) ? (string) $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] : '' )
+		);
+		if ( null === $reason ) {
+			return true;
+		}
+
+		$where = self::describe();
+
+		if ( 'no_verifier' === $reason ) {
+			return new \WP_Error(
+				'untrusted_transport',
+				sprintf(
+					/* translators: %s: transport description */
+					__( 'This tool changes site content and was called on %s, which is not this plugin\'s own MCP server. Calls from elsewhere need an approval grant, and no grant verifier is installed on this site.', 'elementor-mcp' ),
+					$where
+				),
+				array( 'status' => 403 )
+			);
+		}
+
+		return new \WP_Error(
+			'untrusted_transport',
+			sprintf(
+				/* translators: %s: transport description */
+				__( 'This tool changes site content and was called on %s, which the Aura gateway does not see. Such a call must carry an approval grant (X-Aura-Approval-Grant).', 'elementor-mcp' ),
+				$where
+			),
+			array( 'status' => 403 )
+		);
+	}
+
+	/**
+	 * The gate's decision, given the three facts it turns on.
+	 *
+	 * Split out because two of those facts come from `class_exists()` and
+	 * `$_SERVER`, and a suite cannot unload a class — the fork-only branch,
+	 * which is the entire reason this gate exists, would otherwise be the one
+	 * combination no test could reach.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param bool $trusted            Whether the transport may write on its own authority.
+	 * @param bool $verifier_available Whether SiteAgent's grant verifier is installed.
+	 * @param bool $grant_present      Whether a grant header was sent.
+	 * @return string|null Refusal reason, or null to allow.
+	 */
+	public static function write_permission_decision( bool $trusted, bool $verifier_available, bool $grant_present ): ?string {
+		if ( $trusted ) {
+			return null;
+		}
+		if ( ! $verifier_available ) {
+			// Nothing on this site could validate a grant, so a foreign write is
+			// refused outright rather than waved through on an unverifiable
+			// header. This is the fork-only case: no gateway, no approval
+			// possible, no reason to accept the attempt.
+			return 'no_verifier';
+		}
+		if ( ! $grant_present ) {
+			return 'no_grant';
+		}
+		return null;
+	}
+
+	/**
+	 * Does this ability declare that it writes?
+	 *
+	 * One definition, shared by the registration shield, the permission gate and
+	 * the governance wrapper: an EXPLICIT `readonly === false`. Three guards
+	 * disagreeing about what a write is would leave gaps exactly where they
+	 * overlap, and an ability that never classified itself is not known to
+	 * write — hiding or gating a read tool costs a real capability.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param array $args Ability args.
+	 * @return bool
+	 */
+	public static function ability_writes( array $args ): bool {
+		$annotations = ( isset( $args['meta']['annotations'] ) && is_array( $args['meta']['annotations'] ) )
+			? $args['meta']['annotations']
+			: null;
+		return null !== $annotations
+			&& array_key_exists( 'readonly', $annotations )
+			&& false === $annotations['readonly'];
+	}
+
+	/**
+	 * Wrap a write-capable ability's permission callback with the transport
+	 * gate, so an untrusted caller is refused before the ability is reached.
+	 *
+	 * Wrapping rather than replacing: the ability's own capability check still
+	 * runs, and still runs LAST, so this can only ever deny more than before.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param array $args Ability args.
+	 * @return array
+	 */
+	public static function gate_write_permission( array $args ): array {
+		if ( ! self::ability_writes( $args ) ) {
+			return $args;
+		}
+
+		$inner = isset( $args['permission_callback'] ) ? $args['permission_callback'] : null;
+
+		$args['permission_callback'] = static function () use ( $inner ) {
+			$gate = self::write_permission_gate();
+			if ( is_wp_error( $gate ) ) {
+				return $gate;
+			}
+			if ( null === $inner || ! is_callable( $inner ) ) {
+				// An ability with no permission callback of its own is not this
+				// gate's business to authorize; preserve whatever the registry
+				// would have done with it.
+				return true;
+			}
+			return call_user_func_array( $inner, func_get_args() );
+		};
+
+		return $args;
 	}
 
 	/**

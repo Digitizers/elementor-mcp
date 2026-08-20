@@ -323,6 +323,11 @@ function elementor_mcp_register_ability( string $name, array $args ) {
 	// governance wraps nothing.
 	if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
 		$args = Elementor_MCP_Call_Context::shield_write_from_foreign_servers( $args, $name );
+		// Refuse an untrusted caller before the ability is reached, on EVERY
+		// site — the governance layer below only exists where SiteAgent is
+		// installed, and a fork-only site was relying on the registration
+		// metadata alone, i.e. on another plugin honouring a convention.
+		$args = Elementor_MCP_Call_Context::gate_write_permission( $args );
 	}
 	// When SiteAgent is installed alongside us, bring destructive page writes
 	// under its capture-before-write governance. No-op when SiteAgent is absent.

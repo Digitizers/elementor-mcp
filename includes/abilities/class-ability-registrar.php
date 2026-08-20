@@ -96,7 +96,7 @@ class Elementor_MCP_Ability_Registrar {
 	/**
 	 * Everything registered with the Abilities API this request.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @return string[]
 	 */
@@ -107,7 +107,7 @@ class Elementor_MCP_Ability_Registrar {
 	/**
 	 * What survived the disabled-tools filter and reached the MCP server.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @return string[]
 	 */
@@ -122,7 +122,7 @@ class Elementor_MCP_Ability_Registrar {
 	 * which a unit test cannot run. Named with the double underscore so it
 	 * reads as a seam, not API.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param string[] $registered Registered names.
 	 * @param string[] $exposed    Exposed names.

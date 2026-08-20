@@ -2077,7 +2077,7 @@ class Elementor_MCP_Widget_Abilities {
 	 * left the widget on its default menu — invisible on a one-menu site, and
 	 * the wrong navigation everywhere else (field report #5, part 5).
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @return array Two published props, keyed by parameter name.
 	 */

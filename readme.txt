@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.28.0
+Stable tag: 1.29.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,18 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.29.0 =
+Fixed: nine correctness and discoverability defects on the atomic (Elementor 4.x) write path, all found while building a real client site. Several were silent — the tool reported success and Elementor dropped the value.
+* Fixed: font-family was emitted with the wrong $$type, so no font set through any tool ever applied. Elementor types it as Font_Family_Prop_Type, which does not share String_Prop_Type's key, and the style schema silently drops props that do not match.
+* Fixed: the fallback write path never invalidated Elementor's rendered-element cache (_elementor_element_cache). That path is the one taken in non-browser contexts — i.e. how the MCP writes — so a correct write served the pre-change markup until the cache expired.
+* Fixed: add-custom-css was a no-op on atomic elements. It wrote the Elementor 3.x settings.custom_css control, which atomic elements never read. It now writes a style variant, base64-encoded, because Elementor decodes that field through base64_decode() and a plain CSS string is dropped.
+* Fixed: update-atomic-widget could not change a style at all — it wrote only settings, but size, spacing and appearance live in the styles map. It now accepts the same flat style params as the add-* tools and merges them into the element's base variant, member-wise for composite props so touching one padding side no longer drops the other three.
+* Fixed: add-flexbox and add-div-block hid capabilities the engine already had. Borders, radii, widths, gradients and per-side spacing always worked but were never published, so agents concluded atomic containers could not express them. Both tools now publish everything the builders accept, from a single shared source, and tests pin schema and builder together in both directions.
+* New: position and box-shadow on atomic elements — the two capabilities that were genuinely missing. The input key is css_position, not position, which the layout tools already use for the insert index. Offsets use logical names (offset_inline_start etc.) because the inline axis follows text direction.
+* Fixed: add-nav-menu published menu_name as the menu selector, but that is the widget's accessible label; the SELECT that picks the navigation is menu. On a site with more than one menu the wrong navigation was inserted. menu is now published, carrying the registered slugs as an enum.
+* New: server-info — an always-available diagnostic that cannot be switched off. Reports plugin/Elementor/Elementor Pro versions, atomic state, the resolved MCP adapter source and version, whether the server endpoint is on, and registered vs exposed vs suppressed ability counts with the suppressed slugs and the cause of each gap. A fresh install presenting as "zero tools exposed" previously had nothing anywhere to explain it.
+* Fixed: replace-system-colors and update-global-colors now describe what they each write and name each other. update-global-colors appends to custom_colors and never touches the four system slots every Global Color picker references, so a brand palette could land while Elementor's stock colour stayed bound to the roles that matter.
 
 = 1.28.0 =
 New: GitHub self-updater. Updates for this fork now appear on the normal Plugins and Dashboard > Updates screens, pulled from the repository's tagged GitHub Releases (bundled Plugin Update Checker 5.6).
@@ -427,6 +439,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.29.0 =
+Strongly recommended if you use the atomic (Elementor 4.x) tools. Fixes nine defects, most of them silent: fonts set through any tool never applied, style changes through update-atomic-widget were dropped entirely, add-custom-css did nothing on atomic elements, and correct writes could serve stale markup from Elementor's element cache. Also publishes borders, gradients, per-side spacing, position and box-shadow on the container tools — capabilities the engine already had but never advertised — and adds server-info, a diagnostic that cannot be switched off.
 
 = 1.28.0 =
 Adds a self-updater, so future versions arrive through the normal WordPress update screens instead of a manual zip upload. Update checks are anonymous — the site URL is never sent to GitHub — and only published Releases are offered.

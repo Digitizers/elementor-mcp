@@ -442,7 +442,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * Reuses the element's existing local class when it has one, so repeated
 	 * calls don't pile up classes, and edits the desktop/no-state variant.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param array  $element The target element (read-only).
 	 * @param string $css     Raw CSS to store.
@@ -491,7 +491,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * null-breakpoint base and append a SECOND base variant, leaving the
 	 * original rule in place: a `replace` that doesn't replace.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param array $style_def       A style definition (or `[ 'variants' => [...] ]`).
 	 * @param bool  $require_css     Only match a base variant that already holds custom CSS.
@@ -543,7 +543,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * Published from one place so the schema cannot drift from the builder
 	 * again: an agent's entire model of a tool is its schema.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param bool $include_flex Include the flex-container params.
 	 * @return array JSON-schema property map.
@@ -670,7 +670,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * build_common_props(). Publishing them without this would have advertised
 	 * a no-op — the same lie as hiding a capability, inverted.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param bool $include_flex Include the flex-container params.
 	 * @return string[]
@@ -703,7 +703,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * would forward an integer into a string enum and store `"-1"` as a CSS
 	 * position.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param array $params Flat style params.
 	 * @return array CSS props in $$type format.
@@ -757,7 +757,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * Unmapped until now: the design behind field report #4 used seven distinct
 	 * shadows and all of them were dropped.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param array $params Flat style params.
 	 * @return array CSS props in $$type format.
@@ -821,7 +821,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * Existing props on the variant are preserved — a partial update must not
 	 * silently drop the styles it doesn't mention.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param array $element The target element (read-only).
 	 * @param array $props   CSS props already in $$type form.
@@ -869,7 +869,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * Shared by the custom-CSS and prop writers so they cannot disagree about
 	 * which class owns an element's styles.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param array $element     The element.
 	 * @param bool  $prefer_css  Prefer the class that already carries custom CSS.
@@ -936,7 +936,7 @@ class Elementor_MCP_Atomic_Styles {
 	/**
 	 * Style params accepted by update-atomic-widget, including typography.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @return string[]
 	 */
@@ -956,7 +956,7 @@ class Elementor_MCP_Atomic_Styles {
 	 * whole value, not a set of independently addressable members. Envelopes of
 	 * different `$$type` are replaced too — they are different kinds of value.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param array $existing Stored prop value.
 	 * @param array $incoming Incoming prop value.
@@ -993,7 +993,7 @@ class Elementor_MCP_Atomic_Styles {
 	/**
 	 * Whether an array is associative. An empty array counts as a list.
 	 *
-	 * @since 1.28.1
+	 * @since 1.29.0
 	 *
 	 * @param array $arr Array to inspect.
 	 * @return bool

@@ -53,27 +53,22 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 	 * @return array<string,array> Schema properties to merge into a tool's input.
 	 */
 	private static function style_schema_props(): array {
-		return array(
-			'font_size'        => array( 'type' => 'number', 'description' => __( 'Font size value (default unit px).', 'elementor-mcp' ) ),
-			'font_size_unit'   => array( 'type' => 'string', 'description' => __( 'Font size unit: px, em, rem.', 'elementor-mcp' ) ),
-			'font_family'      => array( 'type' => 'string', 'description' => __( 'Font family name.', 'elementor-mcp' ) ),
-			'font_weight'      => array( 'type' => 'string', 'description' => __( 'Font weight (e.g. 400, 700).', 'elementor-mcp' ) ),
-			'line_height'      => array( 'type' => 'number', 'description' => __( 'Line height value (default unit em).', 'elementor-mcp' ) ),
-			'letter_spacing'   => array( 'type' => 'number', 'description' => __( 'Letter spacing value (default unit px).', 'elementor-mcp' ) ),
-			'text_align'       => array( 'type' => 'string', 'description' => __( 'Text alignment: left, center, right, justify.', 'elementor-mcp' ) ),
-			'color'            => array( 'type' => 'string', 'description' => __( 'Text color (hex/rgb).', 'elementor-mcp' ) ),
-			'background_color' => array( 'type' => 'string', 'description' => __( 'Background color (hex/rgb).', 'elementor-mcp' ) ),
-			'padding'          => array( 'type' => 'number', 'description' => __( 'Uniform padding value.', 'elementor-mcp' ) ),
-			'border_radius'    => array( 'type' => 'number', 'description' => __( 'Border radius value.', 'elementor-mcp' ) ),
-			'max_width'        => array( 'type' => 'number', 'description' => __( 'Max width value (e.g. 1360 to box a section).', 'elementor-mcp' ) ),
-			'border_width'     => array( 'type' => 'number', 'description' => __( 'Border width value.', 'elementor-mcp' ) ),
-			'border_color'     => array( 'type' => 'string', 'description' => __( 'Border color (hex/rgb).', 'elementor-mcp' ) ),
-			'border_style'     => array( 'type' => 'string', 'description' => __( 'Border style: solid, dashed, dotted, none.', 'elementor-mcp' ) ),
-			'gradient_from'    => array( 'type' => 'string', 'description' => __( 'Gradient start color (with gradient_to enables a gradient background).', 'elementor-mcp' ) ),
-			'gradient_to'      => array( 'type' => 'string', 'description' => __( 'Gradient end color.', 'elementor-mcp' ) ),
-			'gradient_type'    => array( 'type' => 'string', 'description' => __( 'Gradient type: linear or radial.', 'elementor-mcp' ) ),
-			'gradient_angle'   => array( 'type' => 'number', 'description' => __( 'Linear gradient angle in degrees (default 135).', 'elementor-mcp' ) ),
+		// Typography is widget-only (containers do not reach
+		// build_typography_props); everything else comes from the shared style
+		// schema, so this list cannot drift from the builders the way the
+		// container tools' did. Flex params are excluded: a widget is not a
+		// flex container.
+		$typography = array(
+			'font_size'      => array( 'type' => 'number', 'description' => __( 'Font size value (default unit px).', 'elementor-mcp' ) ),
+			'font_size_unit' => array( 'type' => 'string', 'description' => __( 'Font size unit: px, em, rem.', 'elementor-mcp' ) ),
+			'font_family'    => array( 'type' => 'string', 'description' => __( 'Font family name.', 'elementor-mcp' ) ),
+			'font_weight'    => array( 'type' => 'string', 'description' => __( 'Font weight (e.g. 400, 700).', 'elementor-mcp' ) ),
+			'line_height'    => array( 'type' => 'number', 'description' => __( 'Line height value (default unit em).', 'elementor-mcp' ) ),
+			'letter_spacing' => array( 'type' => 'number', 'description' => __( 'Letter spacing value (default unit px).', 'elementor-mcp' ) ),
+			'text_align'     => array( 'type' => 'string', 'description' => __( 'Text alignment: left, center, right, justify.', 'elementor-mcp' ) ),
 		);
+
+		return $typography + Elementor_MCP_Atomic_Styles::style_props_schema( false );
 	}
 
 	/**

@@ -671,14 +671,14 @@ class Elementor_MCP_Atomic_Styles {
 				'enum'        => array( 'static', 'relative', 'absolute', 'fixed', 'sticky' ),
 				'description' => __( 'CSS position. Use with offset_* to place an element out of flow. (Named css_position because `position` is this tool\'s insert index.)', 'elementor-mcp' ),
 			),
-			'offset_top'           => $size( __( 'Offset from the top; needs a non-static css_position.', 'elementor-mcp' ) ),
-			'offset_top_unit'      => $unit( 'offset_top' ),
-			'offset_right'         => $size( __( 'Offset from the right; needs a non-static css_position.', 'elementor-mcp' ) ),
-			'offset_right_unit'    => $unit( 'offset_right' ),
-			'offset_bottom'        => $size( __( 'Offset from the bottom; needs a non-static css_position.', 'elementor-mcp' ) ),
-			'offset_bottom_unit'   => $unit( 'offset_bottom' ),
-			'offset_left'          => $size( __( 'Offset from the left; needs a non-static css_position.', 'elementor-mcp' ) ),
-			'offset_left_unit'     => $unit( 'offset_left' ),
+			'offset_block_start'       => $size( __( 'Offset from the block start (the top in horizontal writing). Needs a non-static css_position.', 'elementor-mcp' ) ),
+			'offset_block_start_unit'  => $unit( 'offset_block_start' ),
+			'offset_inline_end'        => $size( __( 'Offset from the inline end — the RIGHT edge in LTR, the LEFT edge in RTL. Needs a non-static css_position.', 'elementor-mcp' ) ),
+			'offset_inline_end_unit'   => $unit( 'offset_inline_end' ),
+			'offset_block_end'         => $size( __( 'Offset from the block end (the bottom in horizontal writing). Needs a non-static css_position.', 'elementor-mcp' ) ),
+			'offset_block_end_unit'    => $unit( 'offset_block_end' ),
+			'offset_inline_start'      => $size( __( 'Offset from the inline start — the LEFT edge in LTR, the RIGHT edge in RTL. Needs a non-static css_position.', 'elementor-mcp' ) ),
+			'offset_inline_start_unit' => $unit( 'offset_inline_start' ),
 			'z_index'              => array( 'type' => 'integer', 'description' => __( 'Stacking order.', 'elementor-mcp' ) ),
 
 			// Box shadow. Setting any one of these emits a complete shadow;
@@ -771,11 +771,16 @@ class Elementor_MCP_Atomic_Styles {
 		// to a non-static position — Elementor declares that dependency itself,
 		// so a caller that sets one without the other simply gets no offset
 		// rather than a broken rule.
+		// LOGICAL names, matching the properties Elementor declares. The
+		// inline axis follows text direction: on an RTL page inset-inline-end
+		// is the LEFT edge. Publishing these as `offset_right`/`offset_left`
+		// would have named the wrong edge on every Hebrew or Arabic page while
+		// looking correct in LTR review.
 		$offsets = array(
-			'offset_top'    => 'inset-block-start',
-			'offset_right'  => 'inset-inline-end',
-			'offset_bottom' => 'inset-block-end',
-			'offset_left'   => 'inset-inline-start',
+			'offset_block_start'  => 'inset-block-start',
+			'offset_inline_end'   => 'inset-inline-end',
+			'offset_block_end'    => 'inset-block-end',
+			'offset_inline_start' => 'inset-inline-start',
 		);
 
 		foreach ( $offsets as $input_key => $css_prop ) {

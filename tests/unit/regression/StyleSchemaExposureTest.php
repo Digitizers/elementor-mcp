@@ -239,6 +239,59 @@ class StyleSchemaExposureTest extends TestCase {
 		$this->assertNotContains( 'position', \Elementor_MCP_Atomic_Styles::style_param_keys(), 'The insert index must never be forwarded as a style param.' );
 	}
 
+	/**
+	 * Elementor declares LOGICAL inset properties, and the inline axis follows
+	 * text direction: `inset-inline-end` is the LEFT edge on an RTL page.
+	 * Publishing these as `offset_right`/`offset_left` would name the wrong
+	 * edge on every Hebrew or Arabic page while looking correct in LTR review —
+	 * a silent failure that only shows up in the one locale nobody re-checks.
+	 */
+	public function test_offsets_are_published_under_logical_names(): void {
+		$schema = \Elementor_MCP_Atomic_Styles::style_props_schema();
+
+		foreach ( array( 'offset_block_start', 'offset_inline_end', 'offset_block_end', 'offset_inline_start' ) as $key ) {
+			$this->assertArrayHasKey( $key, $schema );
+		}
+
+		foreach ( array( 'offset_top', 'offset_right', 'offset_bottom', 'offset_left' ) as $physical ) {
+			$this->assertArrayNotHasKey(
+				$physical,
+				$schema,
+				"`$physical` names a physical edge for a property that is logical — it would lie in RTL."
+			);
+		}
+	}
+
+	public function test_the_inline_offsets_map_to_logical_css_properties(): void {
+		$props = \Elementor_MCP_Atomic_Styles::build_common_props( array(
+			'css_position'        => 'absolute',
+			'offset_inline_start' => 8,
+			'offset_block_start'  => 12,
+		) );
+
+		$this->assertArrayHasKey( 'inset-inline-start', $props );
+		$this->assertArrayHasKey( 'inset-block-start', $props );
+		$this->assertArrayNotHasKey( 'left', $props, 'Elementor drops physical inset keys; emitting them would be a silent no-op.' );
+	}
+
+	/**
+	 * The container tools were not the only place the schema drifted from the
+	 * builders: atomic WIDGETS (headings, buttons, images) publish their own
+	 * list, and it hand-listed a subset too.
+	 *
+	 * @dataProvider capabilities_reported_impossible
+	 */
+	public function test_atomic_widgets_publish_the_same_style_capabilities( string $param ): void {
+		$source = file_get_contents( ELEMENTOR_MCP_DIR . 'includes/abilities/class-atomic-widget-abilities.php' );
+
+		$this->assertIsString( $source );
+		$this->assertStringContainsString(
+			'style_props_schema(',
+			$source,
+			'Atomic widget tools must derive their style schema from the shared source, not a parallel hand-list.'
+		);
+	}
+
 	public function test_flex_params_are_excluded_for_non_flex_containers(): void {
 		$without = \Elementor_MCP_Atomic_Styles::style_props_schema( false );
 

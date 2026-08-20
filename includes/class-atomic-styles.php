@@ -418,4 +418,105 @@ class Elementor_MCP_Atomic_Styles {
 		}
 		$element['styles'][ $class_id ] = $style_def;
 	}
+
+	/**
+	 * Builds a `styles`-map patch that carries per-element custom CSS on an
+	 * atomic element.
+	 *
+	 * Atomic elements never read `settings.custom_css` — that is the Elementor
+	 * 3.x Pro control. Their CSS comes from `styles[].variants[]`, compiled by
+	 * the atomic CSS engine, and a variant carries free-form CSS in
+	 * `custom_css.raw`.
+	 *
+	 * **That value must be base64.** Elementor validates it with
+	 * `Utils::decode_string()` = `base64_decode( $raw, true )` and sanitizes
+	 * with the same call (`modules/atomic-widgets/parsers/style-parser.php`).
+	 * A plain CSS string contains characters outside the base64 alphabet, so
+	 * strict decoding returns `false` — which is not `null`, so validation
+	 * passes — and the rule is then dropped to nothing. Success is reported,
+	 * the data is stored, and no CSS renders (field report #4, parts 1.1/1.3).
+	 *
+	 * Reuses the element's existing local class when it has one, so repeated
+	 * calls don't pile up classes, and edits the desktop/no-state variant.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array  $element The target element (read-only).
+	 * @param string $css     Raw CSS to store.
+	 * @param bool   $replace Replace existing custom CSS instead of appending.
+	 * @return array { class_id: string, styles: array, css: string } — `styles`
+	 *               is the patch to hand to update_element_settings(), and
+	 *               `css` the resulting decoded CSS.
+	 */
+	public static function build_custom_css_patch( array $element, string $css, bool $replace = false ): array {
+		$element_id = isset( $element['id'] ) ? (string) $element['id'] : '';
+		$styles     = ( isset( $element['styles'] ) && is_array( $element['styles'] ) ) ? $element['styles'] : array();
+
+		// Reuse this element's own local class if it already has one; global
+		// (`g-`) classes are shared and must not be rewritten from here.
+		$class_id = '';
+		foreach ( array_keys( $styles ) as $existing_id ) {
+			if ( '' !== $element_id && 0 === strpos( (string) $existing_id, 'e-' . $element_id . '-' ) ) {
+				$class_id = (string) $existing_id;
+				break;
+			}
+		}
+
+		if ( '' === $class_id ) {
+			$class_id = self::mint_class_id( $element_id );
+		}
+
+		$style_def = isset( $styles[ $class_id ] ) && is_array( $styles[ $class_id ] )
+			? $styles[ $class_id ]
+			: self::create_local_class( $element_id, array() )['style_def'];
+
+		$style_def['id'] = $class_id;
+
+		$variants = ( isset( $style_def['variants'] ) && is_array( $style_def['variants'] ) )
+			? array_values( $style_def['variants'] )
+			: array();
+
+		// Target the desktop / no-state variant, the one create_local_class()
+		// makes and the one a plain `selector{...}` rule belongs in.
+		$index = null;
+		foreach ( $variants as $i => $variant ) {
+			$breakpoint = $variant['meta']['breakpoint'] ?? null;
+			$state      = $variant['meta']['state'] ?? null;
+			if ( 'desktop' === $breakpoint && null === $state ) {
+				$index = $i;
+				break;
+			}
+		}
+
+		if ( null === $index ) {
+			$variants[] = array(
+				'meta'       => array(
+					'breakpoint' => 'desktop',
+					'state'      => null,
+				),
+				'props'      => array(),
+				'custom_css' => null,
+			);
+			$index      = count( $variants ) - 1;
+		}
+
+		$existing_raw = $variants[ $index ]['custom_css']['raw'] ?? '';
+		$existing_css = '';
+		if ( is_string( $existing_raw ) && '' !== $existing_raw ) {
+			$decoded      = base64_decode( $existing_raw, true );
+			$existing_css = is_string( $decoded ) ? $decoded : '';
+		}
+
+		$new_css = $replace ? $css : trim( $existing_css . "\n" . $css );
+
+		$variants[ $index ]['custom_css'] = array( 'raw' => base64_encode( $new_css ) );
+
+		$style_def['variants'] = $variants;
+
+		return array(
+			'class_id' => $class_id,
+			'styles'   => array( $class_id => $style_def ),
+			'css'      => $new_css,
+		);
+	}
 }

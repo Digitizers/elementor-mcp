@@ -237,14 +237,43 @@ class Elementor_MCP_Custom_Code_Abilities {
 				return new \WP_Error( 'element_not_found', __( 'Element not found.', 'elementor-mcp' ) );
 			}
 
-			$existing_css = $element['settings']['custom_css'] ?? '';
-			$new_css      = $replace ? $css : trim( $existing_css . "\n" . $css );
+			// `settings.custom_css` is the Elementor 3.x Pro control. Atomic
+			// (v4) elements never read it — their CSS comes from
+			// `styles[].variants[]`, compiled by the atomic CSS engine — so
+			// writing it there stored fine, reported success, and changed
+			// nothing in the compiled stylesheet (field report #4, part 1.1).
+			$is_atomic = class_exists( 'Elementor_MCP_Data' )
+				&& Elementor_MCP_Data::is_atomic_element( $element );
 
-			$updated = $this->data->update_element_settings(
-				$page_data,
-				$element_id,
-				array( 'custom_css' => $new_css )
-			);
+			if ( $is_atomic ) {
+				if ( ! class_exists( 'Elementor_MCP_Atomic_Styles' ) ) {
+					return new \WP_Error(
+						'atomic_styles_unavailable',
+						__( 'Cannot write custom CSS to an atomic element: the atomic styles helper is unavailable.', 'elementor-mcp' )
+					);
+				}
+
+				$patch   = Elementor_MCP_Atomic_Styles::build_custom_css_patch( $element, $css, $replace );
+				$new_css = $patch['css'];
+
+				// update_element_settings() hoists `styles` to the element root
+				// and wires the class id into settings.classes for atomic
+				// elements, so the rule is actually referenced.
+				$updated = $this->data->update_element_settings(
+					$page_data,
+					$element_id,
+					array( 'styles' => $patch['styles'] )
+				);
+			} else {
+				$existing_css = $element['settings']['custom_css'] ?? '';
+				$new_css      = $replace ? $css : trim( $existing_css . "\n" . $css );
+
+				$updated = $this->data->update_element_settings(
+					$page_data,
+					$element_id,
+					array( 'custom_css' => $new_css )
+				);
+			}
 
 			if ( ! $updated ) {
 				return new \WP_Error( 'update_failed', __( 'Failed to update element settings.', 'elementor-mcp' ) );
@@ -256,11 +285,20 @@ class Elementor_MCP_Custom_Code_Abilities {
 				return $result;
 			}
 
-			return array(
+			$response = array(
 				'success' => true,
 				'target'  => 'element:' . $element_id,
 				'css'     => $new_css,
 			);
+
+			if ( $is_atomic ) {
+				// Name the mechanism: the CSS lives in a style variant, not in
+				// settings.custom_css, and is stored base64 as Elementor requires.
+				$response['stored_as'] = 'style_variant';
+				$response['class_id']  = $patch['class_id'];
+			}
+
+			return $response;
 		}
 
 		// Page-level custom CSS.

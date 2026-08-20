@@ -754,6 +754,13 @@ class Elementor_MCP_Governance {
 	 * @return bool
 	 */
 	private static function is_preview_call( bool $preview_capable, $input ): bool {
+		// Delegated so the permission gate and this guard cannot drift apart
+		// about what a preview is — one exempts it before the tool is reached,
+		// the other exempts it from needing a grant, and a disagreement would
+		// show up as a tool that is permitted and then denied.
+		if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
+			return Elementor_MCP_Call_Context::is_preview_call( $preview_capable, $input );
+		}
 		return $preview_capable && ( ! is_array( $input ) || empty( $input['apply'] ) );
 	}
 

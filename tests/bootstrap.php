@@ -78,6 +78,16 @@ namespace {
 		}
 	}
 
+	if ( ! function_exists( '_n' ) ) {
+		/**
+		 * Picks by number, as WordPress does. A stub that always returned the
+		 * singular would let "1 write tools" ship and pass its own test.
+		 */
+		function _n( string $single, string $plural, int $number, string $domain = 'default' ): string {
+			return 1 === $number ? $single : $plural;
+		}
+	}
+
 	if ( ! function_exists( '_e' ) ) {
 		function _e( string $text, string $domain = 'default' ): void {
 			echo $text;
@@ -284,7 +294,7 @@ namespace {
 		// method the real registrar calls.
 		function elementor_mcp_register_ability( string $name, array $args ): void {
 			if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
-				$args = Elementor_MCP_Call_Context::shield_write_from_foreign_servers( $args, $name );
+				$args = Elementor_MCP_Call_Context::apply_write_guards( $args, $name );
 			}
 			wp_register_ability( $name, $args );
 		}

@@ -238,17 +238,8 @@ class Elementor_MCP_Call_Context {
 	 * @param array $args Ability args (as passed to wp_register_ability()).
 	 * @return array The args, with meta.mcp.type set when the ability writes.
 	 */
-	public static function shield_write_from_foreign_servers( array $args, string $name = '' ): array {
-		$annotations = ( isset( $args['meta']['annotations'] ) && is_array( $args['meta']['annotations'] ) )
-			? $args['meta']['annotations']
-			: null;
-		// Same classification as the governance wrapper: an explicit readonly=false.
-		// Annotations we cannot classify are left alone — an unclassifiable ability
-		// is not known to write, and hiding a read tool costs a real capability.
-		$writes = null !== $annotations
-			&& array_key_exists( 'readonly', $annotations )
-			&& false === $annotations['readonly'];
-		if ( ! $writes ) {
+	public static function shield_write_from_foreign_servers( array $args, string $name = '', ?bool $operator_opted_in = null ): array {
+		if ( ! self::ability_writes( $args ) ) {
 			return $args;
 		}
 		self::$writes_seen[] = $name;
@@ -265,7 +256,14 @@ class Elementor_MCP_Call_Context {
 		 * @param bool  $expose Whether to leave write tools exposed. Default false.
 		 * @param array $args   The ability args.
 		 */
-		$filter_opens = (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
+		// The decision may be handed in by apply_write_guards(), which asks once
+		// for both guards. Asking again here would ask a DIFFERENT question: by
+		// the time the gate looks, this method has injected `type = private`, so
+		// a filter keyed on meta.mcp.type answers about a different ability than
+		// the one it was first shown.
+		$filter_opens = null !== $operator_opted_in
+			? $operator_opted_in
+			: (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
 		// An ability that already declares a type keeps it either way: the
 		// declaration is the author's, and 'resource'/'prompt' are equally not
 		// 'tool' for this purpose. Which means the filter cannot expose such an
@@ -322,6 +320,279 @@ class Elementor_MCP_Call_Context {
 	 */
 	public static function writes_left_exposed(): array {
 		return self::$writes_left_exposed;
+	}
+
+	/**
+	 * Decide whether a write-capable ability may even be *attempted* on this
+	 * transport, before its own permission check runs.
+	 *
+	 * The registration-time shield (`shield_write_from_foreign_servers()`) keeps
+	 * write tools out of another server's menu, and the governance layer refuses
+	 * an ungranted foreign write at execute time. Neither is sufficient alone on
+	 * the site this exists for: **a fork-only install has no governance layer**
+	 * — `Governance::wrap_ability()` returns every ability untouched without
+	 * SiteAgent's snapshot engine — so the metadata was the only thing standing
+	 * between a co-installed server and a published page. That made the whole
+	 * protection depend on another plugin continuing to honour a convention.
+	 *
+	 * This gate does not. It runs on every site, for every write-capable
+	 * ability, at the permission stage: a caller that cannot present gateway
+	 * context is refused before the tool is reached.
+	 *
+	 * **Presence, not verification.** A grant is checked for existence here and
+	 * verified once, later, by the governance layer. Verifying it twice would
+	 * burn its single-use nonce and reject the second check — the legitimate
+	 * call would fail on its own approval. Presence is the right question at
+	 * this stage anyway: it separates "a gateway sent this" from "something else
+	 * did", and the signature decides the rest.
+	 *
+	 * Without SiteAgent's verifier installed there is nothing that *could*
+	 * validate a grant, so a foreign write is refused outright rather than
+	 * waved through on an unverifiable header.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @return true|\WP_Error True when the attempt may proceed.
+	 */
+	public static function write_permission_gate() {
+		$reason = self::write_permission_decision(
+			self::is_trusted_for_writes(),
+			self::grant_verification_will_run(),
+			'' !== ( isset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] ) ? (string) $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'] : '' )
+		);
+		if ( null === $reason ) {
+			return true;
+		}
+
+		$where = self::describe();
+
+		if ( 'no_verifier' === $reason ) {
+			return new \WP_Error(
+				'untrusted_transport',
+				sprintf(
+					/* translators: %s: transport description */
+					__( 'This tool changes site content and was called on %s, which is not this plugin\'s own MCP server. Calls from elsewhere need an approval grant, and no grant verifier is installed on this site.', 'elementor-mcp' ),
+					$where
+				),
+				array( 'status' => 403 )
+			);
+		}
+
+		return new \WP_Error(
+			'untrusted_transport',
+			sprintf(
+				/* translators: %s: transport description */
+				__( 'This tool changes site content and was called on %s, which the Aura gateway does not see. Such a call must carry an approval grant (X-Aura-Approval-Grant).', 'elementor-mcp' ),
+				$where
+			),
+			array( 'status' => 403 )
+		);
+	}
+
+	/**
+	 * The gate's decision, given the three facts it turns on.
+	 *
+	 * Split out because two of those facts come from `class_exists()` and
+	 * `$_SERVER`, and a suite cannot unload a class — the fork-only branch,
+	 * which is the entire reason this gate exists, would otherwise be the one
+	 * combination no test could reach.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param bool $trusted            Whether the transport may write on its own authority.
+	 * @param bool $verifier_available Whether a grant presented here will actually be verified downstream.
+	 * @param bool $grant_present      Whether a grant header was sent.
+	 * @return string|null Refusal reason, or null to allow.
+	 */
+	public static function write_permission_decision( bool $trusted, bool $verifier_available, bool $grant_present ): ?string {
+		if ( $trusted ) {
+			return null;
+		}
+		if ( ! $verifier_available ) {
+			// Nothing downstream will check the grant, so accepting one here
+			// would let a fabricated header through on the strength of being
+			// non-empty. Refuse outright instead. This covers the fork-only case
+			// AND the partial install where the verifier class exists but the
+			// governance wrapper that calls it does not.
+			return 'no_verifier';
+		}
+		if ( ! $grant_present ) {
+			return 'no_grant';
+		}
+		return null;
+	}
+
+	/**
+	 * Will a grant presented at this gate actually be verified later?
+	 *
+	 * This gate deliberately does not verify — that happens once, downstream,
+	 * because verifying twice burns the grant's single-use nonce. Which makes
+	 * "is there a downstream" the load-bearing question: if the governance
+	 * wrapper is absent, nothing ever calls `Aura_Worker_Grant::verify()`, and
+	 * accepting a non-empty header here would admit a fabricated one.
+	 *
+	 * So the verifier class existing is not enough. `wrap_ability()` returns
+	 * abilities untouched without SiteAgent's snapshot engine, and the loader
+	 * treats `class-governance.php` itself as optional — a quarantined file
+	 * would otherwise turn this gate from a lock into a doorbell.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @return bool
+	 */
+	public static function grant_verification_will_run(): bool {
+		return class_exists( '\\Aura_Worker_Grant' )
+			&& class_exists( 'Elementor_MCP_Governance' )
+			&& Elementor_MCP_Governance::is_active();
+	}
+
+	/**
+	 * Apply both write guards to an ability, from a single decision.
+	 *
+	 * The shield and the permission gate answer to the same operator opt-out,
+	 * and the opt-out is evaluated exactly **once**, here, before either has
+	 * touched the args. That ordering is the point: the shield injects
+	 * `meta.mcp.type = 'private'`, so a filter keyed on that meta sees a
+	 * different ability afterwards and can legitimately answer differently.
+	 * Asking twice let a callback decline to expose an untyped ability and then
+	 * accept the plugin-injected one — suppressing the gate on precisely the
+	 * ability it had refused to open.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param array  $args Ability args.
+	 * @param string $name Ability name (recorded for diagnostics).
+	 * @return array
+	 */
+	public static function apply_write_guards( array $args, string $name = '' ): array {
+		if ( ! self::ability_writes( $args ) ) {
+			return $args;
+		}
+
+		/**
+		 * Filters whether this plugin's write tools stay visible to MCP servers
+		 * other than this plugin's own. Evaluated once per ability.
+		 *
+		 * @since 1.30.0
+		 *
+		 * @param bool  $expose Whether to leave write tools exposed. Default false.
+		 * @param array $args   The ability args, as registered.
+		 */
+		$opted_in = (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
+
+		$args = self::shield_write_from_foreign_servers( $args, $name, $opted_in );
+		return self::gate_write_permission( $args, $opted_in );
+	}
+
+	/**
+	 * Is this a dry-run preview — a preview-capable tool invoked with `apply`
+	 * falsy, which writes nothing?
+	 *
+	 * Shared with the governance layer so the permission gate and the execute
+	 * guard cannot disagree about what a preview is. They already share the
+	 * definition of a write for the same reason.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param bool  $preview_capable Whether the tool's schema declares `apply`.
+	 * @param mixed $input           The ability input.
+	 * @return bool
+	 */
+	public static function is_preview_call( bool $preview_capable, $input ): bool {
+		return $preview_capable && ( ! is_array( $input ) || empty( $input['apply'] ) );
+	}
+
+	/**
+	 * Does this ability declare that it writes?
+	 *
+	 * One definition, shared by the registration shield, the permission gate and
+	 * the governance wrapper: an EXPLICIT `readonly === false`. Three guards
+	 * disagreeing about what a write is would leave gaps exactly where they
+	 * overlap, and an ability that never classified itself is not known to
+	 * write — hiding or gating a read tool costs a real capability.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param array $args Ability args.
+	 * @return bool
+	 */
+	public static function ability_writes( array $args ): bool {
+		$annotations = ( isset( $args['meta']['annotations'] ) && is_array( $args['meta']['annotations'] ) )
+			? $args['meta']['annotations']
+			: null;
+		return null !== $annotations
+			&& array_key_exists( 'readonly', $annotations )
+			&& false === $annotations['readonly'];
+	}
+
+	/**
+	 * Wrap a write-capable ability's permission callback with the transport
+	 * gate, so an untrusted caller is refused before the ability is reached.
+	 *
+	 * Wrapping rather than replacing: the ability's own capability check still
+	 * runs, and still runs LAST, so this can only ever deny more than before.
+	 *
+	 * @since 1.31.0
+	 *
+	 * @param array $args Ability args.
+	 * @return array
+	 */
+	public static function gate_write_permission( array $args, ?bool $operator_opted_in = null ): array {
+		if ( ! self::ability_writes( $args ) ) {
+			return $args;
+		}
+
+		// Honour the documented escape hatch. `elementor_mcp_expose_writes_to_foreign_mcp`
+		// is a published contract meaning "I want this write reachable from other
+		// MCP servers"; gating it here anyway would leave the operator with a
+		// tool that is advertised, appears in `server-info` as exposed, and then
+		// refuses every call — a filter that silently stops working is worse
+		// than one that was never offered.
+		//
+		// The answer is taken from ONE evaluation, made before the shield
+		// mutates anything (see apply_write_guards). Re-asking here would ask
+		// about an ability that now carries `type = private`, and a filter
+		// keyed on that meta could answer differently — opening the gate on an
+		// ability it had just declined to expose.
+		$opted_in = null !== $operator_opted_in
+			? $operator_opted_in
+			: (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
+		if ( $opted_in ) {
+			return $args;
+		}
+
+		$inner = isset( $args['permission_callback'] ) ? $args['permission_callback'] : null;
+		// A preview-capable tool is one whose schema declares an `apply` flag —
+		// the same signal the governance layer reads.
+		$preview_capable = isset( $args['input_schema']['properties']['apply'] );
+
+		$args['permission_callback'] = static function ( $input = null ) use ( $inner, $preview_capable ) {
+			// A dry run writes nothing, so there is nothing for a gateway to
+			// approve — governance exempts exactly this call, and refusing it
+			// here would take the documented preview mode away from foreign
+			// callers (or, on a site with no verifier, from everyone but us).
+			// `WP_Ability::check_permissions()` hands the input to this closure,
+			// which is why it can be asked at all.
+			if ( self::is_preview_call( $preview_capable, $input ) ) {
+				return null === $inner || ! is_callable( $inner )
+					? true
+					: call_user_func_array( $inner, func_get_args() );
+			}
+
+			$gate = self::write_permission_gate();
+			if ( is_wp_error( $gate ) ) {
+				return $gate;
+			}
+			if ( null === $inner || ! is_callable( $inner ) ) {
+				// An ability with no permission callback of its own is not this
+				// gate's business to authorize; preserve whatever the registry
+				// would have done with it.
+				return true;
+			}
+			return call_user_func_array( $inner, func_get_args() );
+		};
+
+		return $args;
 	}
 
 	/**

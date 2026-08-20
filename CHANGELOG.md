@@ -2,7 +2,7 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
-## Unreleased
+## 1.30.0 — 2026-08-20
 
 - Fixed (**security**): **write tools were reachable from any other MCP server installed on the same site** (Aura plan K7, step 1). `wp_register_ability()` publishes to a site-wide registry, not to a server — so a second MCP server on the site serves this plugin's tools without asking anyone. That is not hypothetical: Elementor's Angie 1.1.12 ships a first-party server at `/mcp/angie` whose discovery exposes **every** third-party ability whose `meta.mcp.type` is absent or `tool`, and whose `execute-ability` proxy then runs it by name (verified in Angie's `Mcp_Adapter_Ability_Discovery` / `Mcp_Adapter_Ability_Permissions`, not from its docs). On a managed site that made every mutating Elementor tool callable over a transport the Aura gateway never sees — no approval queue, no audit, no fleet visibility — which is exactly what the "every mutating agent action is queued for human approval, snapshotted, and audited" invariant exists to prevent. Two guards now close it, and they are not redundant because they cover different sites:
   - **At registration**, a write-capable ability (`annotations.readonly === false`) declares `meta.mcp.type = 'private'`. Angie's listing and its execution gate consult the same check, so a type it does not serve removes the tool from the menu *and* from the door. This is the **only** protection on a site without SiteAgent, where the governance wrapper returns every ability untouched and nothing else runs at all.

@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 6.9
-Stable tag: 1.29.0
+Stable tag: 1.30.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -155,6 +155,14 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.30.0 =
+Fixed (security): this plugin's write tools were reachable from any OTHER MCP server installed on the same site — a transport with no approval queue, no audit and no fleet visibility behind it.
+* Abilities are registered with WordPress, not with a server, so a second MCP server on the site serves them without asking. Elementor's Angie 1.1.12 ships one at /mcp/angie whose discovery exposes every third-party ability that does not declare a non-tool mcp.type, and whose execute-ability proxy then runs it by name.
+* Two guards, covering different sites. At registration, a write tool now declares mcp.type = private, which Angie's listing AND its execution gate both refuse — this is the only protection on a site without SiteAgent, where the governance wrapper leaves every ability untouched. At execution, a governed write arriving on any route other than this plugin's own MCP server must present a valid approval grant, whether or not grant enforcement is switched on; the refusal lands before the tool runs, so an unauthorized create cannot insert a draft first.
+* Read tools stay available to other servers on purpose — an assistant answering "what is on this page" is the point of the read-only bridge. Only writes are withheld.
+* Two escape hatches, both off by default: elementor_mcp_expose_writes_to_foreign_mcp re-exposes writes, and elementor_mcp_trusted_write_context trusts a named route for operators with a genuine second integration.
+* server-info now reports write exposure: whether writes are withheld, which write tools (if any) are left open and why, whether the execution-side check is actually running (it needs SiteAgent), and which other MCP servers are active on the site — including which of them publish these tools directly.
 
 = 1.29.0 =
 Fixed: nine correctness and discoverability defects on the atomic (Elementor 4.x) write path, all found while building a real client site. Several were silent — the tool reported success and Elementor dropped the value.
@@ -439,6 +447,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.30.0 =
+Security fix, recommended for every site — especially one running Elementor's Angie. This plugin's write tools were reachable from any other MCP server installed on the same site, bypassing the approval, snapshot and audit path entirely. They are now withheld from other servers, and a governed write arriving from one is refused unless it carries a valid approval grant. Read tools are unaffected. Also adds write-exposure reporting to server-info, so you can see whether a second MCP server is present on a site and whether the protection is in force there.
 
 = 1.29.0 =
 Strongly recommended if you use the atomic (Elementor 4.x) tools. Fixes nine defects, most of them silent: fonts set through any tool never applied, style changes through update-atomic-widget were dropped entirely, add-custom-css did nothing on atomic elements, and correct writes could serve stale markup from Elementor's element cache. Also publishes borders, gradients, per-side spacing, position and box-shadow on the container tools — capabilities the engine already had but never advertised — and adds server-info, a diagnostic that cannot be switched off.

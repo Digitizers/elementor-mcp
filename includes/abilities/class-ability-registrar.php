@@ -48,9 +48,13 @@ class Elementor_MCP_Ability_Registrar {
 	/**
 	 * All registered ability names.
 	 *
+	 * Protected to match register_groups(): a subclass that overrides the one
+	 * must be able to see the other, or it silently writes a dynamic property
+	 * and its registrations vanish.
+	 *
 	 * @var string[]
 	 */
-	private $ability_names = array();
+	protected $ability_names = array();
 
 	/**
 	 * Constructor.
@@ -159,11 +163,27 @@ class Elementor_MCP_Ability_Registrar {
 		// Keep BOTH lists. `server-info` reports registered-vs-exposed, and a
 		// gap that nothing can observe is what made "zero tools" undiagnosable
 		// (field report #5, part 2a).
-		self::$registered_names = $this->ability_names;
+		$before = $this->ability_names;
 
 		$this->ability_names = apply_filters( 'elementor_mcp_ability_names', $this->ability_names );
 
-		self::$exposed_names = $this->ability_names;
+		// The exemption has to hold against the WHOLE chain, not just our own
+		// callback: a later callback returning a curated allowlist would
+		// otherwise drop the diagnostic — leaving exactly the silent
+		// "zero tools" state it exists to explain.
+		if ( class_exists( 'Elementor_MCP_Server_Info_Abilities' ) ) {
+			$info = Elementor_MCP_Server_Info_Abilities::ABILITY;
+			if ( in_array( $info, $before, true ) && ! in_array( $info, $this->ability_names, true ) ) {
+				$this->ability_names[] = $info;
+			}
+		}
+
+		// A third party may ADD one of its own abilities through the same
+		// documented hook. Counting only our pre-filter names would then report
+		// more exposed than registered and make the suppressed arithmetic
+		// nonsense, so anything that came out counts as registered too.
+		self::$registered_names = array_values( array_unique( array_merge( $before, $this->ability_names ) ) );
+		self::$exposed_names    = $this->ability_names;
 
 		return $this->ability_names;
 	}

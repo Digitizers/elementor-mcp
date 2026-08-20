@@ -339,6 +339,15 @@ namespace {
 
 	if ( ! function_exists( 'apply_filters' ) ) {
 		function apply_filters( string $hook_name, $value ) {
+			$callbacks = $GLOBALS['_filters'][ $hook_name ] ?? [];
+			ksort( $callbacks );
+
+			foreach ( $callbacks as $at_priority ) {
+				foreach ( $at_priority as $callback ) {
+					$value = call_user_func( $callback, $value );
+				}
+			}
+
 			return $value;
 		}
 	}
@@ -537,15 +546,26 @@ namespace {
 		}
 	}
 
+	// A real (if tiny) filter registry. These were no-ops, which meant no test
+	// could exercise a filter at all — including `elementor_mcp_ability_names`,
+	// the documented hook other plugins use to add or remove abilities. With an
+	// empty registry the behaviour is identical to the old stubs.
 	if ( ! function_exists( 'add_filter' ) ) {
 		function add_filter( string $tag, $function_to_add, int $priority = 10, int $accepted_args = 1 ): bool {
+			$GLOBALS['_filters'][ $tag ][ $priority ][] = $function_to_add;
 			return true;
 		}
 	}
 
 	if ( ! function_exists( 'remove_filter' ) ) {
 		function remove_filter( string $tag, $function_to_remove, int $priority = 10 ): bool {
-			return true;
+			foreach ( $GLOBALS['_filters'][ $tag ][ $priority ] ?? [] as $i => $registered ) {
+				if ( $registered === $function_to_remove ) {
+					unset( $GLOBALS['_filters'][ $tag ][ $priority ][ $i ] );
+					return true;
+				}
+			}
+			return false;
 		}
 	}
 

@@ -173,6 +173,80 @@ class ServerInfoTest extends Ability_Test_Case {
 		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
 	}
 
+	/**
+	 * Builds a registrar whose groups register exactly $names, so the real
+	 * filter-chain handling in register_all() can be exercised.
+	 *
+	 * @param string[] $names Names the "groups" register.
+	 * @return \Elementor_MCP_Ability_Registrar
+	 */
+	private function registrar_registering( array $names ) {
+		$schema = new \Elementor_MCP_Schema_Generator();
+
+		return new class( $this->make_data_stub(), $this->make_factory(), $schema, new \Elementor_MCP_Settings_Validator( $schema ), $names ) extends \Elementor_MCP_Ability_Registrar {
+			/** @var string[] */
+			private $seed;
+
+			public function __construct( $data, $factory, $schema, $validator, array $seed ) {
+				parent::__construct( $data, $factory, $schema, $validator );
+				$this->seed = $seed;
+			}
+
+			protected function register_groups(): void {
+				$this->ability_names = $this->seed;
+			}
+		};
+	}
+
+	/**
+	 * The exemption must hold against the WHOLE filter chain, not just this
+	 * plugin's callback: another callback returning a curated allowlist would
+	 * otherwise drop the diagnostic, leaving exactly the silent "zero tools"
+	 * state it exists to explain.
+	 */
+	public function test_server_info_survives_a_third_party_allowlist(): void {
+		$info = \Elementor_MCP_Server_Info_Abilities::ABILITY;
+
+		$curate = static function () {
+			return array( 'elementor-mcp/list-pages' );
+		};
+		add_filter( 'elementor_mcp_ability_names', $curate, 99 );
+
+		$exposed = $this->registrar_registering( array( $info, 'elementor-mcp/list-pages' ) )->register_all();
+
+		remove_filter( 'elementor_mcp_ability_names', $curate, 99 );
+
+		$this->assertContains( $info, $exposed, 'A curated allowlist from another plugin must not silence the diagnostic.' );
+	}
+
+	/**
+	 * The same hook can ADD abilities. Counting only our own pre-filter names
+	 * would report more exposed than registered and make the suppressed
+	 * arithmetic nonsense.
+	 */
+	public function test_an_ability_added_by_another_plugin_counts_as_registered(): void {
+		$add = static function ( array $names ) {
+			$names[] = 'other-plugin/its-own-tool';
+			return $names;
+		};
+		add_filter( 'elementor_mcp_ability_names', $add, 99 );
+
+		$this->registrar_registering( array( 'elementor-mcp/list-pages' ) )->register_all();
+
+		remove_filter( 'elementor_mcp_ability_names', $add, 99 );
+
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertGreaterThanOrEqual(
+			$report['abilities']['exposed'],
+			$report['abilities']['registered'],
+			'Exposed can never exceed registered.'
+		);
+		$this->assertSame( 0, $report['abilities']['suppressed'], 'Nothing was withheld — one thing was added.' );
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
 	public function test_the_report_carries_the_adapter_source_and_versions(): void {
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 

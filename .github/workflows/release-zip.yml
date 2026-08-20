@@ -10,23 +10,32 @@ name: Release ZIP
 # so client sites were installing the repository — tests, CI config and internal
 # docs included — instead of a plugin build.
 #
-# WHY IT TRIGGERS ON `created`, NOT ONLY `published`
+# WHY THE TAG PUSH IS THE TRIGGER
 #
-# A release that is already visible when this job starts has a window in which
-# it exists with no asset. Anything checking during that window resolves the
-# zipball fallback and PUC *persists* the resolved package in its update state,
-# so the site can still install the repository archive long after the upload
-# lands. `created` fires for a draft, before anyone can see it — so the
-# supported flow is `gh release create --draft`, let this job attach the asset
-# and publish, and the release only becomes visible with the ZIP already on it.
+# A release that is visible without its asset is worse than a slow upload: a
+# site checking in that window resolves the zipball fallback and PUC *persists*
+# the package in its update state, so it can install the repository archive long
+# after the upload lands. One badly-timed check outlives the fix.
 #
-# `published` stays as a safety net for a release created public directly (and
-# for re-runs): the window is not closed there, but the asset still arrives
-# within a minute rather than never.
+# Draft releases cannot close that window either — GitHub does not run workflows
+# for the `created` (or `edited`/`deleted`) activity types on a draft, so a
+# draft-first flow would simply never build.
+#
+# Pushing the tag does fire, and nothing is visible yet at that point. So the
+# job builds first and then makes a DRAFT release carrying the ZIP, which the
+# release notes get written into and which becomes public — asset already
+# attached — when a human publishes it. The updater is release-only by design,
+# so the tag sitting there in the meantime offers nobody an update.
+#
+# `release: [published]` stays as a safety net for a release created public by
+# hand: that window is not closed, but the asset arrives within a minute rather
+# than never.
 
 on:
+  push:
+    tags: ["v*"]
   release:
-    types: [created, published]
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -41,13 +50,19 @@ jobs:
     name: Build and attach elementor-mcp.zip
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve the tag
+        id: tag
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       # The plugin sources come from the tag. The builder does NOT: a tag cut
       # before this workflow existed has no bin/build-zip.sh, which is exactly
       # the case workflow_dispatch is meant to backfill.
-      - name: Checkout the released tag
+      - name: Checkout the tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: ${{ steps.tag.outputs.tag }}
 
       - name: Check out the builder from the default branch
         uses: actions/checkout@v4
@@ -57,9 +72,9 @@ jobs:
           sparse-checkout: bin/build-zip.sh
           sparse-checkout-cone-mode: false
 
-      # Run the current builder against the tag's tree. It resolves its own
-      # root from its location, so it has to sit inside that tree — and it
-      # excludes itself from the ZIP either way.
+      # Run the current builder against the tag's tree. It resolves its own root
+      # from its location, so it has to sit inside that tree — and it excludes
+      # itself from the ZIP either way.
       - name: Build the ZIP
         run: |
           mkdir -p bin
@@ -73,26 +88,25 @@ jobs:
       # that reports an older version and offers itself the same update forever.
       - name: Check the built version matches the tag
         run: |
-          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          tag="${{ steps.tag.outputs.tag }}"
           built="$(grep -m1 '^ \* Version:' elementor-mcp.php | tr -d ' ' | cut -d: -f2)"
           if [ "${tag#v}" != "$built" ]; then
             echo "tag ${tag} does not match the plugin header version ${built}" >&2
             exit 1
           fi
 
-      - name: Attach it to the release
+      # Upload into whatever release already exists for this tag; create a draft
+      # carrying the ZIP when none does. Never publishes: a release becomes
+      # visible when a human says so, by which point the asset is on it.
+      - name: Attach the ZIP to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          gh release upload "${{ github.event.release.tag_name || inputs.tag }}" \
-            dist/elementor-mcp.zip --clobber --repo "$GITHUB_REPOSITORY"
-
-      # Only now is the release safe to show: publishing it earlier is what
-      # hands a site the zipball fallback to remember.
-      - name: Publish the release once the asset is on it
-        if: github.event_name == 'release' && github.event.release.draft == true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release edit "${{ github.event.release.tag_name }}" \
-            --draft=false --repo "$GITHUB_REPOSITORY"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/elementor-mcp.zip --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/elementor-mcp.zip \
+              --draft --title "$TAG" --generate-notes --repo "$GITHUB_REPOSITORY"
+            echo "Created a DRAFT release for $TAG with the ZIP attached — edit the notes and publish it." >> "$GITHUB_STEP_SUMMARY"
+          fi

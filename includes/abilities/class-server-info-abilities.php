@@ -118,14 +118,29 @@ class Elementor_MCP_Server_Info_Abilities {
 		$disabled_option = get_option( 'elementor_mcp_disabled_tools', array() );
 		$low_tools       = '1' === (string) get_option( 'elementor_mcp_low_tool_mode', '0' );
 
+		// `elementor_mcp_ability_names` is a documented public hook, so another
+		// plugin can remove abilities too. Blaming the local option for every
+		// removal would send an operator hunting slugs that are not in it.
+		$by_settings   = array_values( array_intersect( $suppressed, Elementor_MCP_Plugin::get_removed_by_settings() ) );
+		$by_other      = array_values( array_diff( $suppressed, $by_settings ) );
+
 		$notes = array();
 
-		if ( ! empty( $suppressed ) ) {
+		if ( ! empty( $by_settings ) ) {
 			$notes[] = sprintf(
-				/* translators: 1: number of suppressed tools, 2: the option key. */
-				__( '%1$d registered abilities are not exposed as tools. They are withheld by the "%2$s" option and/or low-tools mode — not missing from the plugin.', 'elementor-mcp' ),
-				count( $suppressed ),
+				/* translators: 1: number of withheld tools, 2: the option key. */
+				__( '%1$d registered abilities are withheld by this plugin\'s own settings — the "%2$s" option and/or low-tools mode. They are configured off, not missing.', 'elementor-mcp' ),
+				count( $by_settings ),
 				'elementor_mcp_disabled_tools'
+			);
+		}
+
+		if ( ! empty( $by_other ) ) {
+			$notes[] = sprintf(
+				/* translators: 1: number of tools removed elsewhere, 2: the filter name. */
+				__( '%1$d registered abilities were removed by something other than this plugin\'s settings — another callback on the "%2$s" filter. Looking for them in the disabled-tools option will not find them.', 'elementor-mcp' ),
+				count( $by_other ),
+				'elementor_mcp_ability_names'
 			);
 		}
 
@@ -159,6 +174,11 @@ class Elementor_MCP_Server_Info_Abilities {
 				'would_expose'    => count( $surviving ),
 				'suppressed'      => count( $suppressed ),
 				'suppressed_list' => $suppressed,
+				// Split by cause: an operator can only act on the first group.
+				'withheld_by'     => array(
+					'plugin_settings' => $by_settings,
+					'other_filters'   => $by_other,
+				),
 				'controlled_by'   => array(
 					'option'                   => 'elementor_mcp_disabled_tools',
 					'disabled_count'           => is_array( $disabled_option ) ? count( $disabled_option ) : 0,

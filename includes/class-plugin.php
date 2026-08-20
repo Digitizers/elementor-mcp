@@ -271,6 +271,25 @@ class Elementor_MCP_Plugin {
 	 * @param string[] $names The registered ability names.
 	 * @return string[] Ability names with disabled tools removed.
 	 */
+	/** @var string[] Names THIS callback removed, for the server-info report. */
+	private static $removed_by_settings = array();
+
+	/**
+	 * Ability names removed by this plugin's own settings.
+	 *
+	 * `elementor_mcp_ability_names` is a documented public hook, so another
+	 * plugin may remove abilities too. Attributing every removal to the local
+	 * disabled-tools option would send an operator hunting slugs that are not
+	 * in it, so the diagnostic distinguishes the two.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @return string[]
+	 */
+	public static function get_removed_by_settings(): array {
+		return self::$removed_by_settings;
+	}
+
 	public function filter_disabled_tools( array $names ): array {
 		$disabled = get_option( 'elementor_mcp_disabled_tools', array() );
 		if ( ! is_array( $disabled ) ) {
@@ -293,6 +312,7 @@ class Elementor_MCP_Plugin {
 		$disabled = array_diff( $disabled, $always_on );
 
 		if ( empty( $disabled ) ) {
+			self::$removed_by_settings = array();
 			return $names;
 		}
 
@@ -304,6 +324,8 @@ class Elementor_MCP_Plugin {
 				$kept[] = $name;
 			}
 		}
+
+		self::$removed_by_settings = array_values( array_diff( $names, $kept ) );
 
 		return $kept;
 	}

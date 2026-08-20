@@ -91,18 +91,22 @@ class ServerInfoTest extends Ability_Test_Case {
 		$this->assertArrayHasKey( 'suppressed', $report['abilities'] );
 	}
 
-	public function test_the_report_explains_a_gap_in_prose(): void {
-		\Elementor_MCP_Ability_Registrar::__set_names_for_test(
-			array( 'elementor-mcp/a', 'elementor-mcp/b', 'elementor-mcp/c' ),
-			array( 'elementor-mcp/a' )
-		);
+	public function test_a_gap_caused_by_our_settings_names_the_option(): void {
+		$registered = array( 'elementor-mcp/a', 'elementor-mcp/b', 'elementor-mcp/c' );
+
+		// Drive the real filter so the attribution is genuine, not seeded.
+		$GLOBALS['_options']['elementor_mcp_disabled_tools'] = array( 'elementor-mcp/b', 'elementor-mcp/c' );
+		$exposed = $this->plugin()->filter_disabled_tools( $registered );
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( $registered, $exposed );
 
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 
 		$this->assertSame( 3, $report['abilities']['registered'] );
 		$this->assertSame( 1, $report['abilities']['exposed'] );
 		$this->assertSame( 2, $report['abilities']['suppressed'] );
-		$this->assertSame( array( 'elementor-mcp/b', 'elementor-mcp/c' ), $report['abilities']['suppressed_list'] );
+		$this->assertSame( array( 'elementor-mcp/b', 'elementor-mcp/c' ), $report['abilities']['withheld_by']['plugin_settings'] );
+		$this->assertSame( array(), $report['abilities']['withheld_by']['other_filters'] );
 
 		$this->assertNotEmpty( $report['notes'], 'A count with no explanation is what the field report complained about.' );
 		$this->assertStringContainsString( 'elementor_mcp_disabled_tools', implode( ' ', $report['notes'] ) );
@@ -111,12 +115,32 @@ class ServerInfoTest extends Ability_Test_Case {
 	}
 
 	/**
-	 * The Connection toggle is a bigger switch than the disabled-tools option:
-	 * with it off, register_mcp_server() returns before create_server(), so
-	 * NOTHING is exposed. Reporting the post-filter count as `exposed` there
-	 * would have this tool answering "N exposed" to a client seeing zero — the
-	 * exact lie it exists to prevent.
+	 * `elementor_mcp_ability_names` is a documented public hook, so another
+	 * plugin can remove abilities. Attributing that to the local option would
+	 * send an operator hunting slugs that are not in it.
 	 */
+	public function test_a_gap_caused_elsewhere_is_not_blamed_on_our_option(): void {
+		$registered = array( 'elementor-mcp/a', 'elementor-mcp/b' );
+
+		// Our filter removed nothing; something else did.
+		$this->plugin()->filter_disabled_tools( $registered );
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( $registered, array( 'elementor-mcp/a' ) );
+
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		$notes  = implode( ' ', $report['notes'] );
+
+		$this->assertSame( array(), $report['abilities']['withheld_by']['plugin_settings'] );
+		$this->assertSame( array( 'elementor-mcp/b' ), $report['abilities']['withheld_by']['other_filters'] );
+		$this->assertStringContainsString( 'elementor_mcp_ability_names', $notes );
+		$this->assertStringNotContainsString(
+			'withheld by this plugin',
+			$notes,
+			'Blaming our own settings for another plugin\'s removal sends the operator to the wrong place.'
+		);
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
 	public function test_exposed_is_zero_when_the_server_endpoint_is_off(): void {
 		\Elementor_MCP_Ability_Registrar::__set_names_for_test(
 			array( 'elementor-mcp/a', 'elementor-mcp/b' ),

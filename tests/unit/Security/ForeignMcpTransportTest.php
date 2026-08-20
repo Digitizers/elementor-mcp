@@ -324,6 +324,90 @@ class ForeignMcpTransportTest extends TestCase {
 		);
 	}
 
+	// --- The fail-closed path must survive the class being absent ------------
+
+	public function test_denial_path_never_reaches_for_the_context_class_unguarded(): void {
+		// call_context_trusted() fails closed when the context class did not load
+		// — which sends the request straight into the denial branch. If that
+		// branch then names the class, the partial install fatals instead of
+		// returning a WP_Error, i.e. the fail-closed path fails open-ended.
+		//
+		// The class cannot be unloaded inside a running suite, so this pins the
+		// invariant at the source: every mention of it in the governance file
+		// sits inside a class_exists() guard.
+		$source = file_get_contents( dirname( __DIR__, 3 ) . '/includes/class-governance.php' );
+		$lines  = explode( "\n", $source );
+		$guard  = -10;
+
+		foreach ( $lines as $i => $line ) {
+			if ( false !== strpos( $line, "class_exists( 'Elementor_MCP_Call_Context' )" ) ) {
+				$guard = $i;
+				continue;
+			}
+			if ( false === strpos( $line, 'Elementor_MCP_Call_Context::' ) ) {
+				continue;
+			}
+			$this->assertLessThanOrEqual(
+				4,
+				$i - $guard,
+				sprintf(
+					'class-governance.php:%d calls Elementor_MCP_Call_Context with no class_exists() guard above it. '
+					. 'Route it through Elementor_MCP_Governance::describe_call_context() instead.',
+					$i + 1
+				)
+			);
+		}
+	}
+
+	public function test_context_description_has_a_value_for_every_transport(): void {
+		$this->assertSame( 'non-rest', \Elementor_MCP_Governance::describe_call_context() );
+
+		$this->arrive_on( '/mcp/angie' );
+		$this->assertSame( 'rest:/mcp/angie', \Elementor_MCP_Governance::describe_call_context() );
+	}
+
+	public function test_shield_is_reported_off_when_the_guard_component_did_not_load(): void {
+		// The registrar skips the shield behind its own class_exists() guard and
+		// says nothing, so a partial install goes out with writes exposed while
+		// every setting still reads as safe. This is the branch the diagnostic
+		// exists for, and it is unreachable through the class itself — the suite
+		// cannot unload a loaded class — hence the injected inputs.
+		$this->assertFalse(
+			\Elementor_MCP_Server_Info_Abilities::writes_are_shielded( false, false ),
+			'Writes are not hidden when the component that hides them is missing.'
+		);
+		$this->assertFalse( \Elementor_MCP_Server_Info_Abilities::writes_are_shielded( false, true ) );
+		$this->assertFalse( \Elementor_MCP_Server_Info_Abilities::writes_are_shielded( true, true ) );
+		$this->assertTrue( \Elementor_MCP_Server_Info_Abilities::writes_are_shielded( true, false ) );
+	}
+
+	public function test_server_info_reports_the_shield_as_off_when_the_filter_opens_it(): void {
+		// The diagnostic exists to audit this state, so it must not report
+		// "hidden" whenever the filter merely sits at its default.
+		add_filter( 'elementor_mcp_expose_writes_to_foreign_mcp', static fn() => true );
+
+		$info = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertFalse( $info['write_exposure']['writes_hidden_from_other_mcp_servers'] );
+		$this->assertNotEmpty(
+			array_filter(
+				$info['notes'],
+				static fn( $note ) => false !== strpos( $note, 'exposed to OTHER MCP servers' )
+			),
+			'An operator reading server-info must be told in words, not just in a boolean.'
+		);
+	}
+
+	public function test_server_info_reports_our_own_server_route(): void {
+		$info = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertTrue( $info['write_exposure']['writes_hidden_from_other_mcp_servers'] );
+		$this->assertSame(
+			\Elementor_MCP_Call_Context::own_server_route(),
+			$info['write_exposure']['own_server_route']
+		);
+	}
+
 	public function test_our_own_read_only_angie_bridge_route_is_not_a_write_transport(): void {
 		// The bridge enforces a read-only invariant of its own, so no mutating
 		// ability can reach it — but if one ever did, it must not be treated as

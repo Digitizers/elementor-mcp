@@ -85,6 +85,29 @@ class Elementor_MCP_Server_Info_Abilities {
 	}
 
 	/**
+	 * Are write tools actually withheld from other MCP servers right now?
+	 *
+	 * Both inputs must hold. The class-availability one is easy to forget,
+	 * because the registrar skips the shield behind its own `class_exists()`
+	 * guard and says nothing: the abilities go out exposed while every setting
+	 * still reads as safe. A diagnostic that derived this from the filter alone
+	 * would report "hidden" on exactly the broken install it exists to catch.
+	 *
+	 * Takes its inputs as arguments rather than reading them, so both answers are
+	 * reachable in a test — the class cannot be unloaded inside a running suite,
+	 * and an untestable security predicate is one nobody notices inverting.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @param bool $guards_loaded Whether Elementor_MCP_Call_Context is available.
+	 * @param bool $filter_allows Whether the exposure filter was turned on.
+	 * @return bool
+	 */
+	public static function writes_are_shielded( bool $guards_loaded, bool $filter_allows ): bool {
+		return $guards_loaded && ! $filter_allows;
+	}
+
+	/**
 	 * MCP servers on this site that are not ours, by server id.
 	 *
 	 * Read from the adapter's own registry rather than probing for a specific
@@ -220,15 +243,27 @@ class Elementor_MCP_Server_Info_Abilities {
 		// from anywhere else: the other server registers its own routes and
 		// enumerates the shared ability registry without telling anyone.
 		$foreign_servers = self::foreign_mcp_servers();
-		$writes_shielded = ! apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, array() );
+		// Both guards live in Elementor_MCP_Call_Context, and the loader treats
+		// every include as optional — so its absence is not a detail to report
+		// around, it is the whole answer. The registrar's class_exists() guard
+		// silently skips the shield when the file did not load, which leaves
+		// writes exposed; a diagnostic whose entire job is auditing that state
+		// must not report "hidden" because a filter happens to be at its default.
+		$guards_loaded   = class_exists( 'Elementor_MCP_Call_Context' );
+		$filter_allows   = (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, array() );
+		$writes_shielded = self::writes_are_shielded( $guards_loaded, $filter_allows );
 		$write_exposure  = array(
 			'writes_hidden_from_other_mcp_servers' => $writes_shielded,
-			'governed_writes_require_grant_off_own_server' => class_exists( 'Elementor_MCP_Call_Context' ),
-			'own_server_route'                     => class_exists( 'Elementor_MCP_Call_Context' )
+			'governed_writes_require_grant_off_own_server' => $guards_loaded,
+			'own_server_route'                     => $guards_loaded
 				? Elementor_MCP_Call_Context::own_server_route()
 				: '',
 			'other_mcp_servers'                    => $foreign_servers,
 		);
+
+		if ( ! $guards_loaded ) {
+			$notes[] = __( 'The transport-guard component (Elementor_MCP_Call_Context) did not load. Write tools are NOT withheld from other MCP servers on this site and governed writes are not checked against the transport they arrived on. Reinstall the plugin — this usually means a file was quarantined or removed.', 'elementor-mcp' );
+		}
 
 		if ( ! empty( $foreign_servers ) ) {
 			$notes[] = sprintf(

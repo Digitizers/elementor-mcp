@@ -715,6 +715,27 @@ class Elementor_MCP_Governance {
 		return Elementor_MCP_Call_Context::is_trusted_for_writes();
 	}
 
+	/**
+	 * A name for the transport this call arrived on, safe to build when the
+	 * context class did not load.
+	 *
+	 * The two callers are denial messages, and one of those denials fires
+	 * *because* the class is missing — so reaching for it there would fatal in
+	 * exactly the partial-install case the fail-closed branch exists to survive.
+	 * This is the only place allowed to name the class, and every other path
+	 * takes the answer as a value.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @return string
+	 */
+	public static function describe_call_context(): string {
+		if ( ! class_exists( 'Elementor_MCP_Call_Context' ) ) {
+			return 'unclassified transport';
+		}
+		return Elementor_MCP_Call_Context::describe();
+	}
+
 	public static function grants_required(): bool {
 		if ( ! class_exists( '\\Aura_Worker_Grant' ) || ! \Aura_Worker_Grant::is_enforced() ) {
 			return false;
@@ -913,7 +934,7 @@ class Elementor_MCP_Governance {
 					/* translators: 1: tool name, 2: transport description */
 					__( '%1$s is a governed write and cannot run on %2$s: approval grants cannot be verified on this site.', 'elementor-mcp' ),
 					$name,
-					Elementor_MCP_Call_Context::describe()
+					self::describe_call_context()
 				)
 			);
 		}
@@ -929,7 +950,7 @@ class Elementor_MCP_Governance {
 						/* translators: 1: tool name, 2: transport description */
 						__( '%1$s is a governed write and was called on %2$s, which the Aura gateway does not see. Calls from outside this plugin\'s own MCP server must carry an approval grant (X-Aura-Approval-Grant).', 'elementor-mcp' ),
 						$name,
-						Elementor_MCP_Call_Context::describe()
+						self::describe_call_context()
 					)
 				);
 			}

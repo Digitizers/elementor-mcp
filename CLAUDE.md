@@ -160,6 +160,38 @@ The MCP Adapter converts ability names like `elementor-mcp/list-widgets` to tool
 | Code snippets (create) | `manage_options` + `unfiltered_html` |
 | Code snippets (list) | `manage_options` |
 
+**Capabilities are not the whole gate.** A write-capable ability also has to be
+reached on a transport we trust, and this is the part that is easy to undo by
+accident:
+
+- Abilities register with **WordPress**, not with a server. `wp_register_ability()`
+  publishes to a site-wide registry, so any other MCP server on the site can
+  enumerate and serve them. Elementor's Angie ships one (`/mcp/angie`), and its
+  `execute-ability` proxy runs third-party abilities by name.
+- **Three guards, in order.** (1) Registration: a write ability declares
+  `meta.mcp.type = 'private'`, which Angie's discovery *and* its execution gate
+  both refuse. (2) Permission: `Elementor_MCP_Call_Context::gate_write_permission()`
+  refuses any caller that is not on our own MCP route, WP-CLI or a non-REST
+  context, unless it presents a grant that something downstream will verify.
+  (3) Execute: `Elementor_MCP_Governance::run_governed()` verifies that grant, once.
+- **They cover different sites, so do not treat any as redundant.** (1) is the
+  only guard on a site without SiteAgent if (2) is ever removed, and it depends
+  on another plugin honouring a convention. (2) runs everywhere. (3) exists only
+  where SiteAgent is installed — `wrap_ability()` returns abilities untouched
+  without its snapshot engine.
+- **Grants are single-use.** Verify in exactly one place. Checking a grant at the
+  permission stage *and* at execute would burn the nonce and reject the
+  legitimate call on its own approval.
+- All three classify "writes" through `Call_Context::ability_writes()` — an
+  explicit `readonly === false`. If you add a fourth, use the same function;
+  guards that disagree leave gaps exactly where they overlap.
+- Read-only abilities are deliberately left reachable from other servers. That is
+  what the Angie bridge is for.
+- Two escape hatches, both off by default and both honoured by (1) and (2):
+  `elementor_mcp_expose_writes_to_foreign_mcp` and
+  `elementor_mcp_trusted_write_context`.
+- `server-info` reports the live state of all of this under `write_exposure`.
+
 ## All Implemented Tools (up to 118 — see counts above)
 
 ### P0 — Query/Discovery (7 read-only)

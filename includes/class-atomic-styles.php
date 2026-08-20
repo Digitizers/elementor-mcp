@@ -452,66 +452,13 @@ class Elementor_MCP_Atomic_Styles {
 	 *               `css` the resulting decoded CSS.
 	 */
 	public static function build_custom_css_patch( array $element, string $css, bool $replace = false ): array {
-		$element_id = isset( $element['id'] ) ? (string) $element['id'] : '';
-		$styles     = ( isset( $element['styles'] ) && is_array( $element['styles'] ) ) ? $element['styles'] : array();
-
-		// Reuse this element's own local class if it already has one; global
-		// (`g-`) classes are shared and must not be rewritten from here.
-		//
-		// Prefer the class that ALREADY carries custom CSS. Picking merely the
-		// first id-matching class would, on an element with several local
-		// classes, edit an unrelated one — and because the styles patch is
-		// deep-merged, the original class keeps its CSS, so `replace = true`
-		// would add a rule instead of replacing one.
-		$owner    = '';
-		$fallback = '';
-		foreach ( $styles as $existing_id => $existing_def ) {
-			$existing_id = (string) $existing_id;
-			if ( '' === $element_id || 0 !== strpos( $existing_id, 'e-' . $element_id . '-' ) ) {
-				continue;
-			}
-
-			if ( '' === $fallback ) {
-				$fallback = $existing_id;
-			}
-
-			if ( '' === $owner && is_array( $existing_def ) && null !== self::find_base_variant_index( $existing_def, true ) ) {
-				$owner = $existing_id;
-			}
-		}
-
-		$class_id = $owner ?: $fallback;
-
-		if ( '' === $class_id ) {
-			$class_id = self::mint_class_id( $element_id );
-		}
-
-		$style_def = isset( $styles[ $class_id ] ) && is_array( $styles[ $class_id ] )
-			? $styles[ $class_id ]
-			: self::create_local_class( $element_id, array() )['style_def'];
-
-		$style_def['id'] = $class_id;
-
-		$variants = ( isset( $style_def['variants'] ) && is_array( $style_def['variants'] ) )
-			? array_values( $style_def['variants'] )
-			: array();
-
-		// Target the base (desktop / no-state) variant — the one
-		// create_local_class() makes and where a plain `selector{...}` rule
-		// belongs.
-		$index = self::find_base_variant_index( array( 'variants' => $variants ) );
-
-		if ( null === $index ) {
-			$variants[] = array(
-				'meta'       => array(
-					'breakpoint' => 'desktop',
-					'state'      => null,
-				),
-				'props'      => array(),
-				'custom_css' => null,
-			);
-			$index      = count( $variants ) - 1;
-		}
+		// prefer_css: on an element with several local classes, edit the one
+		// that already holds custom CSS. Picking any other would leave the
+		// original rule in place under the deep merge, so `replace` would add a
+		// rule rather than replace one.
+		$target   = self::target_local_class( $element, true );
+		$variants = $target['variants'];
+		$index    = $target['index'];
 
 		$existing_raw = $variants[ $index ]['custom_css']['raw'] ?? '';
 		$existing_css = '';
@@ -524,11 +471,12 @@ class Elementor_MCP_Atomic_Styles {
 
 		$variants[ $index ]['custom_css'] = array( 'raw' => base64_encode( $new_css ) );
 
+		$style_def             = $target['style_def'];
 		$style_def['variants'] = $variants;
 
 		return array(
-			'class_id' => $class_id,
-			'styles'   => array( $class_id => $style_def ),
+			'class_id' => $target['class_id'],
+			'styles'   => array( $target['class_id'] => $style_def ),
 			'css'      => $new_css,
 		);
 	}
@@ -855,6 +803,132 @@ class Elementor_MCP_Atomic_Styles {
 					),
 				),
 			),
+		);
+	}
+
+	/**
+	 * Merges style props into an element's base style variant.
+	 *
+	 * `update-atomic-widget` only ever wrote `settings`, but on an atomic
+	 * element size, spacing and appearance are NOT settings — they live in the
+	 * `styles` map. A padding or width sent as a setting was merged, saved,
+	 * reported successful and dropped by Elementor's parser, which is why three
+	 * separate agents on the build behind field report #4 independently
+	 * concluded that delete-and-recreate was the only reliable way to change a
+	 * style. Correcting one card's padding meant rebuilding the card and
+	 * everything inside it.
+	 *
+	 * Existing props on the variant are preserved — a partial update must not
+	 * silently drop the styles it doesn't mention.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array $element The target element (read-only).
+	 * @param array $props   CSS props already in $$type form.
+	 * @return array { class_id: string, styles: array } patch for update_element_settings().
+	 */
+	public static function build_props_patch( array $element, array $props ): array {
+		$target   = self::target_local_class( $element );
+		$variants = $target['variants'];
+		$index    = $target['index'];
+
+		$existing = ( isset( $variants[ $index ]['props'] ) && is_array( $variants[ $index ]['props'] ) )
+			? $variants[ $index ]['props']
+			: array();
+
+		// Incoming wins per key; untouched props survive.
+		$variants[ $index ]['props'] = array_merge( $existing, $props );
+
+		$style_def             = $target['style_def'];
+		$style_def['variants'] = $variants;
+
+		return array(
+			'class_id' => $target['class_id'],
+			'styles'   => array( $target['class_id'] => $style_def ),
+		);
+	}
+
+	/**
+	 * Resolves the local class and base variant a style write should target.
+	 *
+	 * Shared by the custom-CSS and prop writers so they cannot disagree about
+	 * which class owns an element's styles.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @param array $element     The element.
+	 * @param bool  $prefer_css  Prefer the class that already carries custom CSS.
+	 * @return array { class_id, style_def, variants, index }
+	 */
+	private static function target_local_class( array $element, bool $prefer_css = false ): array {
+		$element_id = isset( $element['id'] ) ? (string) $element['id'] : '';
+		$styles     = ( isset( $element['styles'] ) && is_array( $element['styles'] ) ) ? $element['styles'] : array();
+
+		$owner    = '';
+		$fallback = '';
+		foreach ( $styles as $existing_id => $existing_def ) {
+			$existing_id = (string) $existing_id;
+			if ( '' === $element_id || 0 !== strpos( $existing_id, 'e-' . $element_id . '-' ) ) {
+				continue;
+			}
+
+			if ( '' === $fallback ) {
+				$fallback = $existing_id;
+			}
+
+			if ( $prefer_css && '' === $owner && is_array( $existing_def ) && null !== self::find_base_variant_index( $existing_def, true ) ) {
+				$owner = $existing_id;
+			}
+		}
+
+		$class_id = $owner ?: $fallback;
+		if ( '' === $class_id ) {
+			$class_id = self::mint_class_id( $element_id );
+		}
+
+		$style_def = isset( $styles[ $class_id ] ) && is_array( $styles[ $class_id ] )
+			? $styles[ $class_id ]
+			: self::create_local_class( $element_id, array() )['style_def'];
+
+		$style_def['id'] = $class_id;
+
+		$variants = ( isset( $style_def['variants'] ) && is_array( $style_def['variants'] ) )
+			? array_values( $style_def['variants'] )
+			: array();
+
+		$index = self::find_base_variant_index( array( 'variants' => $variants ) );
+
+		if ( null === $index ) {
+			$variants[] = array(
+				'meta'       => array(
+					'breakpoint' => 'desktop',
+					'state'      => null,
+				),
+				'props'      => array(),
+				'custom_css' => null,
+			);
+			$index      = count( $variants ) - 1;
+		}
+
+		return array(
+			'class_id'  => $class_id,
+			'style_def' => $style_def,
+			'variants'  => $variants,
+			'index'     => $index,
+		);
+	}
+
+	/**
+	 * Style params accepted by update-atomic-widget, including typography.
+	 *
+	 * @since 1.28.1
+	 *
+	 * @return string[]
+	 */
+	public static function widget_style_param_keys(): array {
+		return array_merge(
+			self::style_param_keys( false ),
+			array( 'font_size', 'font_size_unit', 'font_family', 'font_weight', 'line_height', 'line_height_unit', 'letter_spacing', 'letter_spacing_unit', 'text_align' )
 		);
 	}
 }

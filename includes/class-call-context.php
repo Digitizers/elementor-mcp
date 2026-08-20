@@ -265,15 +265,22 @@ class Elementor_MCP_Call_Context {
 		 * @param bool  $expose Whether to leave write tools exposed. Default false.
 		 * @param array $args   The ability args.
 		 */
-		if ( apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args ) ) {
-			self::$writes_left_exposed[] = $name;
-			return $args;
-		}
-
-		// An ability that already declares a type keeps it: the declaration is the
-		// author's, and 'resource'/'prompt' are equally not 'tool' for this purpose.
-		if ( isset( $args['meta']['mcp']['type'] ) ) {
-			if ( 'tool' === $args['meta']['mcp']['type'] ) {
+		$filter_opens = (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args );
+		// An ability that already declares a type keeps it either way: the
+		// declaration is the author's, and 'resource'/'prompt' are equally not
+		// 'tool' for this purpose. Which means the filter cannot expose such an
+		// ability — a foreign server still reads the type it declared and still
+		// refuses to serve it. Exposure is therefore decided by the EFFECTIVE
+		// type, never by the filter's answer alone: recording "exposed" for an
+		// ability that is in fact hidden would have the diagnostic naming a tool
+		// nothing can reach, which is the same false report in the other
+		// direction.
+		$declared = isset( $args['meta']['mcp']['type'] ) ? $args['meta']['mcp']['type'] : null;
+		if ( $filter_opens || null !== $declared ) {
+			// Nothing is written in either case; the effective type is whatever
+			// the ability already declared, or none (which any consumer reads as
+			// 'tool').
+			if ( null === $declared || 'tool' === $declared ) {
 				self::$writes_left_exposed[] = $name;
 			}
 			return $args;

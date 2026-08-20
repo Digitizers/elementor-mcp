@@ -187,24 +187,102 @@ class Elementor_MCP_Server_Info_Abilities {
 	 * @return string[]
 	 */
 	private static function foreign_mcp_servers(): array {
+		return self::classify_foreign_servers()['ids'];
+	}
+
+	/**
+	 * Other MCP servers on this site, and which of them publish OUR abilities
+	 * in their own tool lists.
+	 *
+	 * The distinction matters because "another server exists" is not the same
+	 * claim as "another server can run these tools". A stock install already has
+	 * the bundled adapter's default server, and that one reaches nothing here:
+	 * it publishes three proxy tools whose gate requires `meta.mcp.public`, which
+	 * none of this plugin's abilities set. Warning about it as a second door
+	 * would be crying wolf on every site — and a report that cries wolf is one
+	 * operators learn to skip.
+	 *
+	 * What CAN be established from the registry is whether a server's declared
+	 * tool list names our abilities. When it does, that server serves them, full
+	 * stop. When it does not, reachability depends on how that server's own
+	 * tools select targets (Angie's `execute-ability` proxies by name to anything
+	 * its discovery rule admits) — which is exactly why the write shield is a
+	 * property of our abilities rather than a list of servers we trust.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @return array{ids:string[],publishing:string[]}
+	 */
+	private static function classify_foreign_servers(): array {
 		if ( ! class_exists( '\\WP\\MCP\\Core\\McpAdapter' ) ) {
-			return array();
+			return array( 'ids' => array(), 'publishing' => array() );
 		}
 		$adapter = \WP\MCP\Core\McpAdapter::instance();
 		if ( ! is_object( $adapter ) || ! method_exists( $adapter, 'get_servers' ) ) {
-			return array();
+			return array( 'ids' => array(), 'publishing' => array() );
 		}
-		$ours   = class_exists( 'Elementor_MCP_Plugin' ) ? Elementor_MCP_Plugin::SERVER_ROUTE : '';
-		$others = array();
-		foreach ( (array) $adapter->get_servers() as $id => $server ) {
+
+		return self::classify_servers(
+			(array) $adapter->get_servers(),
+			class_exists( 'Elementor_MCP_Plugin' ) ? Elementor_MCP_Plugin::SERVER_ROUTE : '',
+			class_exists( 'Elementor_MCP_Ability_Registrar' )
+				? Elementor_MCP_Ability_Registrar::get_registered_names()
+				: array()
+		);
+	}
+
+	/**
+	 * The pure half of the classification above: given a server map, which ids
+	 * are not ours, and which of those publish our abilities themselves.
+	 *
+	 * Separated so both answers are reachable in a test. The adapter is not
+	 * loaded in the unit suite, so driving this through `classify_foreign_servers()`
+	 * would exercise nothing but its early return — and the branch that matters
+	 * is the one that decides whether an operator sees a security warning.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @param array    $servers   Server map, keyed by server id.
+	 * @param string   $ours      Our own server id.
+	 * @param string[] $our_names Our registered ability names.
+	 * @return array{ids:string[],publishing:string[]}
+	 */
+	public static function classify_servers( array $servers, string $ours, array $our_names ): array {
+		$ids        = array();
+		$publishing = array();
+
+		foreach ( $servers as $id => $server ) {
 			$id = is_string( $id ) ? $id : '';
 			if ( '' === $id || $id === $ours ) {
 				continue;
 			}
-			$others[] = $id;
+			$ids[] = $id;
+
+			if ( empty( $our_names ) || ! is_object( $server ) || ! method_exists( $server, 'get_tools' ) ) {
+				continue;
+			}
+			$tools = $server->get_tools();
+			if ( ! is_array( $tools ) ) {
+				continue;
+			}
+			// Tool lists may hold names or objects keyed by name; reduce to
+			// comparable strings and ignore anything else.
+			$tool_names = array();
+			foreach ( $tools as $key => $tool ) {
+				if ( is_string( $tool ) ) {
+					$tool_names[] = $tool;
+				} elseif ( is_string( $key ) ) {
+					$tool_names[] = $key;
+				}
+			}
+			if ( array_intersect( $our_names, $tool_names ) ) {
+				$publishing[] = $id;
+			}
 		}
-		sort( $others );
-		return $others;
+
+		sort( $ids );
+		sort( $publishing );
+		return array( 'ids' => $ids, 'publishing' => $publishing );
 	}
 
 	/**
@@ -308,7 +386,9 @@ class Elementor_MCP_Server_Info_Abilities {
 		// withheld from it? An operator auditing a managed site cannot see this
 		// from anywhere else: the other server registers its own routes and
 		// enumerates the shared ability registry without telling anyone.
-		$foreign_servers = self::foreign_mcp_servers();
+		$foreign          = self::classify_foreign_servers();
+		$foreign_servers  = $foreign['ids'];
+		$servers_with_us  = $foreign['publishing'];
 		// Both guards live in Elementor_MCP_Call_Context, and the loader treats
 		// every include as optional — so its absence is not a detail to report
 		// around, it is the whole answer. The registrar's class_exists() guard
@@ -343,6 +423,7 @@ class Elementor_MCP_Server_Info_Abilities {
 				? Elementor_MCP_Call_Context::own_server_route()
 				: '',
 			'other_mcp_servers'                    => $foreign_servers,
+			'other_servers_publishing_our_tools'   => $servers_with_us,
 		);
 
 		$notes = array_merge( $notes, self::exposure_notes( $guards_loaded, $exposed_writes ) );
@@ -351,10 +432,25 @@ class Elementor_MCP_Server_Info_Abilities {
 			$notes[] = __( 'The transport check on governed writes is NOT running: it lives in the governance wrapper, which only engages when SiteAgent is installed. Write tools are still withheld from other MCP servers at registration, but a server that ignores that metadata would not be stopped a second time.', 'elementor-mcp' );
 		}
 
-		if ( ! empty( $foreign_servers ) ) {
+		if ( ! empty( $servers_with_us ) ) {
+			// Established, not inferred: these servers name our abilities in their
+			// own tool lists.
+			$notes[] = sprintf(
+				/* translators: %s: comma-separated list of MCP server ids. */
+				__( 'Another MCP server on this site publishes this plugin\'s tools directly (%s), over a transport the Aura gateway never sees. Check write_exposure to see whether the write tools among them are withheld.', 'elementor-mcp' ),
+				implode( ', ', $servers_with_us )
+			);
+		} elseif ( ! empty( $foreign_servers ) ) {
+			// Deliberately weaker wording. A stock install already carries the
+			// bundled adapter's default server, which reaches nothing here — its
+			// proxy tools require meta.mcp.public, which none of these abilities
+			// set. Warning about that as a second door on every site would train
+			// operators to skip this report. What is true in general is that a
+			// server whose tools resolve targets from the site-wide registry
+			// (Angie's execute-ability does) can reach abilities it never listed.
 			$notes[] = sprintf(
 				/* translators: %s: comma-separated list of other MCP server ids. */
-				__( 'Another MCP server is active on this site (%s). It can reach any ability registered on the site, over a transport the Aura gateway never sees. Read tools remain available to it by design; see write_exposure for whether this plugin\'s write tools are withheld from it.', 'elementor-mcp' ),
+				__( 'Other MCP servers are active on this site (%s). None of them lists this plugin\'s tools directly, but a server whose own tools resolve targets from the site-wide ability registry can still reach them — that is why write tools are withheld by their own metadata rather than by a list of trusted servers.', 'elementor-mcp' ),
 				implode( ', ', $foreign_servers )
 			);
 		}

@@ -324,6 +324,65 @@ class ForeignMcpTransportTest extends TestCase {
 		);
 	}
 
+	// --- which other servers actually reach us -------------------------------
+
+	/** A server double whose declared tool list is $tools. */
+	private function server_publishing( array $tools ): object {
+		return new class( $tools ) {
+			private array $tools;
+			public function __construct( array $tools ) {
+				$this->tools = $tools;
+			}
+			public function get_tools(): array {
+				return $this->tools;
+			}
+		};
+	}
+
+	public function test_a_stock_adapter_server_is_listed_but_not_warned_about(): void {
+		// A normal install already carries the bundled adapter's default server,
+		// which reaches nothing here — its proxy tools require `meta.mcp.public`,
+		// which none of these abilities set. Warning about it as a second door on
+		// every site would train operators to skip this report entirely.
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array(
+				'elementor-mcp-server'      => $this->server_publishing( array( 'elementor-mcp/update-element' ) ),
+				'mcp-adapter-default-server' => $this->server_publishing( array( 'mcp-adapter/execute-ability' ) ),
+			),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array( 'mcp-adapter-default-server' ), $result['ids'], 'Still reported as present.' );
+		$this->assertSame( array(), $result['publishing'], 'But not as publishing our tools.' );
+	}
+
+	public function test_a_server_that_lists_our_tools_is_named(): void {
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array(
+				'some-other-server' => $this->server_publishing(
+					array( 'their/tool', 'elementor-mcp/update-element' )
+				),
+			),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element', 'elementor-mcp/get-page-structure' )
+		);
+
+		$this->assertSame( array( 'some-other-server' ), $result['ids'] );
+		$this->assertSame( array( 'some-other-server' ), $result['publishing'] );
+	}
+
+	public function test_our_own_server_is_never_reported_as_foreign(): void {
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array( 'elementor-mcp-server' => $this->server_publishing( array( 'elementor-mcp/update-element' ) ) ),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array(), $result['ids'] );
+		$this->assertSame( array(), $result['publishing'] );
+	}
+
 	// --- The fail-closed path must survive the class being absent ------------
 
 	public function test_denial_path_never_reaches_for_the_context_class_unguarded(): void {
@@ -411,6 +470,39 @@ class ForeignMcpTransportTest extends TestCase {
 			array( 'elementor-mcp/legacy-write' ),
 			\Elementor_MCP_Call_Context::writes_left_exposed()
 		);
+	}
+
+	public function test_the_filter_cannot_expose_an_ability_that_declared_a_non_tool_type(): void {
+		// The filter opening an ability does not write anything — so an ability
+		// that already declared `resource` or `private` keeps that type, and a
+		// foreign server still refuses to serve it. Recording it as exposed would
+		// have the report naming a tool nothing can reach: the same false report
+		// as the reverse, and the one that makes operators chase ghosts.
+		add_filter( 'elementor_mcp_expose_writes_to_foreign_mcp', static fn() => true );
+
+		foreach ( array( 'private', 'resource', 'prompt' ) as $type ) {
+			\Elementor_MCP_Call_Context::reset();
+			$args                        = $this->write_args();
+			$args['meta']['mcp']['type'] = $type;
+
+			elementor_mcp_register_ability( 'elementor-mcp/declared-' . $type, $args );
+
+			$this->assertSame(
+				array(),
+				\Elementor_MCP_Call_Context::writes_left_exposed(),
+				sprintf( 'A write declaring mcp.type = %s stays hidden whatever the filter says.', $type )
+			);
+			$this->assertSame( array( 'elementor-mcp/declared-' . $type ), \Elementor_MCP_Call_Context::writes_seen() );
+		}
+	}
+
+	public function test_the_filter_does_expose_an_ability_that_declared_nothing(): void {
+		// The counterpart, so the test above cannot pass by the recorder simply
+		// never firing.
+		add_filter( 'elementor_mcp_expose_writes_to_foreign_mcp', static fn() => true );
+		elementor_mcp_register_ability( 'elementor-mcp/undeclared', $this->write_args() );
+
+		$this->assertSame( array( 'elementor-mcp/undeclared' ), \Elementor_MCP_Call_Context::writes_left_exposed() );
 	}
 
 	public function test_a_shielded_write_is_not_counted_as_exposed(): void {

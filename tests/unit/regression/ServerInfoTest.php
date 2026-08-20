@@ -407,6 +407,36 @@ class ServerInfoTest extends Ability_Test_Case {
 		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
 	}
 
+	/**
+	 * Anything can come back from a public hook. A callback appending an object
+	 * or array would make array_unique() throw "Object could not be converted
+	 * to string" and abort registration — a third party taking down the whole
+	 * tool surface, which is the failure mode the guarded loader exists to
+	 * prevent.
+	 */
+	public function test_a_callback_returning_junk_does_not_abort_registration(): void {
+		$junk = static function ( array $names ) {
+			$names[] = (object) array( 'not' => 'a name' );
+			$names[] = array( 'nor', 'this' );
+			$names[] = 'elementor-mcp/still-fine';
+			return $names;
+		};
+		add_filter( 'elementor_mcp_ability_names', $junk, 99 );
+
+		$exposed = $this->registrar_registering( array( 'elementor-mcp/list-pages' ) )->register_all();
+
+		remove_filter( 'elementor_mcp_ability_names', $junk, 99 );
+
+		$this->assertContains( 'elementor-mcp/list-pages', $exposed, 'Our own tools must survive a badly-behaved callback.' );
+		$this->assertContains( 'elementor-mcp/still-fine', $exposed, 'The valid part of that callback still counts.' );
+
+		foreach ( $exposed as $name ) {
+			$this->assertIsString( $name, 'Only names reach the adapter.' );
+		}
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
 	public function test_the_report_carries_the_adapter_source_and_versions(): void {
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 

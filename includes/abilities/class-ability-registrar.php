@@ -188,9 +188,16 @@ class Elementor_MCP_Ability_Registrar {
 		// documented hook. Counting only our pre-filter names would then report
 		// more exposed than registered and make the suppressed arithmetic
 		// nonsense, so anything that came out counts as registered too.
-		// Deduplicate both: two integrations can append the same registered
-		// tool, and the adapter stores tools by name — so counting duplicates
-		// would report more exposed than exist.
+		// Anything can come back from a public hook. Keep strings only: a
+		// callback that appends an object or an array would make array_unique()
+		// throw "Object could not be converted to string" and abort
+		// registration — a third party crashing the tool surface, which is the
+		// failure mode elementor_mcp_require()'s guards exist to prevent.
+		$this->ability_names = array_values( array_filter( $this->ability_names, 'is_string' ) );
+
+		// Deduplicate: two integrations can append the same registered tool, and
+		// the adapter stores tools by name — so counting duplicates would
+		// report more exposed than exist.
 		$this->ability_names = array_values( array_unique( $this->ability_names ) );
 
 		// A callback running BEFORE this plugin's priority-10 filter can add an
@@ -202,7 +209,10 @@ class Elementor_MCP_Ability_Registrar {
 			? Elementor_MCP_Plugin::get_removed_by_settings()
 			: array();
 
-		$registered = array_unique( array_merge( $before, $this->ability_names, $removed_by_settings ) );
+		$registered = array_unique( array_filter(
+			array_merge( $before, $this->ability_names, $removed_by_settings ),
+			'is_string'
+		) );
 
 		// NOTE: resolvability is deliberately NOT checked here. Registration
 		// runs during wp_abilities_api_init, and another plugin may register

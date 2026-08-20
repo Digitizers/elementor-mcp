@@ -14,10 +14,11 @@
  * brand palette, the call succeeds, and Elementor's stock `#6EC1E4` stays bound
  * to the roles that matter.
  *
- * Report #4 proposed either routing the global tools through the kit writer or
- * exposing a separate system-role tool; report #3's correction is that the
- * separate tool already existed, so the remaining work is discovery — two
- * tools, adjacent domains, opposite discoverability.
+ * These assertions read the REGISTERED descriptions rather than the source
+ * text. Scanning the file would pass on the execute implementations' own
+ * mentions of `custom_colors`, so it would have passed before this change and
+ * would keep passing if the disclosure were deleted — a test advertising a
+ * protection it does not provide.
  *
  * @group regression
  * @package Elementor_MCP\Tests\Regression
@@ -25,59 +26,78 @@
 
 namespace Elementor_MCP\Tests\Regression;
 
-use PHPUnit\Framework\TestCase;
+require_once dirname( __DIR__ ) . '/class-ability-test-case.php';
 
-class GlobalVsSystemKitDiscoveryTest extends TestCase {
+use Elementor_MCP\Tests\Ability_Test_Case;
+
+class GlobalVsSystemKitDiscoveryTest extends Ability_Test_Case {
+
+	protected function setUp(): void {
+		parent::setUp();
+
+		$GLOBALS['_registered_abilities'] = array();
+
+		( new \Elementor_MCP_Global_Abilities( new \Elementor_MCP_Data() ) )->register();
+		( new \Elementor_MCP_System_Kit_Abilities() )->register();
+	}
+
+	protected function tearDown(): void {
+		unset( $GLOBALS['_registered_abilities'] );
+		parent::tearDown();
+	}
 
 	/**
-	 * @param string $file Relative source path.
+	 * The description an agent actually reads.
+	 *
+	 * @param string $ability Full ability name.
 	 * @return string
 	 */
-	private function source( string $file ): string {
-		$source = file_get_contents( ELEMENTOR_MCP_DIR . $file );
-		$this->assertIsString( $source, "Could not read $file" );
+	private function description( string $ability ): string {
+		$this->assertArrayHasKey(
+			$ability,
+			$GLOBALS['_registered_abilities'],
+			"$ability did not register; the cross-reference cannot be read."
+		);
 
-		return $source;
+		return (string) ( $GLOBALS['_registered_abilities'][ $ability ]['description'] ?? '' );
 	}
 
 	/**
-	 * The description of a tool is the entire model an agent has of it, so the
-	 * additive-only behaviour has to be stated where it is read — not left to
-	 * be discovered from the compiled CSS several rounds later.
+	 * @dataProvider disclosures
 	 */
-	public function test_the_global_tools_disclose_that_they_are_additive(): void {
-		$source = $this->source( 'includes/abilities/class-global-abilities.php' );
-
-		$this->assertStringContainsString( 'custom_colors', $source, 'update-global-colors must name the array it actually writes.' );
-		$this->assertStringContainsString( 'custom_typography', $source, 'update-global-typography must name the array it actually writes.' );
+	public function test_each_tool_discloses_what_it_writes( string $ability, string $needle, string $why ): void {
+		$this->assertStringContainsString( $needle, $this->description( $ability ), $why );
 	}
 
-	/**
-	 * @dataProvider cross_references
-	 */
-	public function test_each_family_points_at_the_other( string $file, string $needle, string $why ): void {
-		$this->assertStringContainsString( $needle, $this->source( $file ), $why );
-	}
-
-	public static function cross_references(): array {
+	public static function disclosures(): array {
 		return array(
-			'global colours point at the system tool'    => array(
-				'includes/abilities/class-global-abilities.php',
+			'global colours name the array they write'    => array(
+				'elementor-mcp/update-global-colors',
+				'custom_colors',
+				'The description is the whole model an agent has of the tool; the additive-only behaviour has to be stated there.',
+			),
+			'global typography names its array'           => array(
+				'elementor-mcp/update-global-typography',
+				'custom_typography',
+				'Same for typography.',
+			),
+			'global colours point at the system tool'     => array(
+				'elementor-mcp/update-global-colors',
 				'replace-system-colors',
-				'An agent reading update-global-colors must learn that the system slots need a different tool.',
+				'An agent reading this must learn the system slots need a different tool.',
 			),
 			'global typography points at the system tool' => array(
-				'includes/abilities/class-global-abilities.php',
+				'elementor-mcp/update-global-typography',
 				'replace-system-typography',
 				'Same for typography.',
 			),
-			'system colours point back'                  => array(
-				'includes/abilities/class-system-kit-abilities.php',
+			'system colours point back'                   => array(
+				'elementor-mcp/replace-system-colors',
 				'update-global-colors',
-				'replace-system-colors reads destructive; its description must say it is the kit-setup tool and name the other one.',
+				'This one reads destructive; it must say it is the kit-setup tool and name the other.',
 			),
-			'system typography points back'              => array(
-				'includes/abilities/class-system-kit-abilities.php',
+			'system typography points back'               => array(
+				'elementor-mcp/replace-system-typography',
 				'update-global-typography',
 				'Same for typography.',
 			),
@@ -85,12 +105,13 @@ class GlobalVsSystemKitDiscoveryTest extends TestCase {
 	}
 
 	/**
-	 * The behaviour the descriptions claim: the global tools write the custom
-	 * arrays only. If that ever changes, the cross-references above become the
-	 * lie instead of the fix.
+	 * The behaviour those descriptions claim. If `update-global-colors` ever
+	 * starts writing the system slots, this fails — rather than the description
+	 * quietly becoming the lie instead of the fix.
 	 */
 	public function test_update_global_colors_writes_only_the_custom_palette(): void {
-		$source = $this->source( 'includes/abilities/class-global-abilities.php' );
+		$source = file_get_contents( ELEMENTOR_MCP_DIR . 'includes/abilities/class-global-abilities.php' );
+		$this->assertIsString( $source );
 
 		$start = strpos( $source, 'function execute_update_global_colors' );
 		$this->assertNotFalse( $start );
@@ -98,10 +119,6 @@ class GlobalVsSystemKitDiscoveryTest extends TestCase {
 		$body = substr( $source, $start, 3000 );
 
 		$this->assertStringContainsString( "'custom_colors'", $body );
-		$this->assertStringNotContainsString(
-			"'system_colors'",
-			$body,
-			'If this tool starts writing the system slots, its description must stop saying it does not.'
-		);
+		$this->assertStringNotContainsString( "'system_colors'", $body );
 	}
 }

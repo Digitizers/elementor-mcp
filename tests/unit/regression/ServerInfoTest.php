@@ -110,6 +110,45 @@ class ServerInfoTest extends Ability_Test_Case {
 		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
 	}
 
+	/**
+	 * The Connection toggle is a bigger switch than the disabled-tools option:
+	 * with it off, register_mcp_server() returns before create_server(), so
+	 * NOTHING is exposed. Reporting the post-filter count as `exposed` there
+	 * would have this tool answering "N exposed" to a client seeing zero — the
+	 * exact lie it exists to prevent.
+	 */
+	public function test_exposed_is_zero_when_the_server_endpoint_is_off(): void {
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test(
+			array( 'elementor-mcp/a', 'elementor-mcp/b' ),
+			array( 'elementor-mcp/a', 'elementor-mcp/b' )
+		);
+		$GLOBALS['_options'][ \Elementor_MCP_Plugin::OPTION_SERVER_ENABLED ] = '0';
+
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertSame( 0, $report['abilities']['exposed'], 'No server means no tools, whatever survived the filter.' );
+		$this->assertSame( 2, $report['abilities']['would_expose'], 'The operator still needs to know what comes back when they re-enable it.' );
+		$this->assertFalse( $report['server_enabled'] );
+		$this->assertStringContainsString( 'switched OFF', implode( ' ', $report['notes'] ) );
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
+	public function test_exposed_matches_the_filtered_list_when_the_server_is_on(): void {
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test(
+			array( 'elementor-mcp/a', 'elementor-mcp/b' ),
+			array( 'elementor-mcp/a' )
+		);
+
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertSame( 1, $report['abilities']['exposed'] );
+		$this->assertSame( 1, $report['abilities']['would_expose'] );
+		$this->assertSame( 1, $report['abilities']['suppressed'] );
+
+		\Elementor_MCP_Ability_Registrar::__set_names_for_test( array(), array() );
+	}
+
 	public function test_the_report_carries_the_adapter_source_and_versions(): void {
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 

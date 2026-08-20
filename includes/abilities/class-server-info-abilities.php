@@ -103,8 +103,17 @@ class Elementor_MCP_Server_Info_Abilities {
 	 */
 	public function execute_server_info(): array {
 		$registered = Elementor_MCP_Ability_Registrar::get_registered_names();
-		$exposed    = Elementor_MCP_Ability_Registrar::get_exposed_names();
-		$suppressed = array_values( array_diff( $registered, $exposed ) );
+		$surviving  = Elementor_MCP_Ability_Registrar::get_exposed_names();
+		$suppressed = array_values( array_diff( $registered, $surviving ) );
+
+		// The Connection toggle is a bigger switch than the disabled-tools
+		// option: with it off, register_mcp_server() returns before
+		// create_server(), so NOTHING is exposed regardless of what survived
+		// the filter. Reporting the post-filter count as `exposed` there would
+		// have this tool answering "87 exposed" to a client seeing zero —
+		// precisely the lie it exists to prevent.
+		$server_enabled = Elementor_MCP_Plugin::is_server_enabled();
+		$exposed        = $server_enabled ? $surviving : array();
 
 		$disabled_option = get_option( 'elementor_mcp_disabled_tools', array() );
 		$low_tools       = '1' === (string) get_option( 'elementor_mcp_low_tool_mode', '0' );
@@ -124,8 +133,12 @@ class Elementor_MCP_Server_Info_Abilities {
 			$notes[] = __( 'Low-tools mode is ON: everything outside the curated essentials list is withheld to stay under a client tool cap.', 'elementor-mcp' );
 		}
 
-		if ( ! Elementor_MCP_Plugin::is_server_enabled() ) {
-			$notes[] = __( 'The MCP server endpoint is switched off on the Connection tab, so no tools are exposed at all even though the abilities are registered.', 'elementor-mcp' );
+		if ( ! $server_enabled ) {
+			$notes[] = sprintf(
+				/* translators: %d: how many tools would be exposed once re-enabled. */
+				__( 'The MCP server endpoint is switched OFF on the Connection tab, so NO tools are exposed no matter what else is configured. %d would be exposed once it is switched back on.', 'elementor-mcp' ),
+				count( $surviving )
+			);
 		}
 
 		// The seeder re-disables the Pro-badged set whenever this counter falls
@@ -141,6 +154,9 @@ class Elementor_MCP_Server_Info_Abilities {
 			'abilities'         => array(
 				'registered'      => count( $registered ),
 				'exposed'         => count( $exposed ),
+				// What the option/low-tools mode leave standing, independent of
+				// the server toggle — so an operator can tell the two apart.
+				'would_expose'    => count( $surviving ),
 				'suppressed'      => count( $suppressed ),
 				'suppressed_list' => $suppressed,
 				'controlled_by'   => array(
@@ -154,7 +170,7 @@ class Elementor_MCP_Server_Info_Abilities {
 				'source'  => class_exists( 'Elementor_MCP_Adapter_Bootstrap' ) ? Elementor_MCP_Adapter_Bootstrap::source() : 'unknown',
 				'version' => defined( 'WP_MCP_VERSION' ) ? WP_MCP_VERSION : '',
 			),
-			'server_enabled'    => Elementor_MCP_Plugin::is_server_enabled(),
+			'server_enabled'    => $server_enabled,
 			'notes'             => $notes,
 		);
 	}

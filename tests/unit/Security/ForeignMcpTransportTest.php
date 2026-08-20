@@ -366,6 +366,111 @@ class ForeignMcpTransportTest extends TestCase {
 		$this->assertSame( 'rest:/mcp/angie', \Elementor_MCP_Governance::describe_call_context() );
 	}
 
+	public function test_a_selectively_opened_write_is_reported_by_name(): void {
+		// The filter receives each ability's own args, so a caller can open one
+		// write tool and close the rest. The diagnostic used to answer by calling
+		// the filter with an empty array, which reproduces none of those
+		// decisions and reported such a site as fully hidden.
+		add_filter(
+			'elementor_mcp_expose_writes_to_foreign_mcp',
+			static fn( $expose, $args ) => 'Update element' === ( $args['label'] ?? '' ) ? true : $expose,
+			10,
+			2
+		);
+
+		elementor_mcp_register_ability( 'elementor-mcp/update-element', $this->write_args() );
+		$other          = $this->write_args();
+		$other['label'] = 'Delete element';
+		elementor_mcp_register_ability( 'elementor-mcp/delete-element', $other );
+
+		$info = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertSame(
+			array( 'elementor-mcp/update-element' ),
+			$info['write_exposure']['exposed_write_tools']
+		);
+		$this->assertFalse( $info['write_exposure']['writes_hidden_from_other_mcp_servers'] );
+		$this->assertNotEmpty(
+			array_filter(
+				$info['notes'],
+				static fn( $note ) => false !== strpos( $note, 'elementor-mcp/update-element' )
+			),
+			'The report must name the tool that is open, not just say "some are".'
+		);
+	}
+
+	public function test_an_ability_declaring_itself_a_tool_is_counted_as_exposed(): void {
+		// `mcp.type = 'tool'` is kept rather than overwritten — the declaration is
+		// the author's. That leaves it exposed, so the report must say so instead
+		// of counting "we did not touch it" as "it is hidden".
+		$args                        = $this->write_args();
+		$args['meta']['mcp']['type'] = 'tool';
+		elementor_mcp_register_ability( 'elementor-mcp/legacy-write', $args );
+
+		$this->assertSame(
+			array( 'elementor-mcp/legacy-write' ),
+			\Elementor_MCP_Call_Context::writes_left_exposed()
+		);
+	}
+
+	public function test_a_shielded_write_is_not_counted_as_exposed(): void {
+		elementor_mcp_register_ability( 'elementor-mcp/update-element', $this->write_args() );
+		elementor_mcp_register_ability( 'elementor-mcp/get-page-structure', $this->read_args() );
+
+		$this->assertSame( array( 'elementor-mcp/update-element' ), \Elementor_MCP_Call_Context::writes_seen() );
+		$this->assertSame( array(), \Elementor_MCP_Call_Context::writes_left_exposed() );
+	}
+
+	public function test_grant_status_requires_the_governance_wrapper_to_be_active(): void {
+		// The transport check lives inside the governance wrapper, which wraps
+		// nothing unless SiteAgent's snapshot engine is present. Reporting the
+		// guard as active on a fork-only site is exactly the false assurance this
+		// tool exists to prevent. Injected inputs again: `is_active()` reads
+		// `class_exists()`, and a loaded class cannot be unloaded mid-suite.
+		$this->assertTrue( \Elementor_MCP_Server_Info_Abilities::execution_guard_active( true, true, true ) );
+		$this->assertFalse(
+			\Elementor_MCP_Server_Info_Abilities::execution_guard_active( true, true, false ),
+			'No SiteAgent snapshot engine ⇒ the wrapper is inert ⇒ no transport check runs.'
+		);
+		$this->assertFalse( \Elementor_MCP_Server_Info_Abilities::execution_guard_active( true, false, true ) );
+		$this->assertFalse( \Elementor_MCP_Server_Info_Abilities::execution_guard_active( false, true, true ) );
+	}
+
+	public function test_grant_status_is_reported_from_the_live_state(): void {
+		// The suite stubs SiteAgent, so the guard is genuinely active here — this
+		// pins the wiring between the predicate and the report.
+		$info = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertTrue( \Elementor_MCP_Governance::is_active() );
+		$this->assertTrue( $info['write_exposure']['governed_writes_require_grant_off_own_server'] );
+		$this->assertEmpty(
+			array_filter(
+				$info['notes'],
+				static fn( $note ) => false !== strpos( $note, 'transport check on governed writes is NOT running' )
+			)
+		);
+	}
+
+	public function test_a_missing_component_is_reported_as_one_cause_not_two(): void {
+		// When the component did not load the shield never ran, so the exposure
+		// filter had nothing to do with it. Emitting its explanation as well
+		// would give the operator two conflicting causes for one finding — and
+		// the wrong one is the one that looks actionable.
+		$notes = \Elementor_MCP_Server_Info_Abilities::exposure_notes( false, array( 'elementor-mcp/update-element' ) );
+
+		$this->assertCount( 1, $notes );
+		$this->assertStringContainsString( 'did not load', $notes[0] );
+		$this->assertStringNotContainsString( 'elementor_mcp_expose_writes_to_foreign_mcp', $notes[0] );
+	}
+
+	public function test_the_filter_cause_is_reported_only_when_the_shield_actually_ran(): void {
+		$this->assertSame( array(), \Elementor_MCP_Server_Info_Abilities::exposure_notes( true, array() ) );
+
+		$notes = \Elementor_MCP_Server_Info_Abilities::exposure_notes( true, array( 'elementor-mcp/update-element' ) );
+		$this->assertCount( 1, $notes );
+		$this->assertStringContainsString( 'elementor-mcp/update-element', $notes[0] );
+	}
+
 	public function test_shield_is_reported_off_when_the_guard_component_did_not_load(): void {
 		// The registrar skips the shield behind its own class_exists() guard and
 		// says nothing, so a partial install goes out with writes exposed while
@@ -382,9 +487,8 @@ class ForeignMcpTransportTest extends TestCase {
 	}
 
 	public function test_server_info_reports_the_shield_as_off_when_the_filter_opens_it(): void {
-		// The diagnostic exists to audit this state, so it must not report
-		// "hidden" whenever the filter merely sits at its default.
 		add_filter( 'elementor_mcp_expose_writes_to_foreign_mcp', static fn() => true );
+		elementor_mcp_register_ability( 'elementor-mcp/update-element', $this->write_args() );
 
 		$info = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 
@@ -396,6 +500,18 @@ class ForeignMcpTransportTest extends TestCase {
 			),
 			'An operator reading server-info must be told in words, not just in a boolean.'
 		);
+	}
+
+	public function test_an_open_filter_alone_does_not_make_the_report_cry_wolf(): void {
+		// The filter is consulted per ability at registration. With nothing
+		// registered under it, nothing was actually exposed — and a report that
+		// said otherwise would train operators to ignore it.
+		add_filter( 'elementor_mcp_expose_writes_to_foreign_mcp', static fn() => true );
+
+		$info = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+
+		$this->assertSame( array(), $info['write_exposure']['exposed_write_tools'] );
+		$this->assertTrue( $info['write_exposure']['writes_hidden_from_other_mcp_servers'] );
 	}
 
 	public function test_server_info_reports_our_own_server_route(): void {

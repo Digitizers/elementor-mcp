@@ -90,21 +90,87 @@ class Elementor_MCP_Server_Info_Abilities {
 	 * Both inputs must hold. The class-availability one is easy to forget,
 	 * because the registrar skips the shield behind its own `class_exists()`
 	 * guard and says nothing: the abilities go out exposed while every setting
-	 * still reads as safe. A diagnostic that derived this from the filter alone
-	 * would report "hidden" on exactly the broken install it exists to catch.
+	 * still reads as safe. A diagnostic that derived this from configuration
+	 * alone would report "hidden" on exactly the broken install it exists to
+	 * catch.
 	 *
-	 * Takes its inputs as arguments rather than reading them, so both answers are
+	 * The second input is a COUNT of what the shield actually let through, not a
+	 * re-reading of the exposure filter. The filter is handed each ability's own
+	 * args and may open one write tool while closing the rest; re-running it here
+	 * against nothing reproduces none of those decisions.
+	 *
+	 * Takes its inputs as arguments rather than reading them, so every answer is
 	 * reachable in a test — the class cannot be unloaded inside a running suite,
 	 * and an untestable security predicate is one nobody notices inverting.
 	 *
 	 * @since 1.30.0
 	 *
-	 * @param bool $guards_loaded Whether Elementor_MCP_Call_Context is available.
-	 * @param bool $filter_allows Whether the exposure filter was turned on.
+	 * @param bool $guards_loaded  Whether Elementor_MCP_Call_Context is available.
+	 * @param int  $exposed_writes How many write abilities the shield let through.
 	 * @return bool
 	 */
-	public static function writes_are_shielded( bool $guards_loaded, bool $filter_allows ): bool {
-		return $guards_loaded && ! $filter_allows;
+	public static function writes_are_shielded( bool $guards_loaded, int $exposed_writes ): bool {
+		return $guards_loaded && 0 === $exposed_writes;
+	}
+
+	/**
+	 * The exposure notes for a given state — at most ONE cause per unsafe state.
+	 *
+	 * When the guard component did not load, the shield never ran and the filter
+	 * had nothing to do with it. Emitting the filter's explanation as well would
+	 * hand the operator two conflicting causes for the same finding, and the
+	 * wrong one is the actionable-looking one.
+	 *
+	 * Pure, and takes the state as arguments, because the missing-component
+	 * branch is unreachable from inside a suite that has the component loaded.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @param bool     $guards_loaded  Whether Elementor_MCP_Call_Context loaded.
+	 * @param string[] $exposed_writes Write tools the shield left visible.
+	 * @return string[]
+	 */
+	public static function exposure_notes( bool $guards_loaded, array $exposed_writes ): array {
+		if ( ! $guards_loaded ) {
+			return array(
+				__( 'The transport-guard component (Elementor_MCP_Call_Context) did not load. Write tools are NOT withheld from other MCP servers on this site and governed writes are not checked against the transport they arrived on. Reinstall the plugin — this usually means a file was quarantined or removed.', 'elementor-mcp' ),
+			);
+		}
+		if ( empty( $exposed_writes ) ) {
+			return array();
+		}
+		return array(
+			sprintf(
+				/* translators: %s: comma-separated tool names. */
+				__( '%s are exposed to OTHER MCP servers on this site, because the elementor_mcp_expose_writes_to_foreign_mcp filter opened them or they declare mcp.type = tool themselves. Those servers authenticate their own callers; approval and audit on the Aura side do not apply to them.', 'elementor-mcp' ),
+				implode( ', ', $exposed_writes )
+			),
+		);
+	}
+
+	/**
+	 * Is the execution-side guard actually running?
+	 *
+	 * It lives inside the governance wrapper, and `wrap_ability()` returns every
+	 * ability untouched when SiteAgent's snapshot engine is absent — so on a
+	 * fork-only site the transport check never executes, whatever the context
+	 * class reports about itself. Such a site is protected by the registration
+	 * metadata alone, and saying otherwise is the false assurance this tool
+	 * exists to prevent.
+	 *
+	 * Inputs are injected for the same reason as `writes_are_shielded()`: both
+	 * availability answers come from `class_exists()`, which a running suite
+	 * cannot flip.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @param bool $guards_loaded      Whether Elementor_MCP_Call_Context loaded.
+	 * @param bool $governance_loaded  Whether Elementor_MCP_Governance loaded.
+	 * @param bool $governance_active  Whether SiteAgent's snapshot engine is present.
+	 * @return bool
+	 */
+	public static function execution_guard_active( bool $guards_loaded, bool $governance_loaded, bool $governance_active ): bool {
+		return $guards_loaded && $governance_loaded && $governance_active;
 	}
 
 	/**
@@ -249,32 +315,48 @@ class Elementor_MCP_Server_Info_Abilities {
 		// silently skips the shield when the file did not load, which leaves
 		// writes exposed; a diagnostic whose entire job is auditing that state
 		// must not report "hidden" because a filter happens to be at its default.
-		$guards_loaded   = class_exists( 'Elementor_MCP_Call_Context' );
-		$filter_allows   = (bool) apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, array() );
-		$writes_shielded = self::writes_are_shielded( $guards_loaded, $filter_allows );
-		$write_exposure  = array(
+		$guards_loaded = class_exists( 'Elementor_MCP_Call_Context' );
+		// What the shield ACTUALLY did this request, not what re-running the
+		// filter would suggest. The filter receives each ability's own args, so
+		// a caller may open one write tool and close the rest; probing it here
+		// with an empty array reproduces none of that and would report a
+		// selectively-opened site as fully hidden.
+		$exposed_writes = $guards_loaded ? Elementor_MCP_Call_Context::writes_left_exposed() : array();
+		// The execution guard runs inside the governance wrapper, which only
+		// wraps anything when SiteAgent's snapshot engine is present. Without it
+		// the transport check never executes, whatever the context class reports
+		// — such a site is protected by the registration metadata alone, and
+		// saying otherwise is the kind of false assurance this tool exists to
+		// prevent.
+		$governance_loaded      = class_exists( 'Elementor_MCP_Governance' );
+		$execution_guard_active = self::execution_guard_active(
+			$guards_loaded,
+			$governance_loaded,
+			$governance_loaded && Elementor_MCP_Governance::is_active()
+		);
+		$writes_shielded        = self::writes_are_shielded( $guards_loaded, count( $exposed_writes ) );
+		$write_exposure         = array(
 			'writes_hidden_from_other_mcp_servers' => $writes_shielded,
-			'governed_writes_require_grant_off_own_server' => $guards_loaded,
+			'exposed_write_tools'                  => $exposed_writes,
+			'governed_writes_require_grant_off_own_server' => $execution_guard_active,
 			'own_server_route'                     => $guards_loaded
 				? Elementor_MCP_Call_Context::own_server_route()
 				: '',
 			'other_mcp_servers'                    => $foreign_servers,
 		);
 
-		if ( ! $guards_loaded ) {
-			$notes[] = __( 'The transport-guard component (Elementor_MCP_Call_Context) did not load. Write tools are NOT withheld from other MCP servers on this site and governed writes are not checked against the transport they arrived on. Reinstall the plugin — this usually means a file was quarantined or removed.', 'elementor-mcp' );
+		$notes = array_merge( $notes, self::exposure_notes( $guards_loaded, $exposed_writes ) );
+
+		if ( $guards_loaded && ! $execution_guard_active ) {
+			$notes[] = __( 'The transport check on governed writes is NOT running: it lives in the governance wrapper, which only engages when SiteAgent is installed. Write tools are still withheld from other MCP servers at registration, but a server that ignores that metadata would not be stopped a second time.', 'elementor-mcp' );
 		}
 
 		if ( ! empty( $foreign_servers ) ) {
 			$notes[] = sprintf(
 				/* translators: %s: comma-separated list of other MCP server ids. */
-				__( 'Another MCP server is active on this site (%s). It can reach any ability registered on the site, over a transport the Aura gateway never sees. This plugin\'s write tools are withheld from it and a governed write arriving from it must carry an approval grant; read tools remain available to it by design.', 'elementor-mcp' ),
+				__( 'Another MCP server is active on this site (%s). It can reach any ability registered on the site, over a transport the Aura gateway never sees. Read tools remain available to it by design; see write_exposure for whether this plugin\'s write tools are withheld from it.', 'elementor-mcp' ),
 				implode( ', ', $foreign_servers )
 			);
-		}
-
-		if ( ! $writes_shielded ) {
-			$notes[] = __( 'Write tools are exposed to OTHER MCP servers on this site: the elementor_mcp_expose_writes_to_foreign_mcp filter has been turned on. Those servers authenticate their own callers; approval and audit on the Aura side do not apply to them.', 'elementor-mcp' );
 		}
 
 		return array(

@@ -322,7 +322,7 @@ function elementor_mcp_register_ability( string $name, array $args ) {
 	// docblock — this is the only protection on a site without SiteAgent, where
 	// governance wraps nothing.
 	if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
-		$args = Elementor_MCP_Call_Context::shield_write_from_foreign_servers( $args );
+		$args = Elementor_MCP_Call_Context::shield_write_from_foreign_servers( $args, $name );
 	}
 	// When SiteAgent is installed alongside us, bring destructive page writes
 	// under its capture-before-write governance. No-op when SiteAgent is absent.

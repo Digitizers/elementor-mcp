@@ -284,7 +284,7 @@ namespace {
 		// method the real registrar calls.
 		function elementor_mcp_register_ability( string $name, array $args ): void {
 			if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
-				$args = Elementor_MCP_Call_Context::shield_write_from_foreign_servers( $args );
+				$args = Elementor_MCP_Call_Context::shield_write_from_foreign_servers( $args, $name );
 			}
 			wp_register_ability( $name, $args );
 		}

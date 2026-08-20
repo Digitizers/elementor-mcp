@@ -37,6 +37,23 @@ class Elementor_MCP_Call_Context {
 	private static $rest_route = null;
 
 	/**
+	 * Names of the write abilities this request offered to the shield, and the
+	 * subset it left visible to other MCP servers.
+	 *
+	 * Recorded rather than recomputed. The diagnostic used to answer "are writes
+	 * hidden?" by calling the exposure filter with empty args, which does not
+	 * reproduce the registration: the filter receives each ability's own args and
+	 * a caller may open exactly one of them. Only the decisions actually taken
+	 * can answer the question, and this is where they are taken.
+	 *
+	 * @var string[]
+	 */
+	private static $writes_seen = array();
+
+	/** @var string[] */
+	private static $writes_left_exposed = array();
+
+	/**
 	 * Hook the recorder.
 	 *
 	 * `rest_pre_dispatch` fires once per REST request, after routing and before
@@ -221,7 +238,7 @@ class Elementor_MCP_Call_Context {
 	 * @param array $args Ability args (as passed to wp_register_ability()).
 	 * @return array The args, with meta.mcp.type set when the ability writes.
 	 */
-	public static function shield_write_from_foreign_servers( array $args ): array {
+	public static function shield_write_from_foreign_servers( array $args, string $name = '' ): array {
 		$annotations = ( isset( $args['meta']['annotations'] ) && is_array( $args['meta']['annotations'] ) )
 			? $args['meta']['annotations']
 			: null;
@@ -234,6 +251,7 @@ class Elementor_MCP_Call_Context {
 		if ( ! $writes ) {
 			return $args;
 		}
+		self::$writes_seen[] = $name;
 
 		/**
 		 * Filters whether this plugin's write tools stay visible to MCP servers
@@ -248,12 +266,16 @@ class Elementor_MCP_Call_Context {
 		 * @param array $args   The ability args.
 		 */
 		if ( apply_filters( 'elementor_mcp_expose_writes_to_foreign_mcp', false, $args ) ) {
+			self::$writes_left_exposed[] = $name;
 			return $args;
 		}
 
 		// An ability that already declares a type keeps it: the declaration is the
 		// author's, and 'resource'/'prompt' are equally not 'tool' for this purpose.
 		if ( isset( $args['meta']['mcp']['type'] ) ) {
+			if ( 'tool' === $args['meta']['mcp']['type'] ) {
+				self::$writes_left_exposed[] = $name;
+			}
 			return $args;
 		}
 		if ( ! isset( $args['meta'] ) || ! is_array( $args['meta'] ) ) {
@@ -272,6 +294,30 @@ class Elementor_MCP_Call_Context {
 	}
 
 	/**
+	 * Write abilities that passed through the shield this request.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @return string[]
+	 */
+	public static function writes_seen(): array {
+		return self::$writes_seen;
+	}
+
+	/**
+	 * Write abilities the shield left visible to other MCP servers — because the
+	 * exposure filter opened them, or because they declared `mcp.type = 'tool'`
+	 * themselves. Empty is the safe state.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @return string[]
+	 */
+	public static function writes_left_exposed(): array {
+		return self::$writes_left_exposed;
+	}
+
+	/**
 	 * Clear the recorded route. Tests only — a request is a fresh process.
 	 *
 	 * @since 1.30.0
@@ -279,6 +325,8 @@ class Elementor_MCP_Call_Context {
 	 * @return void
 	 */
 	public static function reset(): void {
-		self::$rest_route = null;
+		self::$rest_route          = null;
+		self::$writes_seen         = array();
+		self::$writes_left_exposed = array();
 	}
 }

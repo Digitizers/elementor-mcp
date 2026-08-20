@@ -356,6 +356,15 @@ class Elementor_MCP_Data {
 			// Invalidate Elementor CSS cache so it regenerates on next page view.
 			delete_post_meta( $post_id, '_elementor_css' );
 
+			// …and the rendered-HTML cache. Elementor stores each element's
+			// rendered markup in `_elementor_element_cache` and clears it in
+			// Document::save() (`delete_cache()`), right after the CSS. This
+			// fallback path IS how the MCP writes in non-browser contexts, so
+			// skipping it meant a correct write served the pre-change HTML
+			// until the TTL expired — indistinguishable from a failed write,
+			// and the most expensive failure class in field report #5.
+			delete_post_meta( $post_id, '_elementor_element_cache' );
+
 			$upload_dir = wp_get_upload_dir();
 			$css_path   = $upload_dir['basedir'] . '/elementor/css/post-' . $post_id . '.css';
 			if ( file_exists( $css_path ) ) {
@@ -407,8 +416,9 @@ class Elementor_MCP_Data {
 			$merged = array_merge( $existing, $settings );
 			update_post_meta( $post_id, '_elementor_page_settings', $merged );
 
-			// Invalidate CSS cache.
+			// Invalidate CSS + rendered-HTML caches (see save_page_data()).
 			delete_post_meta( $post_id, '_elementor_css' );
+			delete_post_meta( $post_id, '_elementor_element_cache' );
 		}
 
 		return true;

@@ -108,7 +108,15 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 						'padding'         => array( 'type' => 'number', 'description' => __( 'Padding on all sides (px by default).', 'elementor-mcp' ) ),
 						'background_color' => array( 'type' => 'string', 'description' => __( 'Background color (hex/rgba).', 'elementor-mcp' ) ),
 						'min_height'      => array( 'type' => 'number', 'description' => __( 'Minimum height (px by default).', 'elementor-mcp' ) ),
-					),
+					)
+					// Everything else build_common_props()/build_flex_props()
+					// accept — borders, radii, widths, gradients, per-side
+					// spacing. These always worked; they were simply not
+					// advertised, so agents concluded the engine could not do
+					// them (field report #4, part 2). The entries above stay
+					// authoritative: they carry enums and tool-specific wording
+					// this generic map does not.
+					+ Elementor_MCP_Atomic_Styles::style_props_schema(),
 					'required'   => array( 'post_id' ),
 				),
 				'output_schema'       => array(
@@ -146,7 +154,9 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 
 		// Style props extracted from input.
 		$style_params = array();
-		$style_keys   = array( 'direction', 'flex_direction', 'justify', 'justify_content', 'align', 'align_items', 'wrap', 'flex_wrap', 'gap', 'gap_unit', 'row_gap', 'column_gap', 'padding', 'padding_unit', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'margin_top', 'margin_bottom', 'background_color', 'color', 'min_height', 'width', 'border_radius' );
+		// Derived from the published schema: a hand-maintained list here is
+		// what dropped borders and gradients before they reached the builders.
+		$style_keys   = Elementor_MCP_Atomic_Styles::style_param_keys();
 
 		foreach ( $style_keys as $key ) {
 			if ( isset( $input[ $key ] ) ) {
@@ -214,7 +224,11 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 						'css_id'           => array( 'type' => 'string', 'description' => __( 'Optional CSS ID.', 'elementor-mcp' ) ),
 						'padding'          => array( 'type' => 'number', 'description' => __( 'Padding on all sides (px by default).', 'elementor-mcp' ) ),
 						'background_color' => array( 'type' => 'string', 'description' => __( 'Background color (hex/rgba).', 'elementor-mcp' ) ),
-					),
+					)
+					// See add-flexbox: publish everything the builders accept.
+					// A div-block is not a flex container, so the flex params
+					// are excluded rather than advertised and ignored.
+					+ Elementor_MCP_Atomic_Styles::style_props_schema( false ),
 					'required'   => array( 'post_id' ),
 				),
 				'output_schema'       => array(
@@ -251,7 +265,8 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 		}
 
 		$style_params = array();
-		$style_keys   = array( 'padding', 'padding_unit', 'padding_top', 'padding_right', 'padding_bottom', 'padding_left', 'margin_top', 'margin_bottom', 'background_color', 'color', 'min_height', 'width', 'border_radius' );
+		// See execute_add_flexbox(); a div-block takes no flex params.
+		$style_keys   = Elementor_MCP_Atomic_Styles::style_param_keys( false );
 
 		foreach ( $style_keys as $key ) {
 			if ( isset( $input[ $key ] ) ) {

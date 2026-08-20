@@ -212,7 +212,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 			$name,
 			array(
 				'label'               => __( 'Update Atomic Widget', 'elementor-mcp' ),
-				'description'         => __( 'Updates settings on an existing Elementor 4.0+ atomic widget. Performs a partial merge — only provided keys are changed.', 'elementor-mcp' ),
+				'description'         => __( 'Updates an existing Elementor 4.0+ atomic widget. Partial merge — only provided keys change. Content goes in `settings` ($$type-wrapped); size, spacing, colour and typography are STYLE props and are passed as flat params (padding, width, font_size, …), which are merged into the element\'s style variant.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_update_atomic_widget' ),
 				'permission_callback' => array( $this, 'check_edit_permission' ),
@@ -221,9 +221,15 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 					'properties' => array(
 						'post_id'    => array( 'type' => 'integer', 'description' => __( 'The post/page ID.', 'elementor-mcp' ) ),
 						'element_id' => array( 'type' => 'string', 'description' => __( 'The element ID to update.', 'elementor-mcp' ) ),
-						'settings'   => array( 'type' => 'object', 'description' => __( 'Partial settings to merge ($$type-wrapped values).', 'elementor-mcp' ) ),
-					),
-					'required'   => array( 'post_id', 'element_id', 'settings' ),
+						'settings'   => array( 'type' => 'object', 'description' => __( 'Partial CONTENT settings to merge ($$type-wrapped values). Style properties do not live here — use the flat style params below.', 'elementor-mcp' ) ),
+					)
+					// Style props were previously accepted nowhere on this tool:
+					// a padding sent through `settings` merged, saved, reported
+					// success and was dropped by Elementor's parser, because on
+					// an atomic element spacing lives in `styles`, not
+					// `settings` (field report #4, part 1.2).
+					+ self::style_schema_props(),
+					'required'   => array( 'post_id', 'element_id' ),
 				),
 				'output_schema'       => array(
 					'type'       => 'object',
@@ -249,6 +255,41 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 		$page_data = $this->data->get_page_data( $post_id );
 		if ( is_wp_error( $page_data ) ) {
 			return $page_data;
+		}
+
+		// Style props go to the element's style variant, not to `settings`.
+		// Sending them as settings is what made every post-creation styling
+		// change a silent no-op and left delete-and-recreate as the only
+		// reliable path (field report #4, part 1.2).
+		$style_params = array();
+		foreach ( Elementor_MCP_Atomic_Styles::widget_style_param_keys() as $key ) {
+			if ( isset( $input[ $key ] ) ) {
+				$style_params[ $key ] = $input[ $key ];
+			}
+		}
+
+		if ( ! empty( $style_params ) ) {
+			$element = $this->data->find_element_by_id( $page_data, $element_id );
+			if ( null === $element ) {
+				return new \WP_Error( 'element_not_found', __( 'Element not found.', 'elementor-mcp' ) );
+			}
+
+			$props = array_merge(
+				Elementor_MCP_Atomic_Styles::build_common_props( $style_params ),
+				Elementor_MCP_Atomic_Styles::build_typography_props( $style_params )
+			);
+
+			if ( ! empty( $props ) ) {
+				$patch                = Elementor_MCP_Atomic_Styles::build_props_patch( $element, $props );
+				$settings['styles']   = $patch['styles'];
+			}
+		}
+
+		if ( empty( $settings ) ) {
+			return new \WP_Error(
+				'nothing_to_update',
+				__( 'Provide `settings` (content) and/or at least one style parameter.', 'elementor-mcp' )
+			);
 		}
 
 		$updated = $this->data->update_element_settings( $page_data, $element_id, $settings );

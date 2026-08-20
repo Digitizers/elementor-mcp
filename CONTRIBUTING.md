@@ -306,6 +306,26 @@ vendor/bin/phpunit --configuration phpunit.xml.dist
 
 Before tagging a new release, verify these items are consistent across all files:
 
+### Publishing the release
+
+Create it as a **draft**, and let CI publish it:
+
+```bash
+gh release create v1.32.0 --draft --title "..." --notes "..."
+```
+
+`.github/workflows/release-zip.yml` builds `elementor-mcp.zip`, attaches it, and
+then flips the release public. Creating it public instead leaves a window where
+the release exists with no asset — and a site that checks during that window
+does not just miss the ZIP once: the update checker resolves the source-archive
+fallback and **persists it in its update state**, so it can install the whole
+repository long after the asset lands.
+
+To backfill an existing release, run the workflow manually with its tag
+(`gh workflow run "Release ZIP" -f tag=v1.31.0`). It checks the plugin sources
+out at that tag and the builder out from the default branch, so tags cut before
+the builder existed still work.
+
 ### Version Number
 
 Update the version string in **all** of these locations:

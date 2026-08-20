@@ -1,6 +1,6 @@
 name: Release ZIP
 
-# Attaches an installable plugin ZIP to every published Release.
+# Attaches an installable plugin ZIP to every Release.
 #
 # Two consumers need it, and both silently degraded without it (FIELD-REPORT-6):
 #   - the bundled updater asks PUC for a release asset matching
@@ -10,13 +10,23 @@ name: Release ZIP
 # so client sites were installing the repository — tests, CI config and internal
 # docs included — instead of a plugin build.
 #
-# Runs on release publication rather than on tag push: the updater is
-# release-only by design (a bare tag must not offer an update), so the asset has
-# to exist by the time the Release does.
+# WHY IT TRIGGERS ON `created`, NOT ONLY `published`
+#
+# A release that is already visible when this job starts has a window in which
+# it exists with no asset. Anything checking during that window resolves the
+# zipball fallback and PUC *persists* the resolved package in its update state,
+# so the site can still install the repository archive long after the upload
+# lands. `created` fires for a draft, before anyone can see it — so the
+# supported flow is `gh release create --draft`, let this job attach the asset
+# and publish, and the release only becomes visible with the ZIP already on it.
+#
+# `published` stays as a safety net for a release created public directly (and
+# for re-runs): the window is not closed there, but the asset still arrives
+# within a minute rather than never.
 
 on:
   release:
-    types: [published]
+    types: [created, published]
   workflow_dispatch:
     inputs:
       tag:
@@ -31,13 +41,32 @@ jobs:
     name: Build and attach elementor-mcp.zip
     runs-on: ubuntu-latest
     steps:
+      # The plugin sources come from the tag. The builder does NOT: a tag cut
+      # before this workflow existed has no bin/build-zip.sh, which is exactly
+      # the case workflow_dispatch is meant to backfill.
       - name: Checkout the released tag
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
 
+      - name: Check out the builder from the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .builder
+          sparse-checkout: bin/build-zip.sh
+          sparse-checkout-cone-mode: false
+
+      # Run the current builder against the tag's tree. It resolves its own
+      # root from its location, so it has to sit inside that tree — and it
+      # excludes itself from the ZIP either way.
       - name: Build the ZIP
-        run: bin/build-zip.sh
+        run: |
+          mkdir -p bin
+          cp .builder/bin/build-zip.sh bin/build-zip.sh
+          chmod +x bin/build-zip.sh
+          rm -rf .builder
+          bin/build-zip.sh
 
       # The ZIP is built from the checked-out tag, so a mismatch means the tag
       # was cut without the version bump — the update would install a plugin
@@ -57,3 +86,13 @@ jobs:
         run: |
           gh release upload "${{ github.event.release.tag_name || inputs.tag }}" \
             dist/elementor-mcp.zip --clobber --repo "$GITHUB_REPOSITORY"
+
+      # Only now is the release safe to show: publishing it earlier is what
+      # hands a site the zipball fallback to remember.
+      - name: Publish the release once the asset is on it
+        if: github.event_name == 'release' && github.event.release.draft == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.event.release.tag_name }}" \
+            --draft=false --repo "$GITHUB_REPOSITORY"

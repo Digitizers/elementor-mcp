@@ -339,6 +339,28 @@ class ForeignMcpTransportTest extends TestCase {
 		};
 	}
 
+	/**
+	 * A server double shaped like a LIVE adapter server: `get_tools()` returns
+	 * McpTool-ish objects keyed by the MCP tool name, which is the ability name
+	 * with "/" replaced by "-" — not the ability name itself.
+	 */
+	private function live_server_publishing( array $ability_names ): object {
+		$tools = array();
+		foreach ( $ability_names as $ability ) {
+			$mcp_name           = str_replace( '/', '-', $ability );
+			$tools[ $mcp_name ] = new class( $mcp_name ) {
+				private string $name;
+				public function __construct( string $name ) {
+					$this->name = $name;
+				}
+				public function get_name(): string {
+					return $this->name;
+				}
+			};
+		}
+		return $this->server_publishing( $tools );
+	}
+
 	public function test_a_stock_adapter_server_is_listed_but_not_warned_about(): void {
 		// A normal install already carries the bundled adapter's default server,
 		// which reaches nothing here — its proxy tools require `meta.mcp.public`,
@@ -370,6 +392,32 @@ class ForeignMcpTransportTest extends TestCase {
 
 		$this->assertSame( array( 'some-other-server' ), $result['ids'] );
 		$this->assertSame( array( 'some-other-server' ), $result['publishing'] );
+	}
+
+	public function test_a_live_server_publishing_our_tools_is_matched_despite_the_name_transform(): void {
+		// The shape that actually comes back from an adapter-created server: the
+		// tool list is keyed by the MCP tool name, which the adapter derives by
+		// replacing "/" with "-". Comparing raw ability names against those keys
+		// never matches — so this field would have reported a genuinely exposed
+		// site as clean, which is the one answer it exists to give.
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array( 'some-other-server' => $this->live_server_publishing( array( 'elementor-mcp/update-element' ) ) ),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array( 'some-other-server' ), $result['publishing'] );
+	}
+
+	public function test_a_live_server_publishing_only_its_own_tools_is_not_matched(): void {
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array( 'angie' => $this->live_server_publishing( array( 'angie/execute-ability' ) ) ),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array( 'angie' ), $result['ids'] );
+		$this->assertSame( array(), $result['publishing'] );
 	}
 
 	public function test_our_own_server_is_never_reported_as_foreign(): void {

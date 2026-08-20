@@ -265,17 +265,29 @@ class Elementor_MCP_Server_Info_Abilities {
 			if ( ! is_array( $tools ) ) {
 				continue;
 			}
-			// Tool lists may hold names or objects keyed by name; reduce to
-			// comparable strings and ignore anything else.
+			// A live server's list holds McpTool objects keyed by the MCP tool
+			// name, which is NOT the ability name: the adapter turns
+			// `elementor-mcp/update-element` into `elementor-mcp-update-element`
+			// (McpComponentRegistry keys on $tool->get_name()). Comparing raw
+			// ability names against those keys never matches, so a server that
+			// genuinely publishes these tools would have been reported clean —
+			// the one answer this field exists to give. Both sides are normalised
+			// through the same transform the grant binding already uses.
 			$tool_names = array();
 			foreach ( $tools as $key => $tool ) {
 				if ( is_string( $tool ) ) {
-					$tool_names[] = $tool;
+					$tool_names[] = self::mcp_tool_name( $tool );
+				} elseif ( is_object( $tool ) && method_exists( $tool, 'get_name' ) ) {
+					$name = $tool->get_name();
+					if ( is_string( $name ) ) {
+						$tool_names[] = self::mcp_tool_name( $name );
+					}
 				} elseif ( is_string( $key ) ) {
-					$tool_names[] = $key;
+					$tool_names[] = self::mcp_tool_name( $key );
 				}
 			}
-			if ( array_intersect( $our_names, $tool_names ) ) {
+			$ours_as_tools = array_map( array( self::class, 'mcp_tool_name' ), $our_names );
+			if ( array_intersect( $ours_as_tools, $tool_names ) ) {
 				$publishing[] = $id;
 			}
 		}
@@ -283,6 +295,23 @@ class Elementor_MCP_Server_Info_Abilities {
 		sort( $ids );
 		sort( $publishing );
 		return array( 'ids' => $ids, 'publishing' => $publishing );
+	}
+
+	/**
+	 * An ability name as the MCP adapter publishes it.
+	 *
+	 * `RegisterAbilityAsMcpTool` replaces "/" with "-", and the server keys its
+	 * tool list on the result — the same transform the governance layer applies
+	 * when binding an approval grant. Normalising both sides through one helper
+	 * keeps a comparison from silently never matching.
+	 *
+	 * @since 1.30.0
+	 *
+	 * @param string $name Ability or tool name.
+	 * @return string
+	 */
+	private static function mcp_tool_name( string $name ): string {
+		return str_replace( '/', '-', trim( $name ) );
 	}
 
 	/**

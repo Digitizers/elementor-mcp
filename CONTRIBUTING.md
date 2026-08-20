@@ -306,6 +306,34 @@ vendor/bin/phpunit --configuration phpunit.xml.dist
 
 Before tagging a new release, verify these items are consistent across all files:
 
+### Publishing the release
+
+**Push the tag first, and let CI prepare the release:**
+
+```bash
+git tag -a v1.32.0 -m "..." && git push origin v1.32.0
+```
+
+`.github/workflows/release-zip.yml` fires on the tag, builds `elementor-mcp.zip`
+and opens a **draft** release with the ZIP already attached. Write the notes into
+that draft and publish it — by then the asset is on it.
+
+Do not create the release public and expect the asset to catch up. The window
+where a release exists without its ZIP is not a slow upload: a site checking
+during it resolves the source-archive fallback, and the update checker
+**persists that package in its update state**, so it can install the whole
+repository long after the asset lands. One badly-timed check outlives the fix.
+
+A draft-first flow does not work either, however natural it sounds: GitHub does
+not run workflows for the `created` activity type on draft releases, so nothing
+would build. The tag push is the only trigger that fires while the release is
+still invisible.
+
+To backfill an existing release, run the workflow manually with its tag
+(`gh workflow run "Release ZIP" -f tag=v1.31.0`). It checks the plugin sources
+out at that tag and the builder out from the default branch, so tags cut before
+the builder existed still work.
+
 ### Version Number
 
 Update the version string in **all** of these locations:

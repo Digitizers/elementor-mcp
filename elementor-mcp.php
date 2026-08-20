@@ -5,7 +5,7 @@
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
  * Version:           1.31.0
  * Requires at least: 6.9
- * Tested up to:      6.9
+ * Tested up to:      7.1
  * Requires PHP:      8.0
  * Author:            Digitizers
  * Author URI:        https://github.com/Digitizers

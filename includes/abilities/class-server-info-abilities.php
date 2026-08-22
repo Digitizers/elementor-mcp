@@ -73,6 +73,7 @@ class Elementor_MCP_Server_Info_Abilities {
 						'mcp_adapter'       => array( 'type' => 'object' ),
 						'server_enabled'    => array( 'type' => 'boolean' ),
 						'write_exposure'    => array( 'type' => 'object' ),
+						'rules'             => array( 'type' => 'object' ),
 						'notes'             => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
@@ -549,6 +550,18 @@ class Elementor_MCP_Server_Info_Abilities {
 			);
 		}
 
+		// Operator rules (P4.1 plan 3). SiteAgent holds the ruleset and decides;
+		// this plugin only declares. A fork-only site enforces nothing, and the
+		// report says so rather than leaving the absence to be inferred.
+		$rules = class_exists( 'Elementor_MCP_Rules' )
+			? Elementor_MCP_Rules::report()
+			: array( 'enforced' => false, 'source' => 'none', 'state' => 'absent', 'ruleset' => null, 'points' => array() );
+		if ( 'incomplete' === $rules['state'] ) {
+			$notes[] = __( 'SiteAgent is installed but its rules engine is incomplete (a partial update?), so every governed Elementor write from this plugin is refused until it is repaired — a write under an unknown verdict is not taken.', 'elementor-mcp' );
+		} elseif ( empty( $rules['enforced'] ) ) {
+			$notes[] = __( 'SiteAgent is not installed, so no operator rules are enforced on Elementor writes from this plugin (a page block or a site freeze set in Aura does not apply here). Install SiteAgent 2.10.0 or later to enforce the same rules SiteAgent enforces.', 'elementor-mcp' );
+		}
+
 		return array(
 			'plugin_version'    => defined( 'ELEMENTOR_MCP_VERSION' ) ? ELEMENTOR_MCP_VERSION : '',
 			'elementor_version' => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : '',
@@ -580,6 +593,7 @@ class Elementor_MCP_Server_Info_Abilities {
 			),
 			'server_enabled'    => $server_enabled,
 			'write_exposure'    => $write_exposure,
+			'rules'             => $rules,
 			'notes'             => $notes,
 		);
 	}

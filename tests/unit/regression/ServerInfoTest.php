@@ -460,4 +460,42 @@ class ServerInfoTest extends Ability_Test_Case {
 
 		unset( $GLOBALS['_registered_abilities'] );
 	}
+
+	public function test_server_info_reports_rules_from_siteagent(): void {
+		$GLOBALS['_aura_rules'] = array(
+			'current' => array( 'seq' => 9, 'client' => 'c1', 'received_at' => 1800000000, 'envelope' => 'SECRET.SIG', 'rules' => array( array( 'key' => 'rule/freeze' ) ) ),
+		);
+		\Elementor_MCP_Rules::reset_state();
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		unset( $GLOBALS['_aura_rules'] );
+
+		$this->assertSame(
+			array( 'enforced' => true, 'source' => 'siteagent', 'state' => 'ready', 'ruleset' => array( 'seq' => 9, 'rule_count' => 1, 'received_at' => 1800000000 ), 'points' => array( 'governed_write' ) ),
+			$report['rules']
+		);
+		$this->assertStringNotContainsString( 'SECRET', wp_json_encode( $report ) );
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString( 'no operator rules', $note, 'A site that enforces is not told it does not.' );
+		}
+	}
+
+	public function test_server_info_names_an_incomplete_siteagent_as_refusing_not_as_absent(): void {
+		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Without_Enforce::class );
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Rules::reset_state();
+		$this->assertSame( 'incomplete', $report['rules']['state'] );
+		$this->assertNotEmpty( array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'refused' ); } ) );
+	}
+
+	public function test_server_info_says_so_when_no_rules_can_be_enforced(): void {
+		\Elementor_MCP_Rules::reset_state( false ); // fork-only
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Rules::reset_state();
+
+		$this->assertSame( array( 'enforced' => false, 'source' => 'none', 'state' => 'absent', 'ruleset' => null, 'points' => array() ), $report['rules'] );
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'no operator rules' ); } ),
+			'Spec §6: fork-only means no rules, and server-info reports that.'
+		);
+	}
 }

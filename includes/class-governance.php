@@ -44,8 +44,27 @@
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
  * plugin. The plugin never hard-requires SiteAgent.
  *
+ * Operator rules (1.32.0, P4.1 plan 3): before ANY of the above, a governed
+ * write asks Elementor_MCP_Rules whether an operator rule decides it — order is
+ * grant → RULES → snapshot → write, so a block executes nothing and snapshots
+ * nothing, and a warn proceeds with the reason attached to the run's result.
+ * Four gate points cover the whole run: the pre-callback gate in run_governed()
+ * (declares site:* for a create, or post+page for an edit's input post_id,
+ * before the tool's callback runs at all); before_page_write() (the real post
+ * id, once the write site knows it — deduplicated per post id within a run, so
+ * a run touching several posts gates each of them, not just the first); and the
+ * equivalent site-scoped gates for design-token writes, before_kit_write() and
+ * before_global_classes_write(). `unavailable` (a matcher that throws, or
+ * answers with something that is not a verdict) fails CLOSED — refused with its
+ * own code, same as a block, never treated as "no rule matched". A dry-run
+ * preview (apply falsy) is exempt everywhere: it writes nothing, so there is
+ * nothing for a rule to decide. Elementor_MCP_Rules is deliberately free of any
+ * dependency back on this class — this file's wrap_ability()/is_active() decide
+ * whether anything here is live to enforce what it reports.
+ *
  * @package Elementor_MCP
  * @since 1.17.0
+ * @since 1.32.0 Operator-rules gates (grant → rules → snapshot → write).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -141,7 +160,12 @@ class Elementor_MCP_Governance {
 
 	/**
 	 * The governed run currently in flight, or null. Shape:
-	 *   array{ post_id:int, name:string, snapshot_id:?string, snapshot_failed:bool }
+	 *   array{ post_id:int, name:string, snapshot_id:?string, snapshot_failed:bool,
+	 *          rules_checked:array<int,bool> }
+	 * `rules_checked` dedups the page-write rules gate per post id within the run
+	 * (see before_page_write()): a post already decided this run is not asked
+	 * again, but every DISTINCT post the run writes is asked exactly once,
+	 * regardless of whether an earlier post in the same run already snapshotted.
 	 * Request-scoped: only one MCP tool executes at a time, and page writes happen
 	 * synchronously inside run_governed(), so a single static frame is sufficient.
 	 *
@@ -166,11 +190,26 @@ class Elementor_MCP_Governance {
 	private static $snapshots = null;
 
 	/**
+	 * Test-only override of is_active(). PHP cannot undefine a class once
+	 * loaded, and the test bootstrap always stubs \Aura_Worker_Snapshots, so
+	 * is_active() has no way to answer false from class presence alone in a
+	 * single test process. This lets a test force the "wrapper not live"
+	 * state (e.g. for server-info's liveness check) without one.
+	 *
+	 * @since 1.32.0
+	 * @var bool|null
+	 */
+	private static $active_override = null;
+
+	/**
 	 * Is SiteAgent's snapshot engine available to govern writes?
 	 *
 	 * @return bool
 	 */
 	public static function is_active(): bool {
+		if ( null !== self::$active_override ) {
+			return self::$active_override;
+		}
 		return class_exists( '\\Aura_Worker_Snapshots' );
 	}
 
@@ -305,6 +344,7 @@ class Elementor_MCP_Governance {
 			'snapshot_failed' => false,
 			'is_edit'         => $is_edit,
 			'baseline'        => 'inconclusive', // pre-write render state (edits only)
+			'rules_checked'   => array(), // post id => true, once before_page_write has gated it this run
 		);
 
 		// Kit-scoped writes are snapshotted LAZILY at the kit write site (the
@@ -399,21 +439,32 @@ class Elementor_MCP_Governance {
 		if ( null === self::$run || ! self::is_active() ) {
 			return null; // no governed run in flight
 		}
-		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
-			return null; // already snapshotted (or already failed) this run
-		}
 		$post_id = absint( $post_id );
 
-		// Operator rules decide BEFORE the snapshot: a block creates nothing and
-		// leaves nothing to roll back. This is the declaration point spec §4
-		// names — the write site is where the real post id is known, which the
-		// pre-callback check in run_governed() cannot be for a create.
-		if ( class_exists( 'Elementor_MCP_Rules' ) ) {
+		// Operator rules decide BEFORE the snapshot — and, critically, before the
+		// "already snapshotted" early return just below. That early return exists
+		// so a run's snapshot is only ever captured once (the first real write
+		// defines the post to protect); it must NOT also mean "only the first
+		// write's post gets rules-checked". A run that writes post 7 then post 99
+		// has to refuse post 99 exactly as it would if post 99 were the only
+		// write this run made — a `block` on a later post in the same run is not
+		// exempt just because an earlier post already snapshotted. Deduplicated
+		// per post id (self::$run['rules_checked']): a post already decided this
+		// run is not asked again — re-asking is otherwise free (SiteAgent dedups
+		// its forensic hooks per dispatch; rules_gate() dedups warnings per rule
+		// key), but there is no reason to pay for it on every write to the same
+		// post within one run.
+		if ( class_exists( 'Elementor_MCP_Rules' ) && empty( self::$run['rules_checked'][ $post_id ] ) ) {
 			$gate = self::rules_gate( Elementor_MCP_Rules::page_touches( $post_id ), (string) self::$run['name'] );
+			self::$run['rules_checked'][ $post_id ] = true;
 			if ( is_wp_error( $gate ) ) {
-				self::$run['snapshot_failed'] = true; // refused: do not retry the gate on a second write this run
+				self::$run['snapshot_failed'] = true; // refused: no further write in this run may proceed
 				return $gate;
 			}
+		}
+
+		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
+			return null; // already snapshotted (or already failed) this run
 		}
 
 		// The first real write of the run defines the post to protect + roll back.
@@ -1142,14 +1193,21 @@ class Elementor_MCP_Governance {
 	/**
 	 * Clear all governed-run state. For test isolation. An optional snapshot-engine
 	 * override lets a test inject a stand-in (e.g. an engine lacking snapshot_posts,
-	 * to exercise the fail-closed path) instead of the lazily-created default.
+	 * to exercise the fail-closed path) instead of the lazily-created default. An
+	 * optional active-override lets a test force is_active() to a specific value
+	 * (e.g. false, to exercise "SiteAgent installed but the wrapper never engages"
+	 * — see the $active_override docblock); null (the default) restores the real
+	 * class_exists() check.
 	 *
+	 * @since 1.32.0 $active_override param.
 	 * @param object|null $snapshots_override Test-only engine to use, or null.
+	 * @param bool|null   $active_override    Test-only is_active() override, or null.
 	 * @return void
 	 */
-	public static function reset_state( $snapshots_override = null ): void {
-		self::$run           = null;
-		self::$run_warnings  = array();
-		self::$snapshots     = $snapshots_override;
+	public static function reset_state( $snapshots_override = null, ?bool $active_override = null ): void {
+		self::$run             = null;
+		self::$run_warnings    = array();
+		self::$snapshots       = $snapshots_override;
+		self::$active_override = $active_override;
 	}
 }

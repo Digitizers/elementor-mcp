@@ -1255,6 +1255,17 @@ namespace {
 		];
 
 		if ( isset( $map[ $class ] ) ) {
+			// Test-only seam (server-info's "our own bridge did not load" branch,
+			// distinct from SiteAgent being absent): with the env var set, this one
+			// class is left undefined even though its file is right there — the way
+			// a broken/partial deploy of THIS plugin might drop class-rules.php while
+			// the rest of the plugin still loads. Only reachable via @runInSeparateProcess
+			// (autoloading is a once-per-process event), and only meaningful set via
+			// putenv() before the process forks — PHP constants/$GLOBALS set inside a
+			// test method run too late to affect the class map closure itself.
+			if ( 'Elementor_MCP_Rules' === $class && getenv( 'ELEMENTOR_MCP_TEST_NO_RULES_BRIDGE' ) ) {
+				return;
+			}
 			$path = $plugin_root . '/' . $map[ $class ];
 			if ( file_exists( $path ) ) {
 				require_once $path;
@@ -1344,7 +1355,16 @@ namespace {
 	// Elementor_MCP_Rules::reset_state( false ) overrides availability instead,
 	// the way Governance::reset_state() injects its snapshots engine.
 	// -----------------------------------------------------------------------
-	if ( ! class_exists( 'Aura_Worker_Rules' ) ) {
+	// Test-only seam: with ELEMENTOR_MCP_TEST_NO_AURA_WORKER_RULES set, this stub
+	// is never defined at all — simulating SiteAgent's rules engine being
+	// genuinely absent (as opposed to $GLOBALS['_aura_rules'] merely being
+	// unset, which the stub above is still happy to answer against). Needed for
+	// server-info's "our own bridge missing" branch, which distinguishes
+	// SiteAgent-present-bridge-missing from SiteAgent-genuinely-absent via
+	// class_exists( '\\Aura_Worker_Rules' ) — a distinction that, since this
+	// class is otherwise defined unconditionally on every process, is only
+	// reachable via @runInSeparateProcess + putenv() before the process forks.
+	if ( ! class_exists( 'Aura_Worker_Rules' ) && ! getenv( 'ELEMENTOR_MCP_TEST_NO_AURA_WORKER_RULES' ) ) {
 		class Aura_Worker_Rules {
 			public static function enforce( array $touches, $tool_name ) {
 				$GLOBALS['_aura_rules']['calls'][] = array( 'touches' => $touches, 'name' => (string) $tool_name );

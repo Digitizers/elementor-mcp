@@ -498,4 +498,28 @@ class ServerInfoTest extends Ability_Test_Case {
 			'Spec §6: fork-only means no rules, and server-info reports that.'
 		);
 	}
+
+	public function test_server_info_reports_no_enforcement_when_the_governance_wrapper_is_not_live(): void {
+		// Important #1 (fork final-review): Elementor_MCP_Rules::report() only
+		// speaks to whether SiteAgent's rules engine is installed and reachable —
+		// it never asks whether THIS plugin's own governance wrapper actually
+		// calls into it (wrap_ability() no-ops entirely when SiteAgent's snapshot
+		// engine is absent). A ready ruleset must not be reported as `enforced:
+		// true` on a site where nothing ever wraps a write to ask it.
+		$GLOBALS['_aura_rules'] = array(
+			'current' => array( 'seq' => 9, 'client' => 'c1', 'received_at' => 1800000000, 'rules' => array( array( 'key' => 'rule/freeze' ) ) ),
+		);
+		\Elementor_MCP_Rules::reset_state();
+		\Elementor_MCP_Governance::reset_state( null, false ); // wrapper not live
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Governance::reset_state();
+		unset( $GLOBALS['_aura_rules'] );
+
+		$this->assertFalse( $report['rules']['enforced'] );
+		$this->assertSame( array(), $report['rules']['points'] );
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'governance wrapper is not active' ); } ),
+			'A ready ruleset with no live wrapper to enforce it must say so.'
+		);
+	}
 }

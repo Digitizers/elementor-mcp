@@ -236,6 +236,46 @@ class GovernanceRulesTest extends TestCase {
 		$this->assertSame( array(), (array) $err->get_error_data() );
 	}
 
+	// --- mixed outcomes across the two gate calls (Recommendation 3) ----------
+
+	public function test_unavailable_raised_only_at_the_write_gate_still_refuses_and_snapshots_nothing(): void {
+		// The pre-callback gate (call #1: site/page for the input's post_id)
+		// answers cleanly; the write-site gate (call #2, before_page_write) gets
+		// back garbage — a matcher that is broken only sometimes, not a matcher
+		// that always throws (already covered above). Still fails closed.
+		$GLOBALS['_aura_rules']['verdict'] = static function () {
+			return 2 === count( $GLOBALS['_aura_rules']['calls'] ) ? 'garbage' : array( 'effect' => null );
+		};
+		$res = $this->invoke( $this->write_args( $this->page_writer() ), array( 'post_id' => 7 ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $res );
+		$this->assertSame( 'aura_rules_unavailable', $res->get_error_code() );
+		$this->assertTrue( $GLOBALS['_writer_ran'] );
+		$this->assertFalse( $GLOBALS['_writer_wrote'], 'Nothing was written.' );
+		$this->assertSame( array(), $GLOBALS['_aura_snap']['snapshot_calls'], 'No snapshot — the write-gate refused before it.' );
+	}
+
+	public function test_a_warn_at_the_pre_callback_then_a_block_at_the_write_gate_carries_both(): void {
+		// The pre-callback gate (call #1) warns; the write-site gate (call #2,
+		// same post) then blocks. The refusal must not lose the earlier warn —
+		// the error data carries the deciding `rule` AND the run's `warnings`.
+		$warn_rule  = $this->warn();
+		$block_rule = $this->block();
+		$GLOBALS['_aura_rules']['verdict'] = static function () use ( $warn_rule, $block_rule ) {
+			return 1 === count( $GLOBALS['_aura_rules']['calls'] )
+				? array( 'effect' => 'warn', 'rule' => $warn_rule )
+				: array( 'effect' => 'block', 'rule' => $block_rule );
+		};
+		$res = $this->invoke( $this->write_args( $this->page_writer() ), array( 'post_id' => 7 ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $res );
+		$this->assertSame( 'aura_rule_blocked', $res->get_error_code() );
+		$data = $res->get_error_data();
+		$this->assertSame( array( 'key' => 'rule/checkout', 'reason' => 'launch day' ), $data['rule'] );
+		$this->assertSame( array( array( 'rule' => 'rule/careful', 'reason' => 'client reviewing' ) ), $data['warnings'] );
+		$this->assertFalse( $GLOBALS['_writer_wrote'], 'Nothing was written.' );
+	}
+
 	// --- exemptions -----------------------------------------------------------
 
 	public function test_a_preview_is_never_rules_checked(): void {
@@ -287,6 +327,56 @@ class GovernanceRulesTest extends TestCase {
 		$this->assertInstanceOf( \WP_Error::class, $res );
 		$this->assertNotSame( 'aura_rule_blocked', $res->get_error_code() );
 		$this->assertSame( array(), $GLOBALS['_aura_rules']['calls'], 'Spec §6: rules last — no point saying "blocked by rule" to a call that fails its grant.' );
+	}
+
+	// --- every distinct post the run writes is gated, not just the first ---------
+
+	public function test_a_run_that_writes_two_posts_still_gates_the_second_after_the_first_snapshots(): void {
+		// Bug (Important #3): the "already snapshotted" early return sat ABOVE the
+		// rules gate, so a run that already snapshotted post 7 sailed straight past
+		// a block on post 99 written later in the same run.
+		$this->block_on( 'page', '99', $this->block( 'rule/checkout' ) );
+		$writer = static function ( $input ) {
+			$first = \Elementor_MCP_Governance::before_page_write( 7 );
+			if ( is_wp_error( $first ) ) {
+				return $first;
+			}
+			$GLOBALS['_writer_wrote_7'] = true;
+			$second = \Elementor_MCP_Governance::before_page_write( 99 );
+			if ( is_wp_error( $second ) ) {
+				return $second;
+			}
+			$GLOBALS['_writer_wrote_99'] = true;
+			return array( 'ok' => true );
+		};
+		$res = $this->invoke( $this->write_args( $writer ), array( 'title' => 'Bulk' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $res );
+		$this->assertSame( 'aura_rule_blocked', $res->get_error_code() );
+		$this->assertTrue( $GLOBALS['_writer_wrote_7'], 'The first post write succeeded — it was never blocked.' );
+		$this->assertArrayNotHasKey( '_writer_wrote_99', $GLOBALS, 'The second write never happened.' );
+		$this->assertCount( 1, $GLOBALS['_aura_snap']['snapshot_calls'], 'Only post 7 was ever snapshotted.' );
+	}
+
+	public function test_a_run_that_writes_the_same_post_twice_asks_enforce_once_for_it(): void {
+		$writer = static function ( $input ) {
+			$first = \Elementor_MCP_Governance::before_page_write( 7 );
+			if ( is_wp_error( $first ) ) {
+				return $first;
+			}
+			$second = \Elementor_MCP_Governance::before_page_write( 7 );
+			if ( is_wp_error( $second ) ) {
+				return $second;
+			}
+			return array( 'ok' => true );
+		};
+		$res = $this->invoke( $this->write_args( $writer ), array( 'post_id' => 7 ) );
+
+		$this->assertSame( array( 'ok' => true ), $res );
+		// One enforce() call from the pre-callback gate (run_governed) and one from
+		// the write site's FIRST before_page_write(7) — the second before_page_write
+		// call for the same post 7 must add no further call.
+		$this->assertCount( 2, $this->declared(), 'The write site asked enforce() once for post 7, not twice.' );
 	}
 
 	// --- broken matcher -----------------------------------------------------------

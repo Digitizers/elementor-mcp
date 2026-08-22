@@ -1233,6 +1233,7 @@ namespace {
 			// SiteAgent governance bridge
 			'Elementor_MCP_Call_Context'           => 'includes/class-call-context.php',
 			'Elementor_MCP_Governance'             => 'includes/class-governance.php',
+			'Elementor_MCP_Rules'                  => 'includes/class-rules.php',
 		];
 
 		if ( isset( $map[ $class ] ) ) {
@@ -1308,6 +1309,65 @@ namespace {
 					'params' => $params,
 				);
 				return $GLOBALS['_aura_grant']['verify_result'] ?? true;
+			}
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// SiteAgent operator-rules stub (P4.1 plan 3). The bridge delegates every
+	// decision to \Aura_Worker_Rules::enforce() and reads the stored record via
+	// ::current(). Tests drive it via $GLOBALS['_aura_rules']:
+	//   ['verdict'] => array|callable  what enforce() returns — an array, or a
+	//                                  callable( array $touches, string $name ): array
+	//   ['calls']   => array           recorded [touches, name] per enforce() call
+	//   ['current'] => array|null      what current() returns
+	//   ['throw']   => bool            make enforce() throw (a broken matcher)
+	// Absence of SiteAgent is NOT modelled by undefining this class (PHP cannot);
+	// Elementor_MCP_Rules::reset_state( false ) overrides availability instead,
+	// the way Governance::reset_state() injects its snapshots engine.
+	// -----------------------------------------------------------------------
+	if ( ! class_exists( 'Aura_Worker_Rules' ) ) {
+		class Aura_Worker_Rules {
+			public static function enforce( array $touches, $tool_name ) {
+				$GLOBALS['_aura_rules']['calls'][] = array( 'touches' => $touches, 'name' => (string) $tool_name );
+				if ( ! empty( $GLOBALS['_aura_rules']['throw'] ) ) {
+					throw new \RuntimeException( 'stub forced matcher failure' );
+				}
+				$verdict = $GLOBALS['_aura_rules']['verdict'] ?? array( 'effect' => null );
+				return is_callable( $verdict ) ? $verdict( $touches, (string) $tool_name ) : $verdict;
+			}
+			public static function current() {
+				return $GLOBALS['_aura_rules']['current'] ?? null;
+			}
+		}
+	}
+
+	// Half-engines for the "installed but incomplete" state (a partial SiteAgent
+	// update). Handed to Elementor_MCP_Rules::reset_state( null, <class> ) by the
+	// bridge tests AND by ServerInfoTest — shared here so a focused single-file
+	// phpunit run finds them (a fixture declared at the bottom of another test
+	// file is not loaded by `phpunit tests/unit/regression/ServerInfoTest.php`).
+	if ( ! class_exists( 'Elementor_MCP_Test_Engine_Without_Enforce' ) ) {
+		class Elementor_MCP_Test_Engine_Without_Enforce {
+			public static function current() {
+				return null;
+			}
+		}
+	}
+	if ( ! class_exists( 'Elementor_MCP_Test_Engine_Without_Current' ) ) {
+		class Elementor_MCP_Test_Engine_Without_Current {
+			public static function enforce( array $touches, $name ) {
+				return array( 'effect' => null );
+			}
+		}
+	}
+	if ( ! class_exists( 'Elementor_MCP_Test_Engine_Whose_Reader_Throws' ) ) {
+		class Elementor_MCP_Test_Engine_Whose_Reader_Throws {
+			public static function enforce( array $touches, $name ) {
+				return array( 'effect' => null );
+			}
+			public static function current() {
+				throw new \RuntimeException( 'stub forced reader failure' );
 			}
 		}
 	}

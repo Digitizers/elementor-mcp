@@ -458,8 +458,10 @@ function elementor_mcp_init(): void {
 	$core_ok = elementor_mcp_require( 'includes/class-id-generator.php' ) && $core_ok;
 	$core_ok = elementor_mcp_require( 'includes/class-elementor-data.php' ) && $core_ok;
 	// SiteAgent governance bridge — must load before abilities register so
-	// elementor_mcp_register_ability() can wrap destructive page writes.
+	// elementor_mcp_register_ability() can wrap destructive page writes. The
+	// rules bridge loads first: the wrapper asks it before every write.
 	elementor_mcp_require( 'includes/class-call-context.php' );
+	elementor_mcp_require( 'includes/class-rules.php' );
 	elementor_mcp_require( 'includes/class-governance.php' );
 	$core_ok = elementor_mcp_require( 'includes/class-element-factory.php' ) && $core_ok;
 	$core_ok = elementor_mcp_require( 'includes/schemas/class-control-mapper.php' ) && $core_ok;

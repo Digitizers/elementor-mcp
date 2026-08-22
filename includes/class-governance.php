@@ -343,7 +343,12 @@ class Elementor_MCP_Governance {
 				$restore   = self::snapshots()->restore( $snapshot_id );
 				self::$run = null;
 				if ( empty( $restore['success'] ) ) {
-					return self::rollback_failed_error( $name, $post_id, $snapshot_id, 'page did not render after the write', $restore );
+					// This is still an outcome of a governed run — a warn decided
+					// earlier must be reported here too (global constraint: warn
+					// proceeds and is reported once, on EVERY outcome), even though
+					// the run is now failing in the worst way (write broke the page
+					// AND the revert couldn't undo it).
+					return self::with_run_warnings( self::rollback_failed_error( $name, $post_id, $snapshot_id, 'page did not render after the write', $restore ) );
 				}
 
 				/**

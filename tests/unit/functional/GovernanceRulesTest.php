@@ -29,7 +29,18 @@ class GovernanceRulesTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		unset( $_SERVER['HTTP_X_AURA_APPROVAL_GRANT'], $GLOBALS['_active_kit'], $GLOBALS['_aura_rules'] );
+		unset(
+			$_SERVER['HTTP_X_AURA_APPROVAL_GRANT'],
+			$GLOBALS['_active_kit'],
+			$GLOBALS['_aura_rules'],
+			// Only the render-revert-carries-warnings test below sets these; unset
+			// here (as GovernanceFunctionalTest does) so a future test added to
+			// this file never inherits a stale post/HTTP fixture.
+			$GLOBALS['_posts'],
+			$GLOBALS['_http_response_queue'],
+			$GLOBALS['_http_response'],
+			$GLOBALS['_permalink']
+		);
 		\Elementor_MCP_Governance::reset_state();
 		\Elementor_MCP_Rules::reset_state();
 		parent::tearDown();
@@ -187,6 +198,30 @@ class GovernanceRulesTest extends TestCase {
 		$this->assertSame( 'elementor_save_failed', $res->get_error_code(), 'The original error is returned verbatim …' );
 		$this->assertSame( array( array( 'rule' => 'rule/careful', 'reason' => 'client reviewing' ) ), $res->get_error_data()['warnings'], '… carrying the warning.' );
 		$this->assertCount( 1, $GLOBALS['_aura_snap']['restore_calls'], 'Governance still rolled the failed write back.' );
+	}
+
+	public function test_a_warn_survives_a_render_revert_that_also_fails_to_restore(): void {
+		// Controller ruling (Task 2): the render-check branch's rollback_failed_error
+		// exit is still an OUTCOME of a governed run — the global constraint ("warn
+		// proceeds and is reported once, on every outcome") outranks the brief's
+		// four-point enumeration of exits, so this one must carry warnings too.
+		// The warn was decided before the write; the write then broke the page's
+		// render, and even the revert-to-snapshot failed — the worst outcome a
+		// governed run can produce. The caller must still learn the rule.
+		$GLOBALS['_aura_rules']['verdict'] = array( 'effect' => 'warn', 'rule' => $this->warn() );
+		$GLOBALS['_posts'][7]              = (object) array( 'ID' => 7, 'post_status' => 'publish' );
+		$GLOBALS['_emcp_render_check']      = true;
+		$GLOBALS['_http_response_queue']    = array(
+			array( 'response' => array( 'code' => 200 ), 'body' => 'ok' ), // baseline: healthy
+			array( 'response' => array( 'code' => 500 ), 'body' => '' ),   // post-write: broken
+		);
+		$GLOBALS['_aura_snap']['fail_restore'] = true;
+
+		$res = $this->invoke( $this->write_args( $this->page_writer() ), array( 'post_id' => 7 ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $res );
+		$this->assertSame( 'governance_rollback_failed', $res->get_error_code() );
+		$this->assertSame( array( array( 'rule' => 'rule/careful', 'reason' => 'client reviewing' ) ), $res->get_error_data()['warnings'] );
 	}
 
 	public function test_a_warn_on_a_scalar_result_wraps_it_rather_than_losing_the_warning(): void {

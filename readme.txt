@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.31.0
+Stable tag: 1.32.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.32.0 =
+New: operator rules set in Aura (block or warn a page or post, or freeze the whole site) are now enforced on Elementor writes made through this plugin, when SiteAgent 2.10.0+ is installed. A block refuses the write before anything is saved or snapshotted; an approval does not override a rule; previews are unaffected. `server-info` reports whether rules are enforced on this site.
 
 = 1.31.0 =
 Fixed (security): the protection added in 1.30.0 did not fully cover a site running this plugin WITHOUT SiteAgent. A write-capable tool is now refused at the permission stage on every site when the caller is not on this plugin's own MCP server.
@@ -463,6 +466,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.32.0 =
+Recommended for every site managed from Aura with SiteAgent installed: Elementor writes now honour the same operator rules SiteAgent enforces elsewhere. Sites without SiteAgent are unchanged.
 
 = 1.31.0 =
 Recommended for every site, and important if you run this plugin WITHOUT SiteAgent. 1.30.0's protection against other MCP servers on the same site relied, on standalone installs, on metadata that another plugin has to keep honouring. Write tools are now refused at the permission stage whenever the caller is not on this plugin's own MCP server, independently of any other plugin. Read tools, the documented exposure filter and dry-run previews are unaffected.

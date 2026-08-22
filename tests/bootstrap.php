@@ -682,12 +682,14 @@ namespace {
 		class WP_Error {
 			private string $code;
 			private string $message;
-			private $data;
+			private array $error_data = array();
 
 			public function __construct( string $code = '', string $message = '', $data = '' ) {
 				$this->code    = $code;
 				$this->message = $message;
-				$this->data    = $data;
+				if ( '' !== $code && '' !== $data ) {
+					$this->error_data[ $code ] = $data;
+				}
 			}
 
 			public function get_error_code(): string {
@@ -699,7 +701,23 @@ namespace {
 			}
 
 			public function get_error_data( string $code = '' ) {
-				return $this->data;
+				if ( '' === $code ) {
+					$code = $this->code;
+				}
+				return $this->error_data[ $code ] ?? null;
+			}
+
+			/**
+			 * Add / overwrite error data for a code (default: this error's own code) —
+			 * mirrors core WP_Error::add_data(). Used by governance's warnings helper
+			 * to attach `warnings` to an existing error's data without losing what
+			 * was already there.
+			 */
+			public function add_data( $data, string $code = '' ) {
+				if ( '' === $code ) {
+					$code = $this->code;
+				}
+				$this->error_data[ $code ] = $data;
 			}
 		}
 	}

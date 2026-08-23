@@ -1,16 +1,31 @@
 <?php
 /**
- * Codex round 4 (fork final-review fix wave, PR #63): server-info's install
- * note ("SiteAgent is not installed... install SiteAgent 2.10.0 or later") is
- * reserved for a site with NEITHER SiteAgent class present. See
- * ServerInfoTest::test_server_info_reports_an_outdated_siteagent_when_only_snapshots_is_present
- * for the outdated case (\Aura_Worker_Snapshots present, \Aura_Worker_Rules
- * absent), which needs no seam — the test bootstrap already defines
- * \Aura_Worker_Snapshots by default.
+ * Codex round 4 (fork final-review fix wave, PR #63) originally added this
+ * fixture to prove server-info's install note ("SiteAgent is not
+ * installed... install SiteAgent 2.10.0 or later") for a site with NEITHER
+ * SiteAgent class present, reached via Elementor_MCP_Rules::report()'s own
+ * `state: 'absent'` (this plugin's bridge class IS loaded here — only
+ * SiteAgent's two classes are suppressed — see
+ * ServerInfoRulesBridgeAndSiteAgentMissingTest for the sibling scenario where
+ * the BRIDGE itself is also missing).
+ *
+ * Codex round 5's rules_block() refactor surfaced something this fixture's
+ * own setup makes true but the round-4 test never noticed: suppressing
+ * \Aura_Worker_Snapshots makes Elementor_MCP_Governance::is_active() false
+ * too (it keys on the SAME class) — so this exact combination ALWAYS also
+ * has the governance wrapper not live. rules_block()'s branch (b)
+ * (`! $governance_live`) is checked before branch (f) (`state === 'absent'`),
+ * per the round-5 priority table, so this scenario now surfaces the NOT-LIVE
+ * note ("...this plugin's own governance wrapper is not active...") instead
+ * of the install note — even though that note's own wording ("SiteAgent
+ * holds an operator ruleset, but...") is arguably imprecise for a site where
+ * SiteAgent isn't installed at all. Flagged to the controller as a known,
+ * cosmetic wording gap rather than silently reworded — this test asserts the
+ * CURRENT, round-5-correct behavior.
  *
  * \Aura_Worker_Snapshots is defined unconditionally, at the top level of every
  * process's own run of tests/bootstrap.php, so ELEMENTOR_MCP_TEST_NO_AURA_WORKER_SNAPSHOTS
- * (a new test-only seam in tests/bootstrap.php, mirroring the existing
+ * (a test-only seam in tests/bootstrap.php, mirroring the existing
  * ELEMENTOR_MCP_TEST_NO_AURA_WORKER_RULES) must be set in the PARENT process,
  * before @runInSeparateProcess forks this class's test — i.e. in
  * setUpBeforeClass(), which runs once, in the parent, before any of this
@@ -51,18 +66,23 @@ class ServerInfoRulesGenuinelyAbsentTest extends Ability_Test_Case {
 	/**
 	 * @runInSeparateProcess
 	 */
-	public function test_server_info_says_so_when_no_rules_can_be_enforced(): void {
+	public function test_server_info_reports_absent_state_with_the_not_live_note_when_no_rules_can_be_enforced(): void {
 		\Elementor_MCP_Rules::reset_state( false ); // \Aura_Worker_Rules absent too
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 		\Elementor_MCP_Rules::reset_state();
 
+		// `state`/`source`/`ruleset`/`points` are untouched by rules_block()'s
+		// branch (b) — only `enforced` (already false) and the note change.
 		$this->assertSame( array( 'enforced' => false, 'source' => 'none', 'state' => 'absent', 'ruleset' => null, 'points' => array() ), $report['rules'] );
+		// Codex round 5: this fixture's own suppression of \Aura_Worker_Snapshots
+		// necessarily also makes the governance wrapper not live (see class
+		// docblock) — branch (b) wins over branch (f)'s install note.
 		$this->assertNotEmpty(
-			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'no operator rules' ); } ),
-			'Spec §6: fork-only means no rules, and server-info reports that.'
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'governance wrapper is not active' ); } )
 		);
 		foreach ( $report['notes'] as $note ) {
 			$this->assertStringNotContainsString( 'predates 2.10.0', $note, 'Neither class present — this is not the outdated note.' );
+			$this->assertStringNotContainsString( 'install SiteAgent', $note, 'Branch (b) pre-empts branch (f)\'s install note here — see class docblock.' );
 		}
 	}
 }

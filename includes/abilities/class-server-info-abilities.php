@@ -227,6 +227,126 @@ class Elementor_MCP_Server_Info_Abilities {
 	}
 
 	/**
+	 * The whole operator-rules decision table for server-info's `rules` block
+	 * and its one accompanying note, as ONE pure function (Codex round 5 of the
+	 * fork final-review's fix wave — the fourth round on this same block; the
+	 * controller ruled a mechanism change over another patch). Every prior
+	 * round patched one more branch of an if/elseif chain that lived inline in
+	 * execute_server_info(); each patch fixed one combination and missed
+	 * another (round 5's own finding: the bridge-missing fallback decided
+	 * "SiteAgent present" from \Aura_Worker_Rules alone, so a pre-2.10
+	 * SiteAgent — only \Aura_Worker_Snapshots — with the bridge ALSO missing
+	 * still reported "not installed"). This function is the single place all
+	 * four inputs are combined, so a new combination is one row here, not
+	 * another elseif buried among unrelated branches — and it's called directly
+	 * from tests (ServerInfoRulesStateTest), not just through the whole
+	 * ability, the same way execution_guard_active() above is.
+	 *
+	 * Priority order (first match wins — deliberately NOT commutative; see the
+	 * inline reasoning at each step):
+	 *   (a) $bridge_loaded false — this plugin's OWN rules bridge
+	 *       (includes/class-rules.php) failed to load. `state: bridge_missing`
+	 *       when EITHER SiteAgent class exists (SiteAgent is there in some
+	 *       form; only OUR bridge is broken); `state: absent` when neither
+	 *       does (SiteAgent genuinely never installed). $report is not
+	 *       consulted at all here — Elementor_MCP_Rules::report() cannot even
+	 *       be called without the bridge loaded, which is exactly why the
+	 *       caller passes null in this case.
+	 *   (b) $governance_live false — nothing reaches a gate to ask, REGARDLESS
+	 *       of what $report's own state claims (even reader_failed, whose
+	 *       underlying enforce() would otherwise still decide writes — Import
+	 *       #1 of the original fork-final-review findings: a diagnostic must
+	 *       not claim enforcement where nothing is wrapped). Checked before
+	 *       every report()-derived state, not after, so it cannot be pre-empted
+	 *       by a more specific-sounding but misleading note.
+	 *   (c) $report['state'] === 'outdated' — SiteAgent's snapshot engine is
+	 *       present but its rules engine (added in SiteAgent 2.10.0) is not.
+	 *   (d) $report['state'] === 'incomplete' — worded by $report['reason']:
+	 *       enforce_missing / current_missing name the missing method and
+	 *       refuse (the gate requires both — the plan's global constraint);
+	 *       reader_failed says the ruleset is unreadable but writes still
+	 *       decided (current() throwing does not stop enforce()).
+	 *   (e) $report['state'] === 'ready' — fully enforced; no note.
+	 *   (f) $report['state'] === 'absent' — bridge loaded fine, but SiteAgent
+	 *       itself has neither class (this is the report()-level absent, a
+	 *       DIFFERENT code path from (a)'s bridge-missing-side absent, same
+	 *       resulting note).
+	 * Self-check: (c)/(d)/(e)/(f) are the complete set of states
+	 * Elementor_MCP_Rules::report() can return when $bridge_loaded is true —
+	 * nothing falls through those four to an implicit default. A future state
+	 * that reaches none of them gets an EMPTY note rather than one of the
+	 * above claimed for it — silence, not a lie.
+	 *
+	 * @since 1.32.0
+	 * @param bool       $bridge_loaded    class_exists( 'Elementor_MCP_Rules' ) — THIS plugin's own bridge file loaded.
+	 * @param bool       $rules_class      class_exists( '\Aura_Worker_Rules' ) — SiteAgent's rules engine.
+	 * @param bool       $snapshots_class  class_exists( '\Aura_Worker_Snapshots' ) — SiteAgent's snapshot engine.
+	 * @param bool       $governance_live  Elementor_MCP_Governance is loaded AND ::is_active().
+	 * @param array|null $report           Elementor_MCP_Rules::report(), or null when $bridge_loaded is false.
+	 * @return array{enforced:bool, source:string, state:string, reason?:string, ruleset:?array, points:string[], note:string}
+	 */
+	public static function rules_block( bool $bridge_loaded, bool $rules_class, bool $snapshots_class, bool $governance_live, ?array $report ): array {
+		if ( ! $bridge_loaded ) {
+			$siteagent_present = $rules_class || $snapshots_class;
+			return array(
+				'enforced' => false,
+				'source'   => $siteagent_present ? 'siteagent' : 'none',
+				'state'    => $siteagent_present ? 'bridge_missing' : 'absent',
+				'ruleset'  => null,
+				'points'   => array(),
+				'note'     => $siteagent_present
+					? __( 'SiteAgent is installed, but this plugin\'s rules bridge did not load — rules are not enforced on Elementor writes from this plugin.', 'elementor-mcp' )
+					: __( 'SiteAgent is not installed, so no operator rules are enforced on Elementor writes from this plugin (a page block or a site freeze set in Aura does not apply here). Install SiteAgent 2.10.0 or later to enforce the same rules SiteAgent enforces.', 'elementor-mcp' ),
+			);
+		}
+
+		// $report is Elementor_MCP_Rules::report()'s own array — every key it
+		// set (enforced, source, state, reason?, ruleset, points, and possibly
+		// error) rides along untouched except where a rule below overrides it.
+		$block = (array) $report;
+
+		if ( ! $governance_live ) {
+			$block['enforced'] = false;
+			$block['points']   = array();
+			$block['note']     = __( 'SiteAgent holds an operator ruleset, but this plugin\'s own governance wrapper is not active (its snapshot engine is unavailable), so no rules are enforced on Elementor writes from this plugin.', 'elementor-mcp' );
+			return $block;
+		}
+
+		if ( 'outdated' === $block['state'] ) {
+			$block['note'] = __( 'SiteAgent is installed but predates 2.10.0 — update SiteAgent to enforce operator rules on Elementor writes.', 'elementor-mcp' );
+			return $block;
+		}
+
+		if ( 'incomplete' === $block['state'] ) {
+			$reason = $block['reason'] ?? '';
+			if ( 'reader_failed' === $reason ) {
+				$block['note'] = __( 'SiteAgent\'s ruleset could not be read for this report; writes are still decided by SiteAgent\'s enforcement — repair SiteAgent to see the ruleset here.', 'elementor-mcp' );
+			} elseif ( 'current_missing' === $reason ) {
+				$block['note'] = __( 'SiteAgent\'s rules engine has no current() (partial update) — writes through this plugin are refused until SiteAgent is repaired.', 'elementor-mcp' );
+			} else {
+				$block['note'] = __( 'SiteAgent\'s rules engine has no enforce() — writes through this plugin are refused until SiteAgent is repaired.', 'elementor-mcp' );
+			}
+			return $block;
+		}
+
+		if ( 'ready' === $block['state'] ) {
+			$block['note'] = '';
+			return $block;
+		}
+
+		if ( 'absent' === $block['state'] ) {
+			$block['note'] = __( 'SiteAgent is not installed, so no operator rules are enforced on Elementor writes from this plugin (a page block or a site freeze set in Aura does not apply here). Install SiteAgent 2.10.0 or later to enforce the same rules SiteAgent enforces.', 'elementor-mcp' );
+			return $block;
+		}
+
+		// Unreachable with today's Elementor_MCP_Rules::report() contract (see
+		// the self-check above) — silence rather than a claim that might not
+		// hold for a state this function was never updated for.
+		$block['note'] = '';
+		return $block;
+	}
+
+	/**
 	 * MCP servers on this site that are not ours, by server id.
 	 *
 	 * Read from the adapter's own registry rather than probing for a specific
@@ -551,83 +671,29 @@ class Elementor_MCP_Server_Info_Abilities {
 		}
 
 		// Operator rules (P4.1 plan 3). SiteAgent holds the ruleset and decides;
-		// this plugin only declares. A fork-only site enforces nothing, and the
-		// report says so rather than leaving the absence to be inferred.
-		$rules = class_exists( 'Elementor_MCP_Rules' )
-			? Elementor_MCP_Rules::report()
-			: array(
-				'enforced' => false,
-				'source'   => 'none',
-				// Distinguish SiteAgent being genuinely absent from this plugin's
-				// OWN rules bridge (includes/class-rules.php) simply failing to
-				// load — those used to be reported identically, which told an
-				// operator to install SiteAgent when it was already there.
-				'state'    => class_exists( '\\Aura_Worker_Rules' ) ? 'bridge_missing' : 'absent',
-				'ruleset'  => null,
-				'points'   => array(),
-			);
+		// this plugin only declares. The whole decision — what `rules` says AND
+		// which one note (if any) explains it — is one pure function
+		// (rules_block(), Codex round 5): see its docblock for the full
+		// priority table. This call site only gathers the four inputs and
+		// merges the result.
+		$rules_class_exists     = class_exists( '\\Aura_Worker_Rules' );
+		$snapshots_class_exists = class_exists( '\\Aura_Worker_Snapshots' );
+		$bridge_loaded          = class_exists( 'Elementor_MCP_Rules' );
+		$governance_live        = $governance_loaded && Elementor_MCP_Governance::is_active();
+		$rules_report           = $bridge_loaded ? Elementor_MCP_Rules::report() : null;
 
-		// Even a `ready` ruleset enforces nothing unless the governance wrapper
-		// that actually calls into Elementor_MCP_Rules at write time is live.
-		// Elementor_MCP_Rules::report() only speaks to whether SiteAgent's rules
-		// engine is installed and reachable — it deliberately has no dependency
-		// on Elementor_MCP_Governance (see class-rules.php's docblock) — so it
-		// cannot know that wrap_ability() no-ops entirely when SiteAgent's
-		// snapshot engine is absent ($governance_loaded && ::is_active(), the
-		// same check execution_guard_active() above already makes). A site in
-		// that state must not report `enforced: true` just because the ruleset
-		// itself is ready.
-		$was_enforced     = ! empty( $rules['enforced'] );
-		$governance_live  = $governance_loaded && Elementor_MCP_Governance::is_active();
-		if ( $was_enforced && ! $governance_live ) {
-			$rules['enforced'] = false;
-			$rules['points']   = array();
-		}
-
-		// Liveness FIRST, regardless of `state`: report() can say `enforced: true`
-		// for a `ready` ruleset OR for `reader_failed` (the one incomplete reason
-		// where the gate still decides — current() throwing does not stop it) —
-		// in both cases nothing here actually reaches a gate to ask when the
-		// wrapper is not live, so that has to win over a MORE SPECIFIC-sounding
-		// but misleading note like "SiteAgent's ruleset could not be read;
-		// writes are still decided" when in truth NOTHING here is deciding
-		// anything. Checked first, not "elseif"-chained after 'incomplete', so
-		// it cannot be pre-empted by a state that also happens to be true.
-		if ( $was_enforced && ! $governance_live ) {
-			$notes[] = __( 'SiteAgent holds an operator ruleset, but this plugin\'s own governance wrapper is not active (its snapshot engine is unavailable), so no rules are enforced on Elementor writes from this plugin.', 'elementor-mcp' );
-		} elseif ( 'bridge_missing' === $rules['state'] ) {
-			$notes[] = __( 'SiteAgent is installed, but this plugin\'s rules bridge did not load — rules are not enforced on Elementor writes from this plugin.', 'elementor-mcp' );
-		} elseif ( 'outdated' === $rules['state'] ) {
-			// Codex round 4: SiteAgent's snapshot engine (what Governance::is_active()
-			// keys on) and its rules engine (added in SiteAgent 2.10.0) are
-			// independently versioned classes from the SAME plugin — a pre-2.10
-			// SiteAgent has the former but not the latter. That site has
-			// SiteAgent installed; the LAST elseif's "SiteAgent is not installed"
-			// note below is reserved for a site with neither class.
-			$notes[] = __( 'SiteAgent is installed but predates 2.10.0 — update SiteAgent to enforce operator rules on Elementor writes.', 'elementor-mcp' );
-		} elseif ( 'incomplete' === $rules['state'] ) {
-			// Controller ruling: the GATE (missing_method(), requiring BOTH
-			// enforce() and current()) refuses every write for BOTH
-			// enforce_missing and current_missing — those get a refusal note.
-			// Only reader_failed (current() present but throwing, which the gate
-			// never calls) still has a working gate — writes are still decided,
-			// only THIS report's read of the ruleset failed.
-			//
-			// Codex round 3: enforce_missing and current_missing used to SHARE
-			// one refusal note that named `enforce()` specifically — wrong for
-			// current_missing, where enforce() is right there and current() is
-			// what's gone. Selected by reason so the note names the actual
-			// missing method.
-			$reason = $rules['reason'] ?? '';
-			if ( 'reader_failed' === $reason ) {
-				$notes[] = __( 'SiteAgent\'s ruleset could not be read for this report; writes are still decided by SiteAgent\'s enforcement — repair SiteAgent to see the ruleset here.', 'elementor-mcp' );
-			} elseif ( 'current_missing' === $reason ) {
-				$notes[] = __( 'SiteAgent\'s rules engine has no current() (partial update) — writes through this plugin are refused until SiteAgent is repaired.', 'elementor-mcp' );
-			} else {
-				$notes[] = __( 'SiteAgent\'s rules engine has no enforce() — writes through this plugin are refused until SiteAgent is repaired.', 'elementor-mcp' );
-			}
-		} elseif ( empty( $rules['enforced'] ) ) {
-			$notes[] = __( 'SiteAgent is not installed, so no operator rules are enforced on Elementor writes from this plugin (a page block or a site freeze set in Aura does not apply here). Install SiteAgent 2.10.0 or later to enforce the same rules SiteAgent enforces.', 'elementor-mcp' );
+		$rules_result = self::rules_block(
+			$bridge_loaded,
+			$rules_class_exists,
+			$snapshots_class_exists,
+			$governance_live,
+			$rules_report
+		);
+		$rules_note   = $rules_result['note'];
+		unset( $rules_result['note'] );
+		$rules        = $rules_result;
+		if ( '' !== $rules_note ) {
+			$notes[] = $rules_note;
 		}
 
 		return array(

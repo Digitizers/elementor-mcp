@@ -183,6 +183,7 @@ class Elementor_MCP_Page_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'create' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,
@@ -291,6 +292,7 @@ class Elementor_MCP_Page_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,
@@ -352,6 +354,7 @@ class Elementor_MCP_Page_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => true,
@@ -421,6 +424,7 @@ class Elementor_MCP_Page_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,

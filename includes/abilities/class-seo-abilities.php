@@ -288,6 +288,7 @@ class Elementor_MCP_Seo_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
 					'show_in_rest' => true,
 				),
@@ -382,6 +383,7 @@ class Elementor_MCP_Seo_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
 					'show_in_rest' => true,
 				),

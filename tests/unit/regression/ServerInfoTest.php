@@ -460,4 +460,157 @@ class ServerInfoTest extends Ability_Test_Case {
 
 		unset( $GLOBALS['_registered_abilities'] );
 	}
+
+	public function test_server_info_reports_rules_from_siteagent(): void {
+		$GLOBALS['_aura_rules'] = array(
+			'current' => array( 'seq' => 9, 'client' => 'c1', 'received_at' => 1800000000, 'envelope' => 'SECRET.SIG', 'rules' => array( array( 'key' => 'rule/freeze' ) ) ),
+		);
+		\Elementor_MCP_Rules::reset_state();
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		unset( $GLOBALS['_aura_rules'] );
+
+		$this->assertSame(
+			array( 'enforced' => true, 'source' => 'siteagent', 'state' => 'ready', 'ruleset' => array( 'seq' => 9, 'rule_count' => 1, 'received_at' => 1800000000 ), 'points' => array( 'governed_write' ) ),
+			$report['rules']
+		);
+		$this->assertStringNotContainsString( 'SECRET', wp_json_encode( $report ) );
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString( 'no operator rules', $note, 'A site that enforces is not told it does not.' );
+		}
+	}
+
+	public function test_server_info_names_an_incomplete_siteagent_as_refusing_not_as_absent(): void {
+		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Without_Enforce::class );
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Rules::reset_state();
+		$this->assertSame( 'incomplete', $report['rules']['state'] );
+		$this->assertNotEmpty( array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'refused' ); } ) );
+		// Codex round 3: the note must name the METHOD that is actually missing
+		// — enforce() here, not a generic refusal shared with current_missing.
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'no enforce()' ); } ),
+			'The note names enforce() specifically for this fixture.'
+		);
+	}
+
+	public function test_server_info_names_a_missing_current_as_refusing_too(): void {
+		// Controller ruling: current_missing trips the SAME gate as
+		// enforce_missing (the plan's global constraint requires BOTH methods),
+		// so it gets a refusal note too — not the reader_failed "could not be
+		// read" note, which applies only when the gate itself still works.
+		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Without_Current::class );
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Rules::reset_state();
+
+		$this->assertFalse( $report['rules']['enforced'] );
+		$this->assertSame( 'incomplete', $report['rules']['state'] );
+		$this->assertSame( 'current_missing', $report['rules']['reason'] );
+		$this->assertSame( array(), $report['rules']['points'] );
+		$this->assertNotEmpty( array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'refused' ); } ) );
+		// Codex round 3: enforce_missing and current_missing used to SHARE one
+		// refusal note that named enforce() specifically — wrong here, since
+		// enforce() is right there and current() is what's actually missing.
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'no current()' ); } ),
+			'The note names current() specifically for this fixture, not enforce().'
+		);
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString( 'could not be read', $note, 'current_missing trips the gate — this is not the reader_failed note.' );
+			$this->assertStringNotContainsString( 'no enforce()', $note, 'enforce() is present here — only current() is missing.' );
+		}
+	}
+
+	public function test_server_info_reports_an_outdated_siteagent_when_only_snapshots_is_present(): void {
+		// Codex round 4: the test bootstrap always defines \Aura_Worker_Snapshots,
+		// so reset_state( false ) alone (\Aura_Worker_Rules absent, everything
+		// else default) is the "pre-2.10 SiteAgent" shape — installed, outdated,
+		// not absent. See ServerInfoRulesGenuinelyAbsentTest.php for the
+		// genuinely-neither-class case, which needs the new Snapshots seam.
+		\Elementor_MCP_Rules::reset_state( false );
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Rules::reset_state();
+
+		$this->assertSame( array( 'enforced' => false, 'source' => 'siteagent', 'state' => 'outdated', 'ruleset' => null, 'points' => array() ), $report['rules'] );
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'predates 2.10.0' ); } ),
+			'An outdated SiteAgent is told to update, not to install.'
+		);
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString( 'is not installed', $note, 'SiteAgent IS installed here — just outdated.' );
+		}
+	}
+
+	public function test_server_info_reports_no_enforcement_when_the_governance_wrapper_is_not_live(): void {
+		// Important #1 (fork final-review): Elementor_MCP_Rules::report() only
+		// speaks to whether SiteAgent's rules engine is installed and reachable —
+		// it never asks whether THIS plugin's own governance wrapper actually
+		// calls into it (wrap_ability() no-ops entirely when SiteAgent's snapshot
+		// engine is absent). A ready ruleset must not be reported as `enforced:
+		// true` on a site where nothing ever wraps a write to ask it.
+		$GLOBALS['_aura_rules'] = array(
+			'current' => array( 'seq' => 9, 'client' => 'c1', 'received_at' => 1800000000, 'rules' => array( array( 'key' => 'rule/freeze' ) ) ),
+		);
+		\Elementor_MCP_Rules::reset_state();
+		\Elementor_MCP_Governance::reset_state( null, false ); // wrapper not live
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Governance::reset_state();
+		unset( $GLOBALS['_aura_rules'] );
+
+		$this->assertFalse( $report['rules']['enforced'] );
+		$this->assertSame( array(), $report['rules']['points'] );
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'governance wrapper is not active' ); } ),
+			'A ready ruleset with no live wrapper to enforce it must say so.'
+		);
+	}
+
+	public function test_server_info_reports_enforced_true_for_a_reader_that_throws_when_the_wrapper_is_live(): void {
+		// Codex round 2: current() throwing is a READER failure, not an enforcer
+		// one — Elementor_MCP_Rules::enforce() calls the engine's enforce()
+		// independently of current(), so a real write is still decided by
+		// SiteAgent. The report must say `enforced: true` and give the
+		// read-failure note, never the refusal note that belongs to
+		// enforce_missing / bridge_missing / absent / wrapper-not-live.
+		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Whose_Reader_Throws::class );
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Rules::reset_state();
+
+		$this->assertTrue( $report['rules']['enforced'] );
+		$this->assertSame( 'incomplete', $report['rules']['state'] );
+		$this->assertSame( 'reader_failed', $report['rules']['reason'] );
+		$this->assertSame( array( 'governed_write' ), $report['rules']['points'] );
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'could not be read' ); } ),
+			'The read-failure note, not the refusal note.'
+		);
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString(
+				'writes through this plugin are refused',
+				$note,
+				'Writes are still decided — this is not the enforce_missing refusal note.'
+			);
+		}
+	}
+
+	public function test_server_info_reports_enforced_false_for_a_reader_that_throws_when_the_wrapper_is_not_live(): void {
+		// Same broken engine as above, but the governance wrapper is not live
+		// (Important #1's seam) — nothing reaches ANY gate at all, so `enforced`
+		// must be false and the note must be the wrapper-not-live one, not the
+		// read-failure note (which would wrongly imply writes are still
+		// decided). Liveness has to be checked FIRST, before `state`.
+		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Whose_Reader_Throws::class );
+		\Elementor_MCP_Governance::reset_state( null, false );
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Governance::reset_state();
+		\Elementor_MCP_Rules::reset_state();
+
+		$this->assertFalse( $report['rules']['enforced'] );
+		$this->assertSame( array(), $report['rules']['points'] );
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'governance wrapper is not active' ); } )
+		);
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString( 'could not be read', $note, 'The not-live note wins over the read-failure note.' );
+		}
+	}
 }

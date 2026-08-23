@@ -200,6 +200,7 @@ class Elementor_MCP_A11y_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => true, 'idempotent' => true ),
 					'show_in_rest' => true,
 				),
@@ -292,6 +293,7 @@ class Elementor_MCP_A11y_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => true, 'idempotent' => true ),
 					'show_in_rest' => true,
 				),

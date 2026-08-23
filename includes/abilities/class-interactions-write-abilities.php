@@ -315,6 +315,7 @@ class Elementor_MCP_Interactions_Write_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
 					'show_in_rest' => true,
 				),
@@ -355,6 +356,7 @@ class Elementor_MCP_Interactions_Write_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
 					'show_in_rest' => true,
 				),
@@ -388,6 +390,7 @@ class Elementor_MCP_Interactions_Write_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => true, 'idempotent' => true ),
 					'show_in_rest' => true,
 				),

@@ -192,6 +192,8 @@ accident:
   `elementor_mcp_trusted_write_context`.
 - `server-info` reports the live state of all of this under `write_exposure`.
 
+**Operator rules (1.32.0).** `includes/class-rules.php` (`Elementor_MCP_Rules`) is the bridge to SiteAgent's `Aura_Worker_Rules`. The governance wrapper asks it at four points — before the callback in `run_governed()`, and before the snapshot in `before_page_write()`, `before_kit_write()` and `before_global_classes_write()`. Page writes declare `post:<id>` + `page:<id>`; design-system writes and creates declare `site:*`. Never re-implement matching or read `aura_worker_ruleset` in this plugin. Tests stub SiteAgent via `$GLOBALS['_aura_rules']` and model its absence with `Elementor_MCP_Rules::reset_state( false )`.
+
 ## All Implemented Tools (up to 118 — see counts above)
 
 ### P0 — Query/Discovery (7 read-only)

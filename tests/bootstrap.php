@@ -682,12 +682,14 @@ namespace {
 		class WP_Error {
 			private string $code;
 			private string $message;
-			private $data;
+			private array $error_data = array();
 
 			public function __construct( string $code = '', string $message = '', $data = '' ) {
 				$this->code    = $code;
 				$this->message = $message;
-				$this->data    = $data;
+				if ( '' !== $code && '' !== $data ) {
+					$this->error_data[ $code ] = $data;
+				}
 			}
 
 			public function get_error_code(): string {
@@ -699,7 +701,23 @@ namespace {
 			}
 
 			public function get_error_data( string $code = '' ) {
-				return $this->data;
+				if ( '' === $code ) {
+					$code = $this->code;
+				}
+				return $this->error_data[ $code ] ?? null;
+			}
+
+			/**
+			 * Add / overwrite error data for a code (default: this error's own code) —
+			 * mirrors core WP_Error::add_data(). Used by governance's warnings helper
+			 * to attach `warnings` to an existing error's data without losing what
+			 * was already there.
+			 */
+			public function add_data( $data, string $code = '' ) {
+				if ( '' === $code ) {
+					$code = $this->code;
+				}
+				$this->error_data[ $code ] = $data;
 			}
 		}
 	}
@@ -1233,9 +1251,21 @@ namespace {
 			// SiteAgent governance bridge
 			'Elementor_MCP_Call_Context'           => 'includes/class-call-context.php',
 			'Elementor_MCP_Governance'             => 'includes/class-governance.php',
+			'Elementor_MCP_Rules'                  => 'includes/class-rules.php',
 		];
 
 		if ( isset( $map[ $class ] ) ) {
+			// Test-only seam (server-info's "our own bridge did not load" branch,
+			// distinct from SiteAgent being absent): with the env var set, this one
+			// class is left undefined even though its file is right there — the way
+			// a broken/partial deploy of THIS plugin might drop class-rules.php while
+			// the rest of the plugin still loads. Only reachable via @runInSeparateProcess
+			// (autoloading is a once-per-process event), and only meaningful set via
+			// putenv() before the process forks — PHP constants/$GLOBALS set inside a
+			// test method run too late to affect the class map closure itself.
+			if ( 'Elementor_MCP_Rules' === $class && getenv( 'ELEMENTOR_MCP_TEST_NO_RULES_BRIDGE' ) ) {
+				return;
+			}
 			$path = $plugin_root . '/' . $map[ $class ];
 			if ( file_exists( $path ) ) {
 				require_once $path;
@@ -1251,8 +1281,20 @@ namespace {
 	//   ['fail_snapshot']  => bool  force snapshot_meta() to fail
 	//   ['snapshot_calls'] => array recorded [post_id, keys]
 	//   ['restore_calls']  => array recorded snapshot ids restored
+	//
+	// Test-only seam (Codex round 4): with ELEMENTOR_MCP_TEST_NO_AURA_WORKER_SNAPSHOTS
+	// set, this stub is never defined either — simulating a site with NEITHER
+	// SiteAgent class present (report()'s genuinely-absent case), as opposed to
+	// ELEMENTOR_MCP_TEST_NO_AURA_WORKER_RULES alone, which simulates a site that
+	// HAS \Aura_Worker_Snapshots (this class) but predates 2.10.0's
+	// \Aura_Worker_Rules — SiteAgent installed but outdated. Same reasoning as
+	// that toggle: this class is otherwise defined unconditionally, at the top
+	// level of every process's bootstrap run, so it's only reachable via
+	// @runInSeparateProcess + putenv() before the process forks (see
+	// ServerInfoRulesBridgeAndSiteAgentMissingTest.php for the established
+	// pattern this mirrors).
 	// -----------------------------------------------------------------------
-	if ( ! class_exists( 'Aura_Worker_Snapshots' ) ) {
+	if ( ! class_exists( 'Aura_Worker_Snapshots' ) && ! getenv( 'ELEMENTOR_MCP_TEST_NO_AURA_WORKER_SNAPSHOTS' ) ) {
 		class Aura_Worker_Snapshots {
 			public function snapshot_meta( $post_id, $keys ) {
 				$GLOBALS['_aura_snap']['snapshot_calls'][] = array( 'post_id' => (int) $post_id, 'keys' => $keys );
@@ -1308,6 +1350,74 @@ namespace {
 					'params' => $params,
 				);
 				return $GLOBALS['_aura_grant']['verify_result'] ?? true;
+			}
+		}
+	}
+
+	// -----------------------------------------------------------------------
+	// SiteAgent operator-rules stub (P4.1 plan 3). The bridge delegates every
+	// decision to \Aura_Worker_Rules::enforce() and reads the stored record via
+	// ::current(). Tests drive it via $GLOBALS['_aura_rules']:
+	//   ['verdict'] => array|callable  what enforce() returns — an array, or a
+	//                                  callable( array $touches, string $name ): array
+	//   ['calls']   => array           recorded [touches, name] per enforce() call
+	//   ['current'] => array|null      what current() returns
+	//   ['throw']   => bool            make enforce() throw (a broken matcher)
+	// Absence of SiteAgent is NOT modelled by undefining this class (PHP cannot);
+	// Elementor_MCP_Rules::reset_state( false ) overrides availability instead,
+	// the way Governance::reset_state() injects its snapshots engine.
+	// -----------------------------------------------------------------------
+	// Test-only seam: with ELEMENTOR_MCP_TEST_NO_AURA_WORKER_RULES set, this stub
+	// is never defined at all — simulating SiteAgent's rules engine being
+	// genuinely absent (as opposed to $GLOBALS['_aura_rules'] merely being
+	// unset, which the stub above is still happy to answer against). Needed for
+	// server-info's "our own bridge missing" branch, which distinguishes
+	// SiteAgent-present-bridge-missing from SiteAgent-genuinely-absent via
+	// class_exists( '\\Aura_Worker_Rules' ) — a distinction that, since this
+	// class is otherwise defined unconditionally on every process, is only
+	// reachable via @runInSeparateProcess + putenv() before the process forks.
+	if ( ! class_exists( 'Aura_Worker_Rules' ) && ! getenv( 'ELEMENTOR_MCP_TEST_NO_AURA_WORKER_RULES' ) ) {
+		class Aura_Worker_Rules {
+			public static function enforce( array $touches, $tool_name ) {
+				$GLOBALS['_aura_rules']['calls'][] = array( 'touches' => $touches, 'name' => (string) $tool_name );
+				if ( ! empty( $GLOBALS['_aura_rules']['throw'] ) ) {
+					throw new \RuntimeException( 'stub forced matcher failure' );
+				}
+				$verdict = $GLOBALS['_aura_rules']['verdict'] ?? array( 'effect' => null );
+				return is_callable( $verdict ) ? $verdict( $touches, (string) $tool_name ) : $verdict;
+			}
+			public static function current() {
+				return $GLOBALS['_aura_rules']['current'] ?? null;
+			}
+		}
+	}
+
+	// Half-engines for the "installed but incomplete" state (a partial SiteAgent
+	// update). Handed to Elementor_MCP_Rules::reset_state( null, <class> ) by the
+	// bridge tests AND by ServerInfoTest — shared here so a focused single-file
+	// phpunit run finds them (a fixture declared at the bottom of another test
+	// file is not loaded by `phpunit tests/unit/regression/ServerInfoTest.php`).
+	if ( ! class_exists( 'Elementor_MCP_Test_Engine_Without_Enforce' ) ) {
+		class Elementor_MCP_Test_Engine_Without_Enforce {
+			public static function current() {
+				return null;
+			}
+		}
+	}
+	if ( ! class_exists( 'Elementor_MCP_Test_Engine_Without_Current' ) ) {
+		class Elementor_MCP_Test_Engine_Without_Current {
+			public static function enforce( array $touches, $name ) {
+				return array( 'effect' => null );
+			}
+		}
+	}
+	if ( ! class_exists( 'Elementor_MCP_Test_Engine_Whose_Reader_Throws' ) ) {
+		class Elementor_MCP_Test_Engine_Whose_Reader_Throws {
+			public static function enforce( array $touches, $name ) {
+				return array( 'effect' => null );
+			}
+			public static function current() {
+				throw new \RuntimeException( 'stub forced reader failure' );
 			}
 		}
 	}

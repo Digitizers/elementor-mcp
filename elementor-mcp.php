@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor (Digitizers fork)
  * Plugin URI:        https://github.com/Digitizers/elementor-mcp
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
- * Version:           1.31.0
+ * Version:           1.32.0
  * Requires at least: 6.9
  * Tested up to:      7.1
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.31.0' );
+define( 'ELEMENTOR_MCP_VERSION', '1.32.0' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -458,8 +458,10 @@ function elementor_mcp_init(): void {
 	$core_ok = elementor_mcp_require( 'includes/class-id-generator.php' ) && $core_ok;
 	$core_ok = elementor_mcp_require( 'includes/class-elementor-data.php' ) && $core_ok;
 	// SiteAgent governance bridge — must load before abilities register so
-	// elementor_mcp_register_ability() can wrap destructive page writes.
+	// elementor_mcp_register_ability() can wrap destructive page writes. The
+	// rules bridge loads first: the wrapper asks it before every write.
 	elementor_mcp_require( 'includes/class-call-context.php' );
+	elementor_mcp_require( 'includes/class-rules.php' );
 	elementor_mcp_require( 'includes/class-governance.php' );
 	$core_ok = elementor_mcp_require( 'includes/class-element-factory.php' ) && $core_ok;
 	$core_ok = elementor_mcp_require( 'includes/schemas/class-control-mapper.php' ) && $core_ok;

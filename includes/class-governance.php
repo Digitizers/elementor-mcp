@@ -44,8 +44,46 @@
  * NOT present, nothing is wrapped and behaviour is identical to the standalone
  * plugin. The plugin never hard-requires SiteAgent.
  *
+ * Operator rules (1.32.0, P4.1 plan 3): before ANY of the above, a governed
+ * write asks Elementor_MCP_Rules whether an operator rule decides it — order is
+ * grant → RULES → snapshot → write, so a block executes nothing and snapshots
+ * nothing, and a warn proceeds with the reason attached to the run's result.
+ * Four gate points cover the whole run: the pre-callback gate in run_governed()
+ * before the tool's callback runs at all; before_page_write() (the real post
+ * id, once the write site knows it — deduplicated per post id within a run, so
+ * a run touching several posts gates each of them, not just the first); and the
+ * equivalent site-scoped gates for design-token writes, before_kit_write() and
+ * before_global_classes_write(). `unavailable` (a matcher that throws, or
+ * answers with something that is not a verdict) fails CLOSED — refused with its
+ * own code, same as a block, never treated as "no rule matched". A dry-run
+ * preview (apply falsy) is exempt everywhere: it writes nothing, so there is
+ * nothing for a rule to decide. Elementor_MCP_Rules is deliberately free of any
+ * dependency back on this class — this file's wrap_ability()/is_active() decide
+ * whether anything here is live to enforce what it reports.
+ *
+ * What the pre-callback gate declares (1.32.0, Codex round 6, P1) is
+ * DECLARED PER ABILITY, not inferred from whether the input happens to carry
+ * a post_id: wrap_ability() reads `meta.governance.writes` (`'edit'` or
+ * `'create'`, the same shape `meta.governance.scope` already uses for
+ * kit/global-classes writes) and passes the classification into
+ * run_governed() as $is_edit_ability. `'edit'` declares the input post_id as
+ * the write target (post:<id> + page:<id>); anything else — an explicit
+ * `'create'`, or (fail closed) the key being absent altogether on a
+ * write-capable ability — declares the whole site (site:*), PLUS the input
+ * post_id's own touches when one is present. That PLUS matters: an ability
+ * like elementor-mcp/save-as-template reads a source post_id and then
+ * wp_insert_post()s a NEW elementor_library post — inferring "edit" from the
+ * source post_id's mere presence (the pre-1.32.0-round-6 behaviour) declared
+ * only the source, so a site freeze caught the write only at
+ * before_page_write() for the NEW id, after the insert had already run.
+ * Declaring it 'create' (its actual classification) still declares the
+ * source too — cheaper to declare a source that turns out irrelevant to a
+ * given rule than to let an operator's freeze on "checkout" miss a
+ * copy-of-checkout being made from it.
+ *
  * @package Elementor_MCP
  * @since 1.17.0
+ * @since 1.32.0 Operator-rules gates (grant → rules → snapshot → write).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -141,13 +179,27 @@ class Elementor_MCP_Governance {
 
 	/**
 	 * The governed run currently in flight, or null. Shape:
-	 *   array{ post_id:int, name:string, snapshot_id:?string, snapshot_failed:bool }
+	 *   array{ post_id:int, name:string, snapshot_id:?string, snapshot_failed:bool,
+	 *          rules_checked:array<int,bool> }
+	 * `rules_checked` dedups the page-write rules gate per post id within the run
+	 * (see before_page_write()): a post already decided this run is not asked
+	 * again, but every DISTINCT post the run writes is asked exactly once,
+	 * regardless of whether an earlier post in the same run already snapshotted.
 	 * Request-scoped: only one MCP tool executes at a time, and page writes happen
 	 * synchronously inside run_governed(), so a single static frame is sufficient.
 	 *
 	 * @var array<string,mixed>|null
 	 */
 	private static $run = null;
+
+	/**
+	 * Warn-rule entries gathered during the current governed run, attached to
+	 * the result on success. Reset at the start of every run.
+	 *
+	 * @since 1.32.0
+	 * @var array<int,array{rule:string,reason:string}>
+	 */
+	private static $run_warnings = array();
 
 	/**
 	 * Reusable snapshot-engine instance (lazily created).
@@ -157,11 +209,26 @@ class Elementor_MCP_Governance {
 	private static $snapshots = null;
 
 	/**
+	 * Test-only override of is_active(). PHP cannot undefine a class once
+	 * loaded, and the test bootstrap always stubs \Aura_Worker_Snapshots, so
+	 * is_active() has no way to answer false from class presence alone in a
+	 * single test process. This lets a test force the "wrapper not live"
+	 * state (e.g. for server-info's liveness check) without one.
+	 *
+	 * @since 1.32.0
+	 * @var bool|null
+	 */
+	private static $active_override = null;
+
+	/**
 	 * Is SiteAgent's snapshot engine available to govern writes?
 	 *
 	 * @return bool
 	 */
 	public static function is_active(): bool {
+		if ( null !== self::$active_override ) {
+			return self::$active_override;
+		}
 		return class_exists( '\\Aura_Worker_Snapshots' );
 	}
 
@@ -210,9 +277,27 @@ class Elementor_MCP_Governance {
 			? (string) $args['meta']['governance']['scope']
 			: '';
 		$is_kit                   = in_array( $scope, array( 'kit', 'global-classes' ), true );
+		// Codex round 6 (P1): whether a write ability's input `post_id` names
+		// the thing being EDITED, or is merely a SOURCE it reads before
+		// inserting something new (elementor-mcp/save-as-template reads a
+		// page and then wp_insert_post()s a new elementor_library post), must
+		// come from the ability's OWN declaration — not be inferred from
+		// `post_id`'s mere presence, which is what let save-as-template's
+		// source read as an edit of itself and skip the create-style
+		// pre-callback gate entirely (see run_governed()). Declared the same
+		// way `scope` is, under `meta.governance.writes`: `'edit'` names the
+		// input post_id as the write target; anything else — `'create'`, or
+		// (fail closed) the key being absent altogether on a write-capable
+		// ability — is treated as a create, which still declares the source's
+		// own touches when a post_id is present (see run_governed()) so a
+		// freeze on "checkout" also refuses a copy-of-checkout being made.
+		$writes_declared          = isset( $args['meta']['governance']['writes'] )
+			? (string) $args['meta']['governance']['writes']
+			: 'create';
+		$is_edit_ability          = 'edit' === $writes_declared;
 		$original                 = $args['execute_callback'];
-		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable, $is_kit ) {
-			return self::run_governed( $name, $original, $input, $preview_capable, $is_kit );
+		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable, $is_kit, $is_edit_ability ) {
+			return self::run_governed( $name, $original, $input, $preview_capable, $is_kit, $is_edit_ability );
 		};
 		return $args;
 	}
@@ -225,10 +310,24 @@ class Elementor_MCP_Governance {
 	 * @param callable $original        The wrapped execute callback.
 	 * @param mixed    $input           The ability input.
 	 * @param bool     $preview_capable Whether the tool declares an `apply` flag.
+	 * @param bool     $is_kit          Design-token / global-classes scoped write (see wrap_ability()).
+	 * @param bool     $is_edit_ability Does the input post_id name the write TARGET
+	 *                                  (true) or a mere SOURCE the ability reads
+	 *                                  before creating something new (false)? Set by
+	 *                                  wrap_ability() from `meta.governance.writes`,
+	 *                                  fail-closed to 'create' when that key is
+	 *                                  absent — see this file's top docblock. The
+	 *                                  default here is `true` (edit-like, i.e. the
+	 *                                  OLD post_id-presence heuristic) purely for
+	 *                                  the many tests that call run_governed()
+	 *                                  directly, bypassing wrap_ability() entirely;
+	 *                                  wrap_ability() itself always passes this
+	 *                                  explicitly; production behaviour is never
+	 *                                  affected by this signature default.
 	 * @return mixed The original result, or a \WP_Error when the grant was rejected
 	 *               or a failed write was rolled back.
 	 */
-	public static function run_governed( string $name, $original, $input, bool $preview_capable = false, bool $is_kit = false ) {
+	public static function run_governed( string $name, $original, $input, bool $preview_capable = false, bool $is_kit = false, bool $is_edit_ability = true ) {
 		// Server-enforced approval, checked BEFORE the callback runs — so a
 		// create-style tool cannot wp_insert_post() an unauthorized draft before we
 		// verify the grant. Skipped only for a dry-run preview (a preview-capable
@@ -248,6 +347,45 @@ class Elementor_MCP_Governance {
 			$grant = self::verify_grant( $name, $input, $foreign );
 			if ( is_wp_error( $grant ) ) {
 				return $grant;
+			}
+		}
+
+		// Operator rules (P4.1 plan 3), AFTER the grant and BEFORE the callback.
+		// After the grant because a refusal is cheaper to explain than a rule
+		// ("blocked by rule" is wasted on a call that fails its approval); before
+		// the callback because a create-style tool would otherwise insert a draft
+		// and only then be refused. What we can declare here is what the input
+		// tells us: an edit names its post (post:<id> + page:<id>, the operator
+		// does not know which it is); a design-system write is the whole site;
+		// a create has no id yet, so only a site freeze can apply to it here —
+		// the write site (before_page_write) declares the real id once it exists.
+		// Rules never see a preview: a dry run writes nothing.
+		self::$run_warnings = array();
+		if ( ! $is_preview && class_exists( 'Elementor_MCP_Rules' ) ) {
+			// $is_kit and $is_edit_ability are this function's fifth and sixth
+			// PARAMETERS (set by wrap_ability() from meta.governance.scope /
+			// .writes) — defined here; the `$is_edit` LOCAL below is computed
+			// after this gate on purpose.
+			$has_post_id = is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
+			$early_edit  = ! $is_kit && $is_edit_ability && $has_post_id;
+			if ( $early_edit ) {
+				$touches = Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) );
+			} elseif ( ! $is_kit && $has_post_id ) {
+				// A create-style ability (default, or explicitly declared)
+				// whose input post_id is a SOURCE it reads rather than
+				// writes (save-as-template: reads a page, then inserts a
+				// NEW elementor_library post) — declare the whole site (it
+				// is still a create with no target id yet) PLUS the
+				// source's own touches: cheaper to declare a source that
+				// turns out irrelevant than to let an operator's freeze on
+				// "checkout" miss a copy-of-checkout being created from it.
+				$touches = array_merge( Elementor_MCP_Rules::site_touches(), Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) ) );
+			} else {
+				$touches = Elementor_MCP_Rules::site_touches();
+			}
+			$gate = self::rules_gate( $touches, $name );
+			if ( is_wp_error( $gate ) ) {
+				return $gate;
 			}
 		}
 
@@ -271,6 +409,7 @@ class Elementor_MCP_Governance {
 			'snapshot_failed' => false,
 			'is_edit'         => $is_edit,
 			'baseline'        => 'inconclusive', // pre-write render state (edits only)
+			'rules_checked'   => array(), // post id => true, once before_page_write has gated it this run
 		);
 
 		// Kit-scoped writes are snapshotted LAZILY at the kit write site (the
@@ -286,13 +425,13 @@ class Elementor_MCP_Governance {
 		} catch ( \Throwable $e ) {
 			$out       = self::finish_failure( $name, self::$run['post_id'], $e->getMessage() );
 			self::$run = null;
-			return $out;
+			return self::with_run_warnings( $out );
 		}
 
 		if ( is_wp_error( $result ) ) {
 			$out       = self::finish_failure( $name, self::$run['post_id'], $result->get_error_message(), $result );
 			self::$run = null;
-			return $out;
+			return self::with_run_warnings( $out );
 		}
 
 		// Success — the tool captured a snapshot, i.e. it actually wrote page data.
@@ -309,7 +448,12 @@ class Elementor_MCP_Governance {
 				$restore   = self::snapshots()->restore( $snapshot_id );
 				self::$run = null;
 				if ( empty( $restore['success'] ) ) {
-					return self::rollback_failed_error( $name, $post_id, $snapshot_id, 'page did not render after the write', $restore );
+					// This is still an outcome of a governed run — a warn decided
+					// earlier must be reported here too (global constraint: warn
+					// proceeds and is reported once, on EVERY outcome), even though
+					// the run is now failing in the worst way (write broke the page
+					// AND the revert couldn't undo it).
+					return self::with_run_warnings( self::rollback_failed_error( $name, $post_id, $snapshot_id, 'page did not render after the write', $restore ) );
 				}
 
 				/**
@@ -322,13 +466,15 @@ class Elementor_MCP_Governance {
 				 * @param array  $restore     Restore result.
 				 */
 				do_action( 'elementor_mcp_governance_render_reverted', $name, $post_id, $snapshot_id, $restore );
-				return new \WP_Error(
-					'governance_render_failed',
-					sprintf(
-						/* translators: 1: tool name, 2: post id */
-						__( '%1$s left page %2$d not rendering; the change was reverted.', 'elementor-mcp' ),
-						$name,
-						$post_id
+				return self::with_run_warnings(
+					new \WP_Error(
+						'governance_render_failed',
+						sprintf(
+							/* translators: 1: tool name, 2: post id */
+							__( '%1$s left page %2$d not rendering; the change was reverted.', 'elementor-mcp' ),
+							$name,
+							$post_id
+						)
 					)
 				);
 			}
@@ -337,7 +483,7 @@ class Elementor_MCP_Governance {
 			do_action( 'elementor_mcp_governance_write', $name, $post_id, $snapshot_id, $result );
 		}
 		self::$run = null;
-		return $result;
+		return self::with_run_warnings( $result );
 	}
 
 	/**
@@ -358,10 +504,33 @@ class Elementor_MCP_Governance {
 		if ( null === self::$run || ! self::is_active() ) {
 			return null; // no governed run in flight
 		}
+		$post_id = absint( $post_id );
+
+		// Operator rules decide BEFORE the snapshot — and, critically, before the
+		// "already snapshotted" early return just below. That early return exists
+		// so a run's snapshot is only ever captured once (the first real write
+		// defines the post to protect); it must NOT also mean "only the first
+		// write's post gets rules-checked". A run that writes post 7 then post 99
+		// has to refuse post 99 exactly as it would if post 99 were the only
+		// write this run made — a `block` on a later post in the same run is not
+		// exempt just because an earlier post already snapshotted. Deduplicated
+		// per post id (self::$run['rules_checked']): a post already decided this
+		// run is not asked again — re-asking is otherwise free (SiteAgent dedups
+		// its forensic hooks per dispatch; rules_gate() dedups warnings per rule
+		// key), but there is no reason to pay for it on every write to the same
+		// post within one run.
+		if ( class_exists( 'Elementor_MCP_Rules' ) && empty( self::$run['rules_checked'][ $post_id ] ) ) {
+			$gate = self::rules_gate( Elementor_MCP_Rules::page_touches( $post_id ), (string) self::$run['name'] );
+			self::$run['rules_checked'][ $post_id ] = true;
+			if ( is_wp_error( $gate ) ) {
+				self::$run['snapshot_failed'] = true; // refused: no further write in this run may proceed
+				return $gate;
+			}
+		}
+
 		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
 			return null; // already snapshotted (or already failed) this run
 		}
-		$post_id = absint( $post_id );
 
 		// The first real write of the run defines the post to protect + roll back.
 		self::$run['post_id'] = $post_id;
@@ -412,6 +581,14 @@ class Elementor_MCP_Governance {
 		}
 		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
 			return null; // already snapshotted (or already failed) this run
+		}
+		// A design-token write is the whole site (spec §4): no narrower resource.
+		if ( class_exists( 'Elementor_MCP_Rules' ) ) {
+			$gate = self::rules_gate( Elementor_MCP_Rules::site_touches(), (string) self::$run['name'] );
+			if ( is_wp_error( $gate ) ) {
+				self::$run['snapshot_failed'] = true;
+				return $gate;
+			}
 		}
 		try {
 			$kit_id = self::active_kit_id();
@@ -522,6 +699,14 @@ class Elementor_MCP_Governance {
 		}
 		if ( null !== self::$run['snapshot_id'] || self::$run['snapshot_failed'] ) {
 			return null; // already snapshotted (or already failed) this run
+		}
+		// Global classes are site-wide design system (spec §4): site:*.
+		if ( class_exists( 'Elementor_MCP_Rules' ) ) {
+			$gate = self::rules_gate( Elementor_MCP_Rules::site_touches(), (string) self::$run['name'] );
+			if ( is_wp_error( $gate ) ) {
+				self::$run['snapshot_failed'] = true;
+				return $gate;
+			}
 		}
 		if ( $kit_id <= 0 ) {
 			self::$run['snapshot_failed'] = true;
@@ -741,6 +926,119 @@ class Elementor_MCP_Governance {
 			return false;
 		}
 		return function_exists( 'emcp_governance_require_grants' ) && emcp_governance_require_grants();
+	}
+
+	/**
+	 * Ask the rules bridge about a declaration and turn the verdict into what a
+	 * gate returns: null to proceed, a \WP_Error to refuse. A warn proceeds and
+	 * is remembered for the result (deduplicated by rule key — the same rule is
+	 * asked at the pre-callback check and again at the write site).
+	 *
+	 * @since 1.32.0
+	 * @param array  $touches Declaration (Elementor_MCP_Rules::page_touches / site_touches).
+	 * @param string $name    Ability name.
+	 * @return \WP_Error|null
+	 */
+	private static function rules_gate( array $touches, string $name ) {
+		if ( ! class_exists( 'Elementor_MCP_Rules' ) ) {
+			return null; // the bridge is an optional include; without it there is nothing to ask
+		}
+		$verdict = Elementor_MCP_Rules::enforce( $touches, $name );
+		switch ( $verdict['effect'] ) {
+			case 'block':
+				return Elementor_MCP_Rules::blocked_error( $name, $verdict['rule'] );
+			case 'unavailable':
+				return Elementor_MCP_Rules::unavailable_error( $name, isset( $verdict['error'] ) ? (string) $verdict['error'] : '' );
+			case 'warn':
+				$entry = Elementor_MCP_Rules::warning_entry( $verdict['rule'] );
+				foreach ( self::$run_warnings as $seen ) {
+					if ( $seen['rule'] === $entry['rule'] ) {
+						return null;
+					}
+				}
+				self::$run_warnings[] = $entry;
+				return null;
+			default:
+				return null;
+		}
+	}
+
+	/**
+	 * Deliver this run's warn entries on whatever the run returned — once, in
+	 * the body (spec §6): an array gains `warnings`; a WP_Error carries them in
+	 * its data (the write failed after the warn, and there is no header channel
+	 * on this fork-owned path) AND in its message (Codex round 1, controller
+	 * ruling: the bundled MCP adapter's ToolsHandler converts a WP_Error using
+	 * only get_error_message() + get_error_code() — the data-only warnings this
+	 * function used to attach were silently dropped on that transport); a
+	 * scalar is wrapped as { value, warnings }. No warnings → the outcome is
+	 * returned exactly as it was.
+	 *
+	 * @since 1.32.0
+	 * @since 1.32.0 The WP_Error branch also appends a human-readable suffix to
+	 *               the message (Codex round 1).
+	 * @param mixed $outcome The run's result or error.
+	 * @return mixed
+	 */
+	private static function with_run_warnings( $outcome ) {
+		$warnings           = array_values( self::$run_warnings );
+		self::$run_warnings = array();
+		if ( empty( $warnings ) ) {
+			return $outcome;
+		}
+		if ( is_wp_error( $outcome ) ) {
+			$data = $outcome->get_error_data();
+			$data = is_array( $data ) ? $data : ( null === $data ? array() : array( 'data' => $data ) );
+			$data = array_merge( $data, array( 'warnings' => $warnings ) );
+			// A new object, not add_data() on $outcome in place: the data-only
+			// attachment below this comment used to be the whole fix, but the
+			// message also has to carry it — WP_Error has no public setter for
+			// an existing message, so the message-bearing replacement is built
+			// fresh, keeping the original code and the merged data.
+			return new \WP_Error(
+				$outcome->get_error_code(),
+				$outcome->get_error_message() . self::warnings_message_suffix( $warnings ),
+				$data
+			);
+		}
+		if ( is_array( $outcome ) ) {
+			$outcome['warnings'] = $warnings;
+			return $outcome;
+		}
+		return array( 'value' => $outcome, 'warnings' => $warnings );
+	}
+
+	/**
+	 * Human-readable "warnings: rule/checkout (smoke); rule/site (freeze soon)"
+	 * suffix appended to a governed run's error message when it exits with one
+	 * or more warn-rule entries still pending. Message-only: the structured
+	 * `warnings` data entry (built by the caller) is what tests and PHP callers
+	 * read; this is for the transports that carry only code + message (Codex
+	 * round 1 — the bundled MCP adapter is one of them).
+	 *
+	 * @since 1.32.0
+	 * @param array<int,array{rule:string,reason:string}> $warnings Non-empty warn entries.
+	 * @return string Leading space included; append directly to a message.
+	 */
+	private static function warnings_message_suffix( array $warnings ): string {
+		$entries = array();
+		foreach ( $warnings as $w ) {
+			$key    = isset( $w['rule'] ) ? (string) $w['rule'] : '';
+			$reason = isset( $w['reason'] ) && '' !== $w['reason'] ? (string) $w['reason'] : '';
+			$entries[] = '' === $reason
+				? $key
+				: sprintf(
+					/* translators: 1: rule key, 2: warn reason */
+					__( '%1$s (%2$s)', 'elementor-mcp' ),
+					$key,
+					$reason
+				);
+		}
+		return sprintf(
+			/* translators: %s: semicolon-separated "rule (reason)" warning entries */
+			__( ' — warnings: %s', 'elementor-mcp' ),
+			implode( '; ', $entries )
+		);
 	}
 
 	/**
@@ -1008,13 +1306,21 @@ class Elementor_MCP_Governance {
 	/**
 	 * Clear all governed-run state. For test isolation. An optional snapshot-engine
 	 * override lets a test inject a stand-in (e.g. an engine lacking snapshot_posts,
-	 * to exercise the fail-closed path) instead of the lazily-created default.
+	 * to exercise the fail-closed path) instead of the lazily-created default. An
+	 * optional active-override lets a test force is_active() to a specific value
+	 * (e.g. false, to exercise "SiteAgent installed but the wrapper never engages"
+	 * — see the $active_override docblock); null (the default) restores the real
+	 * class_exists() check.
 	 *
+	 * @since 1.32.0 $active_override param.
 	 * @param object|null $snapshots_override Test-only engine to use, or null.
+	 * @param bool|null   $active_override    Test-only is_active() override, or null.
 	 * @return void
 	 */
-	public static function reset_state( $snapshots_override = null ): void {
-		self::$run       = null;
-		self::$snapshots = $snapshots_override;
+	public static function reset_state( $snapshots_override = null, ?bool $active_override = null ): void {
+		self::$run             = null;
+		self::$run_warnings    = array();
+		self::$snapshots       = $snapshots_override;
+		self::$active_override = $active_override;
 	}
 }

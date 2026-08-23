@@ -485,13 +485,19 @@ class ServerInfoTest extends Ability_Test_Case {
 		\Elementor_MCP_Rules::reset_state();
 		$this->assertSame( 'incomplete', $report['rules']['state'] );
 		$this->assertNotEmpty( array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'refused' ); } ) );
+		// Codex round 3: the note must name the METHOD that is actually missing
+		// — enforce() here, not a generic refusal shared with current_missing.
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'no enforce()' ); } ),
+			'The note names enforce() specifically for this fixture.'
+		);
 	}
 
 	public function test_server_info_names_a_missing_current_as_refusing_too(): void {
 		// Controller ruling: current_missing trips the SAME gate as
 		// enforce_missing (the plan's global constraint requires BOTH methods),
-		// so it gets the same refusal note — not the reader_failed "could not
-		// be read" note, which applies only when the gate itself still works.
+		// so it gets a refusal note too — not the reader_failed "could not be
+		// read" note, which applies only when the gate itself still works.
 		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Without_Current::class );
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 		\Elementor_MCP_Rules::reset_state();
@@ -501,8 +507,16 @@ class ServerInfoTest extends Ability_Test_Case {
 		$this->assertSame( 'current_missing', $report['rules']['reason'] );
 		$this->assertSame( array(), $report['rules']['points'] );
 		$this->assertNotEmpty( array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'refused' ); } ) );
+		// Codex round 3: enforce_missing and current_missing used to SHARE one
+		// refusal note that named enforce() specifically — wrong here, since
+		// enforce() is right there and current() is what's actually missing.
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'no current()' ); } ),
+			'The note names current() specifically for this fixture, not enforce().'
+		);
 		foreach ( $report['notes'] as $note ) {
 			$this->assertStringNotContainsString( 'could not be read', $note, 'current_missing trips the gate — this is not the reader_failed note.' );
+			$this->assertStringNotContainsString( 'no enforce()', $note, 'enforce() is present here — only current() is missing.' );
 		}
 	}
 

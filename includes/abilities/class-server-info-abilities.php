@@ -600,14 +600,23 @@ class Elementor_MCP_Server_Info_Abilities {
 		} elseif ( 'incomplete' === $rules['state'] ) {
 			// Controller ruling: the GATE (missing_method(), requiring BOTH
 			// enforce() and current()) refuses every write for BOTH
-			// enforce_missing and current_missing — those get the refusal note.
+			// enforce_missing and current_missing — those get a refusal note.
 			// Only reader_failed (current() present but throwing, which the gate
 			// never calls) still has a working gate — writes are still decided,
 			// only THIS report's read of the ruleset failed.
-			if ( 'reader_failed' === ( $rules['reason'] ?? '' ) ) {
+			//
+			// Codex round 3: enforce_missing and current_missing used to SHARE
+			// one refusal note that named `enforce()` specifically — wrong for
+			// current_missing, where enforce() is right there and current() is
+			// what's gone. Selected by reason so the note names the actual
+			// missing method.
+			$reason = $rules['reason'] ?? '';
+			if ( 'reader_failed' === $reason ) {
 				$notes[] = __( 'SiteAgent\'s ruleset could not be read for this report; writes are still decided by SiteAgent\'s enforcement — repair SiteAgent to see the ruleset here.', 'elementor-mcp' );
+			} elseif ( 'current_missing' === $reason ) {
+				$notes[] = __( 'SiteAgent\'s rules engine has no current() (partial update) — writes through this plugin are refused until SiteAgent is repaired.', 'elementor-mcp' );
 			} else {
-				$notes[] = __( 'SiteAgent cannot evaluate rules (no enforce()); writes through this plugin are refused until SiteAgent is repaired.', 'elementor-mcp' );
+				$notes[] = __( 'SiteAgent\'s rules engine has no enforce() — writes through this plugin are refused until SiteAgent is repaired.', 'elementor-mcp' );
 			}
 		} elseif ( empty( $rules['enforced'] ) ) {
 			$notes[] = __( 'SiteAgent is not installed, so no operator rules are enforced on Elementor writes from this plugin (a page block or a site freeze set in Aura does not apply here). Install SiteAgent 2.10.0 or later to enforce the same rules SiteAgent enforces.', 'elementor-mcp' );

@@ -200,6 +200,27 @@ class GovernanceRulesTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['_aura_snap']['restore_calls'], 'Governance still rolled the failed write back.' );
 	}
 
+	public function test_a_warn_survives_a_write_that_then_fails_and_the_message_names_it_too(): void {
+		// Codex round 1 (controller ruling, PR review of the fix wave above): the
+		// warn used to land ONLY in the error's data — the bundled MCP adapter's
+		// ToolsHandler converts a WP_Error using just get_error_message() +
+		// get_error_code(), silently dropping data-only warnings on that
+		// transport. The message must carry it too, alongside the unchanged
+		// structured data entry every existing caller already reads.
+		$GLOBALS['_aura_rules']['verdict'] = array( 'effect' => 'warn', 'rule' => $this->warn() );
+		$res = $this->invoke( $this->write_args( $this->page_writer( new \WP_Error( 'elementor_save_failed', 'disk full' ) ) ), array( 'post_id' => 7 ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $res );
+		$this->assertSame( 'elementor_save_failed', $res->get_error_code() );
+		$this->assertStringContainsString( 'disk full', $res->get_error_message(), 'The original message is kept …' );
+		$this->assertStringContainsString( 'rule/careful (client reviewing)', $res->get_error_message(), '… with the rule key and reason appended.' );
+		$this->assertSame(
+			array( array( 'rule' => 'rule/careful', 'reason' => 'client reviewing' ) ),
+			$res->get_error_data()['warnings'],
+			'The structured data entry is unchanged.'
+		);
+	}
+
 	public function test_a_warn_survives_a_render_revert_that_also_fails_to_restore(): void {
 		// Controller ruling (Task 2): the render-check branch's rollback_failed_error
 		// exit is still an OUTCOME of a governed run — the global constraint ("warn
@@ -234,6 +255,10 @@ class GovernanceRulesTest extends TestCase {
 		$this->assertSame( 'done', $this->invoke( $this->write_args( $this->page_writer( 'done' ) ), array( 'post_id' => 7 ) ) );
 		$err = $this->invoke( $this->write_args( $this->page_writer( new \WP_Error( 'x', 'y' ) ) ), array( 'post_id' => 7 ) );
 		$this->assertSame( array(), (array) $err->get_error_data() );
+		// Codex round 1 regression guard: the message-suffix fix above only
+		// triggers when there IS a warning — no warning means the message must
+		// stay byte-for-byte what the write site produced.
+		$this->assertSame( 'y', $err->get_error_message(), 'No warnings — the message is untouched.' );
 	}
 
 	// --- mixed outcomes across the two gate calls (Recommendation 3) ----------

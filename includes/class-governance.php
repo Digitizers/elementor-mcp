@@ -902,10 +902,16 @@ class Elementor_MCP_Governance {
 	 * Deliver this run's warn entries on whatever the run returned — once, in
 	 * the body (spec §6): an array gains `warnings`; a WP_Error carries them in
 	 * its data (the write failed after the warn, and there is no header channel
-	 * on this fork-owned path); a scalar is wrapped as { value, warnings }. No
-	 * warnings → the outcome is returned exactly as it was.
+	 * on this fork-owned path) AND in its message (Codex round 1, controller
+	 * ruling: the bundled MCP adapter's ToolsHandler converts a WP_Error using
+	 * only get_error_message() + get_error_code() — the data-only warnings this
+	 * function used to attach were silently dropped on that transport); a
+	 * scalar is wrapped as { value, warnings }. No warnings → the outcome is
+	 * returned exactly as it was.
 	 *
 	 * @since 1.32.0
+	 * @since 1.32.0 The WP_Error branch also appends a human-readable suffix to
+	 *               the message (Codex round 1).
 	 * @param mixed $outcome The run's result or error.
 	 * @return mixed
 	 */
@@ -918,14 +924,56 @@ class Elementor_MCP_Governance {
 		if ( is_wp_error( $outcome ) ) {
 			$data = $outcome->get_error_data();
 			$data = is_array( $data ) ? $data : ( null === $data ? array() : array( 'data' => $data ) );
-			$outcome->add_data( array_merge( $data, array( 'warnings' => $warnings ) ) );
-			return $outcome;
+			$data = array_merge( $data, array( 'warnings' => $warnings ) );
+			// A new object, not add_data() on $outcome in place: the data-only
+			// attachment below this comment used to be the whole fix, but the
+			// message also has to carry it — WP_Error has no public setter for
+			// an existing message, so the message-bearing replacement is built
+			// fresh, keeping the original code and the merged data.
+			return new \WP_Error(
+				$outcome->get_error_code(),
+				$outcome->get_error_message() . self::warnings_message_suffix( $warnings ),
+				$data
+			);
 		}
 		if ( is_array( $outcome ) ) {
 			$outcome['warnings'] = $warnings;
 			return $outcome;
 		}
 		return array( 'value' => $outcome, 'warnings' => $warnings );
+	}
+
+	/**
+	 * Human-readable "warnings: rule/checkout (smoke); rule/site (freeze soon)"
+	 * suffix appended to a governed run's error message when it exits with one
+	 * or more warn-rule entries still pending. Message-only: the structured
+	 * `warnings` data entry (built by the caller) is what tests and PHP callers
+	 * read; this is for the transports that carry only code + message (Codex
+	 * round 1 — the bundled MCP adapter is one of them).
+	 *
+	 * @since 1.32.0
+	 * @param array<int,array{rule:string,reason:string}> $warnings Non-empty warn entries.
+	 * @return string Leading space included; append directly to a message.
+	 */
+	private static function warnings_message_suffix( array $warnings ): string {
+		$entries = array();
+		foreach ( $warnings as $w ) {
+			$key    = isset( $w['rule'] ) ? (string) $w['rule'] : '';
+			$reason = isset( $w['reason'] ) && '' !== $w['reason'] ? (string) $w['reason'] : '';
+			$entries[] = '' === $reason
+				? $key
+				: sprintf(
+					/* translators: 1: rule key, 2: warn reason */
+					__( '%1$s (%2$s)', 'elementor-mcp' ),
+					$key,
+					$reason
+				);
+		}
+		return sprintf(
+			/* translators: %s: semicolon-separated "rule (reason)" warning entries */
+			__( ' — warnings: %s', 'elementor-mcp' ),
+			implode( '; ', $entries )
+		);
 	}
 
 	/**

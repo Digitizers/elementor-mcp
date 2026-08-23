@@ -520,16 +520,24 @@ class ServerInfoTest extends Ability_Test_Case {
 		}
 	}
 
-	public function test_server_info_says_so_when_no_rules_can_be_enforced(): void {
-		\Elementor_MCP_Rules::reset_state( false ); // fork-only
+	public function test_server_info_reports_an_outdated_siteagent_when_only_snapshots_is_present(): void {
+		// Codex round 4: the test bootstrap always defines \Aura_Worker_Snapshots,
+		// so reset_state( false ) alone (\Aura_Worker_Rules absent, everything
+		// else default) is the "pre-2.10 SiteAgent" shape — installed, outdated,
+		// not absent. See ServerInfoRulesGenuinelyAbsentTest.php for the
+		// genuinely-neither-class case, which needs the new Snapshots seam.
+		\Elementor_MCP_Rules::reset_state( false );
 		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
 		\Elementor_MCP_Rules::reset_state();
 
-		$this->assertSame( array( 'enforced' => false, 'source' => 'none', 'state' => 'absent', 'ruleset' => null, 'points' => array() ), $report['rules'] );
+		$this->assertSame( array( 'enforced' => false, 'source' => 'siteagent', 'state' => 'outdated', 'ruleset' => null, 'points' => array() ), $report['rules'] );
 		$this->assertNotEmpty(
-			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'no operator rules' ); } ),
-			'Spec §6: fork-only means no rules, and server-info reports that.'
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'predates 2.10.0' ); } ),
+			'An outdated SiteAgent is told to update, not to install.'
 		);
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString( 'is not installed', $note, 'SiteAgent IS installed here — just outdated.' );
+		}
 	}
 
 	public function test_server_info_reports_no_enforcement_when_the_governance_wrapper_is_not_live(): void {

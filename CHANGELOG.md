@@ -11,7 +11,7 @@ All notable changes to MCP Tools for Elementor are documented in this file.
   - **`warn` proceeds** and the outcome carries `warnings: [{rule, reason}]`, once per rule — on an array result as a key, on an error (the write failed after the warn) in its data, on a scalar by wrapping it as `{ value, warnings }`.
   - **Previews are exempt** — a dry run writes nothing; rules block execution, not sight.
   - **Nothing is re-implemented here.** Matching, the signed ruleset, expiry and the forensic hooks (`aura_worker_rule_blocked` / `aura_worker_rule_warned`) stay in SiteAgent; this plugin only declares and translates. Without SiteAgent there are no rules and no policy — and a SiteAgent that is installed but cannot evaluate rules refuses the write (`aura_rules_unavailable`, 503) rather than lifting a block it cannot see.
-- New: **`server-info` reports rules** — `rules: { enforced, source, state: absent|incomplete|ready, ruleset: { seq, rule_count, received_at } | null, points }` — and says in plain words when a fork-only site enforces none, or when an incomplete SiteAgent is refusing every write.
+- New: **`server-info` reports rules** — `rules: { enforced, source, state: absent|outdated|incomplete|ready, ruleset: { seq, rule_count, received_at } | null, points }` — and says in plain words when a fork-only site enforces none, when an outdated SiteAgent (has the snapshot engine, predates 2.10.0's rules engine) needs updating rather than installing, or when an incomplete SiteAgent is refusing every write.
 
 ## 1.31.0 — 2026-08-20
 

@@ -597,6 +597,14 @@ class Elementor_MCP_Server_Info_Abilities {
 			$notes[] = __( 'SiteAgent holds an operator ruleset, but this plugin\'s own governance wrapper is not active (its snapshot engine is unavailable), so no rules are enforced on Elementor writes from this plugin.', 'elementor-mcp' );
 		} elseif ( 'bridge_missing' === $rules['state'] ) {
 			$notes[] = __( 'SiteAgent is installed, but this plugin\'s rules bridge did not load — rules are not enforced on Elementor writes from this plugin.', 'elementor-mcp' );
+		} elseif ( 'outdated' === $rules['state'] ) {
+			// Codex round 4: SiteAgent's snapshot engine (what Governance::is_active()
+			// keys on) and its rules engine (added in SiteAgent 2.10.0) are
+			// independently versioned classes from the SAME plugin — a pre-2.10
+			// SiteAgent has the former but not the latter. That site has
+			// SiteAgent installed; the LAST elseif's "SiteAgent is not installed"
+			// note below is reserved for a site with neither class.
+			$notes[] = __( 'SiteAgent is installed but predates 2.10.0 — update SiteAgent to enforce operator rules on Elementor writes.', 'elementor-mcp' );
 		} elseif ( 'incomplete' === $rules['state'] ) {
 			// Controller ruling: the GATE (missing_method(), requiring BOTH
 			// enforce() and current()) refuses every write for BOTH

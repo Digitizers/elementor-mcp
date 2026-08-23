@@ -158,10 +158,15 @@ class RulesBridgeTest extends TestCase {
 		$this->assertNull( $report['ruleset'] );
 	}
 
-	public function test_report_describes_a_fork_only_site(): void {
+	public function test_report_describes_an_outdated_siteagent_when_only_snapshots_is_present(): void {
+		// Codex round 4: the test bootstrap always defines \Aura_Worker_Snapshots
+		// (Elementor_MCP_Governance's soft dependency), so reset_state( false )
+		// alone — i.e. \Aura_Worker_Rules absent, everything else default — is
+		// exactly the "pre-2.10 SiteAgent" shape: the snapshot engine is there,
+		// the rules engine is not. That is installed-but-outdated, not absent.
 		\Elementor_MCP_Rules::reset_state( false );
 		$this->assertSame(
-			array( 'enforced' => false, 'source' => 'none', 'state' => 'absent', 'ruleset' => null, 'points' => array() ),
+			array( 'enforced' => false, 'source' => 'siteagent', 'state' => 'outdated', 'ruleset' => null, 'points' => array() ),
 			\Elementor_MCP_Rules::report()
 		);
 	}

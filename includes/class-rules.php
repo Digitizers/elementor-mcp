@@ -221,6 +221,20 @@ class Elementor_MCP_Rules {
 	 * (missing_method() found nothing missing) but THROWS when called; the gate
 	 * never calls current() at all, so enforce() still decides every write —
 	 * only THIS report's read of the ruleset failed, hence `enforced: true`.
+	 *
+	 * `state: 'outdated'` (Codex round 4) is the other absent-but-not-really
+	 * case: SiteAgent's snapshot engine (\Aura_Worker_Snapshots, what
+	 * Elementor_MCP_Governance::is_active() keys on) and its rules engine
+	 * (\Aura_Worker_Rules, added in SiteAgent 2.10.0) are independently
+	 * versioned classes from the SAME plugin. A pre-2.10 SiteAgent has the
+	 * former installed but not the latter — that site has SiteAgent, just an
+	 * outdated one, and must not be told "SiteAgent is not installed" (`state:
+	 * 'absent'`, reserved for a site with NEITHER class). Checking
+	 * class_exists() on the snapshot class here is not a new dependency on
+	 * Elementor_MCP_Governance — it is the exact same soft-dependency check
+	 * that class already keys its own is_active() on; this class still never
+	 * calls into Elementor_MCP_Governance.
+	 *
 	 * This method is deliberately wrapper-agnostic: `enforced` here means "the
 	 * gate would let this through", not "something is live to ask the gate" —
 	 * the caller (server-info's assembly) is the one that knows whether
@@ -230,11 +244,19 @@ class Elementor_MCP_Rules {
 	 *
 	 * @since 1.32.0
 	 * @since 1.32.0 `reason` on `state: 'incomplete'` (Codex round 2, corrected).
+	 * @since 1.32.0 `state: 'outdated'` (Codex round 4).
 	 * @return array{enforced:bool, source:string, state:string, reason?:string, ruleset:?array, points:string[]}
 	 */
 	public static function report(): array {
 		if ( ! self::available() ) {
-			return array( 'enforced' => false, 'source' => 'none', 'state' => 'absent', 'ruleset' => null, 'points' => array() );
+			$outdated = class_exists( '\Aura_Worker_Snapshots' );
+			return array(
+				'enforced' => false,
+				'source'   => $outdated ? 'siteagent' : 'none',
+				'state'    => $outdated ? 'outdated' : 'absent',
+				'ruleset'  => null,
+				'points'   => array(),
+			);
 		}
 		$missing = self::missing_method();
 		if ( 'enforce' === $missing ) {

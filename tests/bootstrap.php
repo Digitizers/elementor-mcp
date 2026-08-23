@@ -1281,8 +1281,20 @@ namespace {
 	//   ['fail_snapshot']  => bool  force snapshot_meta() to fail
 	//   ['snapshot_calls'] => array recorded [post_id, keys]
 	//   ['restore_calls']  => array recorded snapshot ids restored
+	//
+	// Test-only seam (Codex round 4): with ELEMENTOR_MCP_TEST_NO_AURA_WORKER_SNAPSHOTS
+	// set, this stub is never defined either — simulating a site with NEITHER
+	// SiteAgent class present (report()'s genuinely-absent case), as opposed to
+	// ELEMENTOR_MCP_TEST_NO_AURA_WORKER_RULES alone, which simulates a site that
+	// HAS \Aura_Worker_Snapshots (this class) but predates 2.10.0's
+	// \Aura_Worker_Rules — SiteAgent installed but outdated. Same reasoning as
+	// that toggle: this class is otherwise defined unconditionally, at the top
+	// level of every process's bootstrap run, so it's only reachable via
+	// @runInSeparateProcess + putenv() before the process forks (see
+	// ServerInfoRulesBridgeAndSiteAgentMissingTest.php for the established
+	// pattern this mirrors).
 	// -----------------------------------------------------------------------
-	if ( ! class_exists( 'Aura_Worker_Snapshots' ) ) {
+	if ( ! class_exists( 'Aura_Worker_Snapshots' ) && ! getenv( 'ELEMENTOR_MCP_TEST_NO_AURA_WORKER_SNAPSHOTS' ) ) {
 		class Aura_Worker_Snapshots {
 			public function snapshot_meta( $post_id, $keys ) {
 				$GLOBALS['_aura_snap']['snapshot_calls'][] = array( 'post_id' => (int) $post_id, 'keys' => $keys );

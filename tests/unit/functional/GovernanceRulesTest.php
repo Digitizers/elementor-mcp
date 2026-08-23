@@ -113,8 +113,78 @@ class GovernanceRulesTest extends TestCase {
 	}
 
 	public function test_an_edit_declares_the_input_post_as_post_and_page_before_the_callback(): void {
-		$this->invoke( $this->write_args( $this->page_writer() ), array( 'post_id' => 7 ) );
+		// Codex round 6 (P1): classification is declared per ability, default
+		// create — an ability must explicitly say `writes: 'edit'` to have its
+		// input post_id read as the write target rather than a create-style
+		// source (see class-governance.php's wrap_ability()).
+		$args = $this->write_args( $this->page_writer(), array( 'governance' => array( 'writes' => 'edit' ) ) );
+		$this->invoke( $args, array( 'post_id' => 7 ) );
 		$this->assertSame( \Elementor_MCP_Rules::page_touches( 7 ), $this->declared()[0] );
+	}
+
+	// --- Codex round 6 (P1): create-vs-edit is declared per ability ------------
+
+	public function test_a_create_style_ability_with_a_source_post_id_is_refused_before_it_can_insert(): void {
+		// elementor-mcp/save-as-template (includes/abilities/class-template-abilities.php)
+		// reads a source post_id and then wp_insert_post()s a NEW
+		// elementor_library post. Classifying it as an edit of the SOURCE (the
+		// old post_id-presence heuristic) let a site freeze catch it only at
+		// before_page_write() for the NEW id, after the insert had already run
+		// — exactly the stray-draft failure the pre-callback gate exists to
+		// prevent. Declared 'create' (as save-as-template now is), it must be
+		// refused at the PRE-CALLBACK gate — before its callback, and
+		// therefore before any insert, runs at all.
+		unset( $GLOBALS['_writer_inserted'] );
+		$this->block_on( 'site', '*', $this->block( 'rule/freeze' ) );
+		$args = $this->write_args(
+			static function ( $input ) {
+				$GLOBALS['_writer_ran'] = true;
+				// The real ability's shape: read the source, THEN insert a new
+				// post and only gate THAT id at the write site.
+				$gate = \Elementor_MCP_Governance::before_page_write( 9999 );
+				if ( is_wp_error( $gate ) ) {
+					return $gate;
+				}
+				$GLOBALS['_writer_inserted'] = true;
+				return array( 'template_id' => 9999 );
+			},
+			array( 'governance' => array( 'writes' => 'create' ) )
+		);
+		$res = $this->invoke( $args, array( 'post_id' => 7, 'title' => 'Copy of checkout' ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $res );
+		$this->assertSame( 'aura_rule_blocked', $res->get_error_code() );
+		$this->assertFalse( $GLOBALS['_writer_ran'], 'The callback never ran — refused before it could insert anything.' );
+		$this->assertArrayNotHasKey( '_writer_inserted', $GLOBALS, 'Nothing was inserted.' );
+		$this->assertSame( array(), $GLOBALS['_aura_snap']['snapshot_calls'] );
+	}
+
+	public function test_an_edit_ability_is_not_refused_by_a_rule_on_a_different_page(): void {
+		$this->block_on( 'page', '99', $this->block( 'rule/other-page' ) );
+		$args = $this->write_args( $this->page_writer(), array( 'governance' => array( 'writes' => 'edit' ) ) );
+		$res  = $this->invoke( $args, array( 'post_id' => 7 ) );
+
+		$this->assertSame( array( 'ok' => true ), $res, 'A rule on a different page does not block this edit.' );
+		$this->assertSame(
+			\Elementor_MCP_Rules::page_touches( 7 ),
+			$this->declared()[0],
+			'Declares only post:7 + page:7 — not the whole site.'
+		);
+	}
+
+	public function test_an_ability_without_the_writes_key_defaults_to_create(): void {
+		// Controller ruling: fail closed. A write-capable ability that never
+		// declares meta.governance.writes is treated as a create — the whole
+		// site, PLUS the input post_id's own touches when one is present —
+		// rather than assuming an unlabelled post_id names a safe edit target.
+		$args = $this->write_args( $this->page_writer() ); // no 'governance' meta at all
+		$this->invoke( $args, array( 'post_id' => 7 ) );
+
+		$this->assertSame(
+			array_merge( \Elementor_MCP_Rules::site_touches(), \Elementor_MCP_Rules::page_touches( 7 ) ),
+			$this->declared()[0],
+			'Unmarked write ability: site:* PLUS the source touches, not just post/page.'
+		);
 	}
 
 	public function test_a_create_declares_the_whole_site_before_the_callback_and_the_new_id_at_the_write(): void {

@@ -176,6 +176,7 @@ class Elementor_MCP_Custom_Code_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,
@@ -381,6 +382,7 @@ class Elementor_MCP_Custom_Code_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,
@@ -518,6 +520,7 @@ class Elementor_MCP_Custom_Code_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'create' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,

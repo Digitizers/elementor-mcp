@@ -236,6 +236,7 @@ class Elementor_MCP_Widget_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,
@@ -361,6 +362,7 @@ class Elementor_MCP_Widget_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,
@@ -502,6 +504,7 @@ class Elementor_MCP_Widget_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,

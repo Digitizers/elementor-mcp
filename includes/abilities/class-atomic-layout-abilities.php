@@ -127,6 +127,7 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
 					'show_in_rest' => true,
 				),
@@ -239,6 +240,7 @@ class Elementor_MCP_Atomic_Layout_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
 					'show_in_rest' => true,
 				),

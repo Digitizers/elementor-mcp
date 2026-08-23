@@ -319,6 +319,7 @@ class Elementor_MCP_Global_Classes_Write_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
 					'show_in_rest' => true,
 				),

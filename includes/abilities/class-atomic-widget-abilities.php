@@ -155,6 +155,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 					'properties' => array( 'element_id' => array( 'type' => 'string' ) ),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
 					'show_in_rest' => true,
 				),
@@ -236,6 +237,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 					'properties' => array( 'success' => array( 'type' => 'boolean' ) ),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ),
 					'show_in_rest' => true,
 				),
@@ -403,6 +405,7 @@ class Elementor_MCP_Atomic_Widget_Abilities {
 					'properties' => array( 'element_id' => array( 'type' => 'string' ) ),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ),
 					'show_in_rest' => true,
 				),

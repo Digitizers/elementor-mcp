@@ -524,6 +524,7 @@ class Elementor_MCP_Stock_Image_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'edit' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,

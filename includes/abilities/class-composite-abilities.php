@@ -157,6 +157,7 @@ class Elementor_MCP_Composite_Abilities {
 					),
 				),
 				'meta'                => array(
+					'governance'   => array( 'writes' => 'create' ),
 					'annotations'  => array(
 						'readonly'    => false,
 						'destructive' => false,

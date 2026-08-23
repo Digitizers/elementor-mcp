@@ -49,8 +49,7 @@
  * grant → RULES → snapshot → write, so a block executes nothing and snapshots
  * nothing, and a warn proceeds with the reason attached to the run's result.
  * Four gate points cover the whole run: the pre-callback gate in run_governed()
- * (declares site:* for a create, or post+page for an edit's input post_id,
- * before the tool's callback runs at all); before_page_write() (the real post
+ * before the tool's callback runs at all; before_page_write() (the real post
  * id, once the write site knows it — deduplicated per post id within a run, so
  * a run touching several posts gates each of them, not just the first); and the
  * equivalent site-scoped gates for design-token writes, before_kit_write() and
@@ -61,6 +60,26 @@
  * nothing for a rule to decide. Elementor_MCP_Rules is deliberately free of any
  * dependency back on this class — this file's wrap_ability()/is_active() decide
  * whether anything here is live to enforce what it reports.
+ *
+ * What the pre-callback gate declares (1.32.0, Codex round 6, P1) is
+ * DECLARED PER ABILITY, not inferred from whether the input happens to carry
+ * a post_id: wrap_ability() reads `meta.governance.writes` (`'edit'` or
+ * `'create'`, the same shape `meta.governance.scope` already uses for
+ * kit/global-classes writes) and passes the classification into
+ * run_governed() as $is_edit_ability. `'edit'` declares the input post_id as
+ * the write target (post:<id> + page:<id>); anything else — an explicit
+ * `'create'`, or (fail closed) the key being absent altogether on a
+ * write-capable ability — declares the whole site (site:*), PLUS the input
+ * post_id's own touches when one is present. That PLUS matters: an ability
+ * like elementor-mcp/save-as-template reads a source post_id and then
+ * wp_insert_post()s a NEW elementor_library post — inferring "edit" from the
+ * source post_id's mere presence (the pre-1.32.0-round-6 behaviour) declared
+ * only the source, so a site freeze caught the write only at
+ * before_page_write() for the NEW id, after the insert had already run.
+ * Declaring it 'create' (its actual classification) still declares the
+ * source too — cheaper to declare a source that turns out irrelevant to a
+ * given rule than to let an operator's freeze on "checkout" miss a
+ * copy-of-checkout being made from it.
  *
  * @package Elementor_MCP
  * @since 1.17.0
@@ -258,9 +277,27 @@ class Elementor_MCP_Governance {
 			? (string) $args['meta']['governance']['scope']
 			: '';
 		$is_kit                   = in_array( $scope, array( 'kit', 'global-classes' ), true );
+		// Codex round 6 (P1): whether a write ability's input `post_id` names
+		// the thing being EDITED, or is merely a SOURCE it reads before
+		// inserting something new (elementor-mcp/save-as-template reads a
+		// page and then wp_insert_post()s a new elementor_library post), must
+		// come from the ability's OWN declaration — not be inferred from
+		// `post_id`'s mere presence, which is what let save-as-template's
+		// source read as an edit of itself and skip the create-style
+		// pre-callback gate entirely (see run_governed()). Declared the same
+		// way `scope` is, under `meta.governance.writes`: `'edit'` names the
+		// input post_id as the write target; anything else — `'create'`, or
+		// (fail closed) the key being absent altogether on a write-capable
+		// ability — is treated as a create, which still declares the source's
+		// own touches when a post_id is present (see run_governed()) so a
+		// freeze on "checkout" also refuses a copy-of-checkout being made.
+		$writes_declared          = isset( $args['meta']['governance']['writes'] )
+			? (string) $args['meta']['governance']['writes']
+			: 'create';
+		$is_edit_ability          = 'edit' === $writes_declared;
 		$original                 = $args['execute_callback'];
-		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable, $is_kit ) {
-			return self::run_governed( $name, $original, $input, $preview_capable, $is_kit );
+		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable, $is_kit, $is_edit_ability ) {
+			return self::run_governed( $name, $original, $input, $preview_capable, $is_kit, $is_edit_ability );
 		};
 		return $args;
 	}
@@ -273,10 +310,24 @@ class Elementor_MCP_Governance {
 	 * @param callable $original        The wrapped execute callback.
 	 * @param mixed    $input           The ability input.
 	 * @param bool     $preview_capable Whether the tool declares an `apply` flag.
+	 * @param bool     $is_kit          Design-token / global-classes scoped write (see wrap_ability()).
+	 * @param bool     $is_edit_ability Does the input post_id name the write TARGET
+	 *                                  (true) or a mere SOURCE the ability reads
+	 *                                  before creating something new (false)? Set by
+	 *                                  wrap_ability() from `meta.governance.writes`,
+	 *                                  fail-closed to 'create' when that key is
+	 *                                  absent — see this file's top docblock. The
+	 *                                  default here is `true` (edit-like, i.e. the
+	 *                                  OLD post_id-presence heuristic) purely for
+	 *                                  the many tests that call run_governed()
+	 *                                  directly, bypassing wrap_ability() entirely;
+	 *                                  wrap_ability() itself always passes this
+	 *                                  explicitly; production behaviour is never
+	 *                                  affected by this signature default.
 	 * @return mixed The original result, or a \WP_Error when the grant was rejected
 	 *               or a failed write was rolled back.
 	 */
-	public static function run_governed( string $name, $original, $input, bool $preview_capable = false, bool $is_kit = false ) {
+	public static function run_governed( string $name, $original, $input, bool $preview_capable = false, bool $is_kit = false, bool $is_edit_ability = true ) {
 		// Server-enforced approval, checked BEFORE the callback runs — so a
 		// create-style tool cannot wp_insert_post() an unauthorized draft before we
 		// verify the grant. Skipped only for a dry-run preview (a preview-capable
@@ -311,14 +362,28 @@ class Elementor_MCP_Governance {
 		// Rules never see a preview: a dry run writes nothing.
 		self::$run_warnings = array();
 		if ( ! $is_preview && class_exists( 'Elementor_MCP_Rules' ) ) {
-			// $is_kit is this function's fifth PARAMETER (`bool $is_kit = false`,
-			// set by wrap_ability() from meta.governance.scope) — defined here;
-			// the `$is_edit` LOCAL below is computed after this gate on purpose.
-			$early_edit = ! $is_kit && is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
-			$gate       = self::rules_gate(
-				$early_edit ? Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) ) : Elementor_MCP_Rules::site_touches(),
-				$name
-			);
+			// $is_kit and $is_edit_ability are this function's fifth and sixth
+			// PARAMETERS (set by wrap_ability() from meta.governance.scope /
+			// .writes) — defined here; the `$is_edit` LOCAL below is computed
+			// after this gate on purpose.
+			$has_post_id = is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
+			$early_edit  = ! $is_kit && $is_edit_ability && $has_post_id;
+			if ( $early_edit ) {
+				$touches = Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) );
+			} elseif ( ! $is_kit && $has_post_id ) {
+				// A create-style ability (default, or explicitly declared)
+				// whose input post_id is a SOURCE it reads rather than
+				// writes (save-as-template: reads a page, then inserts a
+				// NEW elementor_library post) — declare the whole site (it
+				// is still a create with no target id yet) PLUS the
+				// source's own touches: cheaper to declare a source that
+				// turns out irrelevant than to let an operator's freeze on
+				// "checkout" miss a copy-of-checkout being created from it.
+				$touches = array_merge( Elementor_MCP_Rules::site_touches(), Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) ) );
+			} else {
+				$touches = Elementor_MCP_Rules::site_touches();
+			}
+			$gate = self::rules_gate( $touches, $name );
 			if ( is_wp_error( $gate ) ) {
 				return $gate;
 			}

@@ -522,4 +522,54 @@ class ServerInfoTest extends Ability_Test_Case {
 			'A ready ruleset with no live wrapper to enforce it must say so.'
 		);
 	}
+
+	public function test_server_info_reports_enforced_true_for_a_reader_that_throws_when_the_wrapper_is_live(): void {
+		// Codex round 2: current() throwing is a READER failure, not an enforcer
+		// one — Elementor_MCP_Rules::enforce() calls the engine's enforce()
+		// independently of current(), so a real write is still decided by
+		// SiteAgent. The report must say `enforced: true` and give the
+		// read-failure note, never the refusal note that belongs to
+		// enforce_missing / bridge_missing / absent / wrapper-not-live.
+		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Whose_Reader_Throws::class );
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Rules::reset_state();
+
+		$this->assertTrue( $report['rules']['enforced'] );
+		$this->assertSame( 'incomplete', $report['rules']['state'] );
+		$this->assertSame( 'reader_failed', $report['rules']['reason'] );
+		$this->assertSame( array( 'governed_write' ), $report['rules']['points'] );
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'could not be read' ); } ),
+			'The read-failure note, not the refusal note.'
+		);
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString(
+				'writes through this plugin are refused',
+				$note,
+				'Writes are still decided — this is not the enforce_missing refusal note.'
+			);
+		}
+	}
+
+	public function test_server_info_reports_enforced_false_for_a_reader_that_throws_when_the_wrapper_is_not_live(): void {
+		// Same broken engine as above, but the governance wrapper is not live
+		// (Important #1's seam) — nothing reaches ANY gate at all, so `enforced`
+		// must be false and the note must be the wrapper-not-live one, not the
+		// read-failure note (which would wrongly imply writes are still
+		// decided). Liveness has to be checked FIRST, before `state`.
+		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Whose_Reader_Throws::class );
+		\Elementor_MCP_Governance::reset_state( null, false );
+		$report = ( new \Elementor_MCP_Server_Info_Abilities() )->execute_server_info();
+		\Elementor_MCP_Governance::reset_state();
+		\Elementor_MCP_Rules::reset_state();
+
+		$this->assertFalse( $report['rules']['enforced'] );
+		$this->assertSame( array(), $report['rules']['points'] );
+		$this->assertNotEmpty(
+			array_filter( $report['notes'], static function ( $n ) { return false !== strpos( $n, 'governance wrapper is not active' ); } )
+		);
+		foreach ( $report['notes'] as $note ) {
+			$this->assertStringNotContainsString( 'could not be read', $note, 'The not-live note wins over the read-failure note.' );
+		}
+	}
 }

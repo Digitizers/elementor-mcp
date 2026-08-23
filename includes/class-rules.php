@@ -51,11 +51,14 @@ class Elementor_MCP_Rules {
 	}
 
 	/**
-	 * Does the installed engine expose the API this bridge needs? False on a
-	 * partial or broken update — and that is never "no policy": enforce()
-	 * refuses, report() says `incomplete`.
+	 * Does the installed engine expose the full API report() describes (both
+	 * `enforce()` and `current()`)? A partial/broken update returns the name of
+	 * the first missing one (enforce checked first) — used by report() to build
+	 * its `reason` (Codex round 2: `enforce()` itself only checks for `enforce`,
+	 * not this composite, since `current()` has no role in real-time matching).
 	 *
 	 * @since 1.32.0
+	 * @since 1.32.0 No longer used by enforce() (Codex round 2) — report()-only.
 	 * @return string '' when complete, else the missing method's name.
 	 */
 	private static function missing_method(): string {
@@ -98,7 +101,21 @@ class Elementor_MCP_Rules {
 	/**
 	 * Ask SiteAgent whether a rule decides this write.
 	 *
+	 * Requires only `enforce()` on the engine — NOT `current()` (Codex round 2
+	 * of the fork final-review's fix wave, controller-confirmed): `current()` is
+	 * a read-only accessor report() uses to show the loaded ruleset, with no
+	 * role in real-time matching, so its absence (or a throw from it) must not
+	 * block a write that a working `enforce()` can still decide. report()'s
+	 * `current_missing` / `reader_failed` reasons report `enforced: true` on
+	 * exactly that premise — this gate has to actually honor it, or that would
+	 * be server-info claiming an enforcement that does not happen, which is the
+	 * one thing every finding in this fix wave exists to prevent. missing_method()
+	 * (which checks both methods, for report()'s reason enum) is deliberately
+	 * NOT used here.
+	 *
 	 * @since 1.32.0
+	 * @since 1.32.0 Gate narrowed from missing_method() (both methods) to just
+	 *               `enforce()` (Codex round 2).
 	 * @param array  $touches Declaration, from page_touches() / site_touches().
 	 * @param string $name    Ability name, for SiteAgent's forensic hooks.
 	 * @return array {effect: null|'warn'|'block'|'unavailable', rule?: array, error?: string}
@@ -107,9 +124,8 @@ class Elementor_MCP_Rules {
 		if ( ! self::available() ) {
 			return array( 'effect' => null );
 		}
-		$missing = self::missing_method();
-		if ( '' !== $missing ) {
-			return array( 'effect' => 'unavailable', 'error' => sprintf( 'SiteAgent is installed but Aura_Worker_Rules::%s() is missing', $missing ) );
+		if ( ! method_exists( self::$engine, 'enforce' ) ) {
+			return array( 'effect' => 'unavailable', 'error' => 'SiteAgent is installed but Aura_Worker_Rules::enforce() is missing' );
 		}
 		try {
 			$verdict = call_user_func( array( self::$engine, 'enforce' ), $touches, $name );
@@ -195,27 +211,48 @@ class Elementor_MCP_Rules {
 	 * envelope or its signature — seq, count and age are the facts an operator
 	 * needs, and the fleet reads the rest from SiteAgent's audit_rules.
 	 *
+	 * `incomplete` covers two DIFFERENT failures, distinguished by `reason`
+	 * (Codex round 2 of the fork final-review's fix wave, controller-confirmed):
+	 * an engine missing `enforce()` cannot decide anything, so `enforced` is
+	 * false (`reason: 'enforce_missing'`) — but an engine missing `current()`,
+	 * or whose `current()` throws, still decides every write via `enforce()`
+	 * (this class's own enforce() calls the engine's enforce() — see there);
+	 * only the RULESET is unreadable for this report, so `enforced` stays true
+	 * (`reason: 'current_missing'` / `'reader_failed'`). This method is
+	 * deliberately wrapper-agnostic: `enforced` here means "the engine can
+	 * decide", not "something is live to ask it" — the caller (server-info's
+	 * assembly) is the one that knows whether Elementor_MCP_Governance is
+	 * active, and downgrades `enforced`/`points` for its own report when it
+	 * is not; this class never depends on Elementor_MCP_Governance.
+	 *
 	 * @since 1.32.0
-	 * @return array{enforced:bool, source:string, state:string, ruleset:?array, points:string[]}
+	 * @since 1.32.0 `reason` on `state: 'incomplete'` (Codex round 2).
+	 * @return array{enforced:bool, source:string, state:string, reason?:string, ruleset:?array, points:string[]}
 	 */
 	public static function report(): array {
 		if ( ! self::available() ) {
 			return array( 'enforced' => false, 'source' => 'none', 'state' => 'absent', 'ruleset' => null, 'points' => array() );
 		}
-		if ( '' !== self::missing_method() ) {
-			// Installed, incomplete: every governed write is refused (enforce()
-			// answers `unavailable`). Not "enforced" — nothing is being decided —
-			// and not "absent" either; the operator needs to see which.
-			return array( 'enforced' => false, 'source' => 'siteagent', 'state' => 'incomplete', 'ruleset' => null, 'points' => array() );
+		$missing = self::missing_method();
+		if ( 'enforce' === $missing ) {
+			// enforce() itself is gone: nothing decides ANY write. Not "enforced"
+			// in any sense server-info promises, and not "absent" either — the
+			// operator needs to see this is a broken install, not no install.
+			return array( 'enforced' => false, 'source' => 'siteagent', 'state' => 'incomplete', 'reason' => 'enforce_missing', 'ruleset' => null, 'points' => array() );
+		}
+		if ( 'current' === $missing ) {
+			// enforce() is present and this class's own enforce() calls it
+			// independently of current() — writes ARE still being decided. Only
+			// the ruleset (what THIS report would show) cannot be read.
+			return array( 'enforced' => true, 'source' => 'siteagent', 'state' => 'incomplete', 'reason' => 'current_missing', 'ruleset' => null, 'points' => array( self::POINT ) );
 		}
 		$rec = null;
 		try {
 			$rec = call_user_func( array( self::$engine, 'current' ) );
 		} catch ( \Throwable $e ) {
-			// A reader that throws is a broken engine, not an empty store: governed
-			// writes are being refused (enforce() would answer `unavailable` the
-			// same way), and server-info must say so rather than "ready, no ruleset".
-			return array( 'enforced' => false, 'source' => 'siteagent', 'state' => 'incomplete', 'ruleset' => null, 'points' => array(), 'error' => $e->getMessage() );
+			// Same reasoning as current_missing above: a reader that throws does
+			// not stop enforce() from deciding writes — only from being read here.
+			return array( 'enforced' => true, 'source' => 'siteagent', 'state' => 'incomplete', 'reason' => 'reader_failed', 'ruleset' => null, 'points' => array( self::POINT ), 'error' => $e->getMessage() );
 		}
 		$ruleset = null;
 		if ( is_array( $rec ) && isset( $rec['seq'], $rec['rules'] ) && is_array( $rec['rules'] ) ) {

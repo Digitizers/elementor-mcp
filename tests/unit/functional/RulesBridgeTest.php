@@ -76,15 +76,38 @@ class RulesBridgeTest extends TestCase {
 		$verdict = \Elementor_MCP_Rules::enforce( \Elementor_MCP_Rules::site_touches(), 'x' );
 		$this->assertSame( 'unavailable', $verdict['effect'] );
 		$this->assertStringContainsString( 'enforce', $verdict['error'] );
+
+		// Codex round 2: report() names WHY — nothing decides a write without
+		// enforce(), so this is the one incomplete-reason that is NOT enforced.
+		$report = \Elementor_MCP_Rules::report();
+		$this->assertSame( 'incomplete', $report['state'] );
+		$this->assertSame( 'enforce_missing', $report['reason'] );
+		$this->assertFalse( $report['enforced'] );
+		$this->assertSame( array(), $report['points'] );
 	}
 
-	public function test_an_installed_engine_missing_current_fails_closed_and_reports_itself(): void {
+	public function test_an_installed_engine_missing_current_still_enforces_but_reports_itself_incomplete(): void {
+		// Codex round 2: current() missing is a READER failure, not an enforcer
+		// one. current() is a read-only accessor with no role in real-time
+		// matching, so its absence must not block enforce() — the gate now
+		// checks only for enforce() itself (missing_method(), which checks
+		// both, stays report()'s reason-enum helper — see there).
 		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Without_Current::class );
-		$this->assertSame( 'unavailable', \Elementor_MCP_Rules::enforce( \Elementor_MCP_Rules::site_touches(), 'x' )['effect'] );
+		$this->assertSame(
+			array( 'effect' => null ),
+			\Elementor_MCP_Rules::enforce( \Elementor_MCP_Rules::site_touches(), 'x' ),
+			'enforce() does not need current() to work — a real write is still decided by SiteAgent.'
+		);
+
 		$report = \Elementor_MCP_Rules::report();
 		$this->assertSame( 'siteagent', $report['source'] );
-		$this->assertFalse( $report['enforced'], 'An incomplete engine refuses writes; it does not "enforce" in the sense server-info promises.' );
 		$this->assertSame( 'incomplete', $report['state'] );
+		// report() reflects enforce()'s ability to decide, not this report's own
+		// ability to read the ruleset — see the reason.
+		$this->assertSame( 'current_missing', $report['reason'] );
+		$this->assertTrue( $report['enforced'], 'enforce() is present and independent of current() — writes are still decided.' );
+		$this->assertSame( array( 'governed_write' ), $report['points'] );
+		$this->assertNull( $report['ruleset'] );
 	}
 
 	/** @dataProvider garbage_verdicts */
@@ -127,9 +150,16 @@ class RulesBridgeTest extends TestCase {
 	public function test_a_reader_that_throws_is_reported_as_incomplete_not_as_ready_with_no_ruleset(): void {
 		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Whose_Reader_Throws::class );
 		$report = \Elementor_MCP_Rules::report();
-		$this->assertFalse( $report['enforced'] );
 		$this->assertSame( 'incomplete', $report['state'] );
 		$this->assertStringContainsString( 'stub forced reader failure', $report['error'] );
+		// Codex round 2: current() THROWING is the same reader-side failure as
+		// current() being MISSING — enforce() on this fixture answers cleanly
+		// ({ effect => null }), so writes are still decided by SiteAgent; only
+		// this report's ruleset read failed.
+		$this->assertSame( 'reader_failed', $report['reason'] );
+		$this->assertTrue( $report['enforced'], 'enforce() still works on this fixture — only current() throws.' );
+		$this->assertSame( array( 'governed_write' ), $report['points'] );
+		$this->assertNull( $report['ruleset'] );
 	}
 
 	public function test_report_describes_a_fork_only_site(): void {

@@ -584,12 +584,28 @@ class Elementor_MCP_Server_Info_Abilities {
 			$rules['points']   = array();
 		}
 
-		if ( 'bridge_missing' === $rules['state'] ) {
+		// Liveness FIRST, regardless of `state` (Codex round 2): report() can say
+		// `enforced: true` for a `ready` ruleset OR for the two reader-side
+		// `incomplete` reasons (current_missing / reader_failed) — in both cases
+		// nothing here actually reaches a gate to ask when the wrapper is not
+		// live, so that has to win over a MORE SPECIFIC-sounding but misleading
+		// note like "SiteAgent's ruleset could not be read; writes are still
+		// decided" when in truth NOTHING here is deciding anything. Checked
+		// first, not "elseif"-chained after 'incomplete', so it cannot be
+		// pre-empted by a state that also happens to be true.
+		if ( $was_enforced && ! $governance_live ) {
+			$notes[] = __( 'SiteAgent holds an operator ruleset, but this plugin\'s own governance wrapper is not active (its snapshot engine is unavailable), so no rules are enforced on Elementor writes from this plugin.', 'elementor-mcp' );
+		} elseif ( 'bridge_missing' === $rules['state'] ) {
 			$notes[] = __( 'SiteAgent is installed, but this plugin\'s rules bridge did not load — rules are not enforced on Elementor writes from this plugin.', 'elementor-mcp' );
 		} elseif ( 'incomplete' === $rules['state'] ) {
-			$notes[] = __( 'SiteAgent is installed but its rules engine is incomplete (a partial update?), so every governed Elementor write from this plugin is refused until it is repaired — a write under an unknown verdict is not taken.', 'elementor-mcp' );
-		} elseif ( $was_enforced && ! $governance_live ) {
-			$notes[] = __( 'SiteAgent holds an operator ruleset, but this plugin\'s own governance wrapper is not active (its snapshot engine is unavailable), so no rules are enforced on Elementor writes from this plugin.', 'elementor-mcp' );
+			// Two different reader failures (Codex round 2): missing enforce()
+			// refuses every write; a missing/broken current() only blocks THIS
+			// report from reading the ruleset — writes are still decided.
+			if ( 'enforce_missing' === ( $rules['reason'] ?? '' ) ) {
+				$notes[] = __( 'SiteAgent cannot evaluate rules (no enforce()); writes through this plugin are refused until SiteAgent is repaired.', 'elementor-mcp' );
+			} else {
+				$notes[] = __( 'SiteAgent\'s ruleset could not be read for this report; writes are still decided by SiteAgent\'s enforcement — repair SiteAgent to see the ruleset here.', 'elementor-mcp' );
+			}
 		} elseif ( empty( $rules['enforced'] ) ) {
 			$notes[] = __( 'SiteAgent is not installed, so no operator rules are enforced on Elementor writes from this plugin (a page block or a site freeze set in Aura does not apply here). Install SiteAgent 2.10.0 or later to enforce the same rules SiteAgent enforces.', 'elementor-mcp' );
 		}

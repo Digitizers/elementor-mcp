@@ -86,27 +86,23 @@ class RulesBridgeTest extends TestCase {
 		$this->assertSame( array(), $report['points'] );
 	}
 
-	public function test_an_installed_engine_missing_current_still_enforces_but_reports_itself_incomplete(): void {
-		// Codex round 2: current() missing is a READER failure, not an enforcer
-		// one. current() is a read-only accessor with no role in real-time
-		// matching, so its absence must not block enforce() — the gate now
-		// checks only for enforce() itself (missing_method(), which checks
-		// both, stays report()'s reason-enum helper — see there).
+	public function test_an_installed_engine_missing_current_fails_closed_and_reports_itself(): void {
+		// Controller ruling (reverting a Codex round 2 pass that briefly let
+		// enforce() through here — see enforce()'s docblock): the plan's global
+		// constraint requires BOTH enforce() and current() to exist. Missing
+		// EITHER is a partial/broken SiteAgent update, refused the same way.
 		\Elementor_MCP_Rules::reset_state( null, \Elementor_MCP_Test_Engine_Without_Current::class );
-		$this->assertSame(
-			array( 'effect' => null ),
-			\Elementor_MCP_Rules::enforce( \Elementor_MCP_Rules::site_touches(), 'x' ),
-			'enforce() does not need current() to work — a real write is still decided by SiteAgent.'
-		);
+		$this->assertSame( 'unavailable', \Elementor_MCP_Rules::enforce( \Elementor_MCP_Rules::site_touches(), 'x' )['effect'] );
 
 		$report = \Elementor_MCP_Rules::report();
 		$this->assertSame( 'siteagent', $report['source'] );
 		$this->assertSame( 'incomplete', $report['state'] );
-		// report() reflects enforce()'s ability to decide, not this report's own
-		// ability to read the ruleset — see the reason.
+		// Codex round 2 (corrected): report() names WHICH method is missing —
+		// current_missing is distinct from enforce_missing — but the gate
+		// refuses either way, so `enforced` is false for both.
 		$this->assertSame( 'current_missing', $report['reason'] );
-		$this->assertTrue( $report['enforced'], 'enforce() is present and independent of current() — writes are still decided.' );
-		$this->assertSame( array( 'governed_write' ), $report['points'] );
+		$this->assertFalse( $report['enforced'], 'An incomplete engine refuses writes; it does not "enforce" in the sense server-info promises.' );
+		$this->assertSame( array(), $report['points'] );
 		$this->assertNull( $report['ruleset'] );
 	}
 

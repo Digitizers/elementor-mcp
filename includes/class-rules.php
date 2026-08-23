@@ -51,14 +51,18 @@ class Elementor_MCP_Rules {
 	}
 
 	/**
-	 * Does the installed engine expose the full API report() describes (both
-	 * `enforce()` and `current()`)? A partial/broken update returns the name of
-	 * the first missing one (enforce checked first) — used by report() to build
-	 * its `reason` (Codex round 2: `enforce()` itself only checks for `enforce`,
-	 * not this composite, since `current()` has no role in real-time matching).
+	 * Does the installed engine expose the API this bridge needs? False on a
+	 * partial or broken update — and that is never "no policy": enforce()
+	 * refuses, report() says `incomplete`.
+	 *
+	 * Requires BOTH `enforce()` and `current()` (controller ruling, reaffirmed
+	 * after Codex round 2 briefly narrowed enforce()'s own gate to just
+	 * `enforce()` in commit fb6701d — reverted): the plan's global constraint is
+	 * explicit that a class missing EITHER method is refused with
+	 * `aura_rules_unavailable`, not partially trusted. report() still uses this
+	 * to distinguish `enforce_missing` from `current_missing` in its `reason`.
 	 *
 	 * @since 1.32.0
-	 * @since 1.32.0 No longer used by enforce() (Codex round 2) — report()-only.
 	 * @return string '' when complete, else the missing method's name.
 	 */
 	private static function missing_method(): string {
@@ -101,21 +105,15 @@ class Elementor_MCP_Rules {
 	/**
 	 * Ask SiteAgent whether a rule decides this write.
 	 *
-	 * Requires only `enforce()` on the engine — NOT `current()` (Codex round 2
-	 * of the fork final-review's fix wave, controller-confirmed): `current()` is
-	 * a read-only accessor report() uses to show the loaded ruleset, with no
-	 * role in real-time matching, so its absence (or a throw from it) must not
-	 * block a write that a working `enforce()` can still decide. report()'s
-	 * `current_missing` / `reader_failed` reasons report `enforced: true` on
-	 * exactly that premise — this gate has to actually honor it, or that would
-	 * be server-info claiming an enforcement that does not happen, which is the
-	 * one thing every finding in this fix wave exists to prevent. missing_method()
-	 * (which checks both methods, for report()'s reason enum) is deliberately
-	 * NOT used here.
+	 * Requires BOTH `enforce()` and `current()` to exist (controller ruling —
+	 * the plan's global constraint: a class missing either method is a partial
+	 * or broken SiteAgent update, refused with `aura_rules_unavailable`, not
+	 * partially trusted just because the piece THIS call happens to need is
+	 * present). A Codex round 2 pass briefly narrowed this to just `enforce()`
+	 * — reverted; report() carries the finer-grained `current_missing` /
+	 * `reader_failed` distinction on its OWN side instead (see report()).
 	 *
 	 * @since 1.32.0
-	 * @since 1.32.0 Gate narrowed from missing_method() (both methods) to just
-	 *               `enforce()` (Codex round 2).
 	 * @param array  $touches Declaration, from page_touches() / site_touches().
 	 * @param string $name    Ability name, for SiteAgent's forensic hooks.
 	 * @return array {effect: null|'warn'|'block'|'unavailable', rule?: array, error?: string}
@@ -124,8 +122,9 @@ class Elementor_MCP_Rules {
 		if ( ! self::available() ) {
 			return array( 'effect' => null );
 		}
-		if ( ! method_exists( self::$engine, 'enforce' ) ) {
-			return array( 'effect' => 'unavailable', 'error' => 'SiteAgent is installed but Aura_Worker_Rules::enforce() is missing' );
+		$missing = self::missing_method();
+		if ( '' !== $missing ) {
+			return array( 'effect' => 'unavailable', 'error' => sprintf( 'SiteAgent is installed but Aura_Worker_Rules::%s() is missing', $missing ) );
 		}
 		try {
 			$verdict = call_user_func( array( self::$engine, 'enforce' ), $touches, $name );
@@ -211,22 +210,26 @@ class Elementor_MCP_Rules {
 	 * envelope or its signature — seq, count and age are the facts an operator
 	 * needs, and the fleet reads the rest from SiteAgent's audit_rules.
 	 *
-	 * `incomplete` covers two DIFFERENT failures, distinguished by `reason`
-	 * (Codex round 2 of the fork final-review's fix wave, controller-confirmed):
-	 * an engine missing `enforce()` cannot decide anything, so `enforced` is
-	 * false (`reason: 'enforce_missing'`) — but an engine missing `current()`,
-	 * or whose `current()` throws, still decides every write via `enforce()`
-	 * (this class's own enforce() calls the engine's enforce() — see there);
-	 * only the RULESET is unreadable for this report, so `enforced` stays true
-	 * (`reason: 'current_missing'` / `'reader_failed'`). This method is
-	 * deliberately wrapper-agnostic: `enforced` here means "the engine can
-	 * decide", not "something is live to ask it" — the caller (server-info's
-	 * assembly) is the one that knows whether Elementor_MCP_Governance is
-	 * active, and downgrades `enforced`/`points` for its own report when it
-	 * is not; this class never depends on Elementor_MCP_Governance.
+	 * `incomplete` covers THREE distinguishable failures, given by `reason`
+	 * (Codex round 2 of the fork final-review's fix wave; controller-corrected
+	 * after that round briefly changed the GATE itself — reverted, see
+	 * enforce()). The gate (missing_method(), requiring BOTH enforce() and
+	 * current()) is the plan's global constraint and does not change: a class
+	 * missing either method refuses every write with `aura_rules_unavailable`.
+	 * report() mirrors that for `enforce_missing` and `current_missing` — both
+	 * `enforced: false` — but distinguishes `reader_failed`: current() EXISTS
+	 * (missing_method() found nothing missing) but THROWS when called; the gate
+	 * never calls current() at all, so enforce() still decides every write —
+	 * only THIS report's read of the ruleset failed, hence `enforced: true`.
+	 * This method is deliberately wrapper-agnostic: `enforced` here means "the
+	 * gate would let this through", not "something is live to ask the gate" —
+	 * the caller (server-info's assembly) is the one that knows whether
+	 * Elementor_MCP_Governance is active, and downgrades `enforced`/`points`
+	 * for its own report when it is not; this class never depends on
+	 * Elementor_MCP_Governance.
 	 *
 	 * @since 1.32.0
-	 * @since 1.32.0 `reason` on `state: 'incomplete'` (Codex round 2).
+	 * @since 1.32.0 `reason` on `state: 'incomplete'` (Codex round 2, corrected).
 	 * @return array{enforced:bool, source:string, state:string, reason?:string, ruleset:?array, points:string[]}
 	 */
 	public static function report(): array {
@@ -241,17 +244,21 @@ class Elementor_MCP_Rules {
 			return array( 'enforced' => false, 'source' => 'siteagent', 'state' => 'incomplete', 'reason' => 'enforce_missing', 'ruleset' => null, 'points' => array() );
 		}
 		if ( 'current' === $missing ) {
-			// enforce() is present and this class's own enforce() calls it
-			// independently of current() — writes ARE still being decided. Only
-			// the ruleset (what THIS report would show) cannot be read.
-			return array( 'enforced' => true, 'source' => 'siteagent', 'state' => 'incomplete', 'reason' => 'current_missing', 'ruleset' => null, 'points' => array( self::POINT ) );
+			// current() missing means the GATE (missing_method(), requiring both
+			// methods) refuses too — real writes get `aura_rules_unavailable`
+			// just like enforce_missing. Not "ready", and not conflated with
+			// reader_failed below (current() present but throwing), which does
+			// NOT trip the gate.
+			return array( 'enforced' => false, 'source' => 'siteagent', 'state' => 'incomplete', 'reason' => 'current_missing', 'ruleset' => null, 'points' => array() );
 		}
 		$rec = null;
 		try {
 			$rec = call_user_func( array( self::$engine, 'current' ) );
 		} catch ( \Throwable $e ) {
-			// Same reasoning as current_missing above: a reader that throws does
-			// not stop enforce() from deciding writes — only from being read here.
+			// current() EXISTS (missing_method() found nothing missing) but
+			// throws when called. The gate (enforce()) never calls current(), so
+			// a real write is still decided normally — only THIS report's read
+			// of the ruleset failed.
 			return array( 'enforced' => true, 'source' => 'siteagent', 'state' => 'incomplete', 'reason' => 'reader_failed', 'ruleset' => null, 'points' => array( self::POINT ), 'error' => $e->getMessage() );
 		}
 		$ruleset = null;

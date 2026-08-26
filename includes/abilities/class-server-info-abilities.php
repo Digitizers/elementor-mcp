@@ -746,9 +746,20 @@ class Elementor_MCP_Server_Info_Abilities {
 					'defaults_applied_version' => $defaults_applied,
 				),
 			),
+			// `WP_MCP_VERSION` is defined by whoever booted the adapter, and a copy
+			// bundled inside another plugin defines nothing — so reading the
+			// constant alone reports '' for exactly the case worth reporting.
+			// `bundled_version` and `outdated` make the load-order problem legible
+			// to an agent the same way the connection screen makes it legible to a
+			// person: where several plugins ship a copy, the FIRST loaded wins, not
+			// the newest.
 			'mcp_adapter'       => array(
-				'source'  => class_exists( 'Elementor_MCP_Adapter_Bootstrap' ) ? Elementor_MCP_Adapter_Bootstrap::source() : 'unknown',
-				'version' => defined( 'WP_MCP_VERSION' ) ? WP_MCP_VERSION : '',
+				'source'           => class_exists( 'Elementor_MCP_Adapter_Bootstrap' ) ? Elementor_MCP_Adapter_Bootstrap::source() : 'unknown',
+				'version'          => class_exists( 'Elementor_MCP_Adapter_Bootstrap' )
+					? Elementor_MCP_Adapter_Bootstrap::active_version()
+					: ( defined( 'WP_MCP_VERSION' ) ? WP_MCP_VERSION : '' ),
+				'bundled_version'  => class_exists( 'Elementor_MCP_Adapter_Bootstrap' ) ? Elementor_MCP_Adapter_Bootstrap::BUNDLED_VERSION : '',
+				'outdated'         => class_exists( 'Elementor_MCP_Adapter_Bootstrap' ) && Elementor_MCP_Adapter_Bootstrap::is_outdated(),
 			),
 			'server_enabled'    => $server_enabled,
 			'write_exposure'    => $write_exposure,

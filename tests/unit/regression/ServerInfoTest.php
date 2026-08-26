@@ -444,6 +444,20 @@ class ServerInfoTest extends Ability_Test_Case {
 		// the same client differently — so which one is in use is diagnostic.
 		$this->assertArrayHasKey( 'source', $report['mcp_adapter'] );
 		$this->assertArrayHasKey( 'version', $report['mcp_adapter'] );
+
+		// Which adapter is in force is decided by LOAD ORDER, not by version:
+		// where several plugins bundle a copy, the first one loaded wins and can
+		// be older than what we ship. Reporting only `version` (read from a
+		// constant a bundled copy never defines) reports '' for exactly the case
+		// worth reporting, so the report carries the comparison, not just a value.
+		$this->assertArrayHasKey( 'bundled_version', $report['mcp_adapter'] );
+		$this->assertArrayHasKey( 'outdated', $report['mcp_adapter'] );
+		$this->assertSame(
+			\Elementor_MCP_Adapter_Bootstrap::BUNDLED_VERSION,
+			$report['mcp_adapter']['bundled_version']
+		);
+		$this->assertIsBool( $report['mcp_adapter']['outdated'] );
+
 		$this->assertSame( ELEMENTOR_MCP_VERSION, $report['plugin_version'] );
 		$this->assertArrayHasKey( 'elementor_version', $report );
 	}

@@ -122,6 +122,24 @@ class AdapterBootstrapTest extends TestCase {
 	}
 
 	/**
+	 * The helpers only matter if something renders them. Round-1 of #65 caught
+	 * exactly this: `active_version()` and `is_outdated()` were added, the
+	 * changelog announced the connection screen would report the version, and no
+	 * production code called either — the promise shipped without the feature.
+	 */
+	public function test_the_connection_screen_and_server_report_consume_the_helpers(): void {
+		$consumers = array(
+			'includes/admin/views/page-connection.php',
+			'includes/abilities/class-server-info-abilities.php',
+		);
+		foreach ( $consumers as $relative ) {
+			$src = (string) file_get_contents( dirname( __DIR__, 2 ) . '/' . $relative );
+			$this->assertStringContainsString( 'active_version()', $src, "$relative must report which adapter is live" );
+			$this->assertStringContainsString( 'is_outdated()', $src, "$relative must surface an older adapter" );
+		}
+	}
+
+	/**
 	 * An external adapter that declares no version is a copy bundled inside
 	 * another plugin — every one observed in the wild predates what we ship, so
 	 * unknown must read as outdated rather than as fine.

@@ -696,6 +696,20 @@
 	color: var(--mcp-gray-800);
 }
 
+/* A warning under a status card's value — currently the older-adapter notice.
+   Wraps rather than truncating: the whole point is that the operator reads it. */
+.elementor-mcp-status-card-note {
+	display: block;
+	margin-top: 4px;
+	max-width: 42ch;
+	font-size: 12px;
+	line-height: 1.45;
+	/* Not --mcp-warning (#f59e0b): amber on white fails contrast at 12px, and a
+	   warning nobody can read is decoration. This is the same hue, darkened. */
+	color: #8a5a00;
+	white-space: normal;
+}
+
 /* Legacy status badges — still used in status table fallback */
 .elementor-mcp-status {
 	display: inline-flex;

@@ -74,7 +74,7 @@ final class Elementor_MCP_Adapter_Bootstrap {
 		// A standalone MCP Adapter plugin is already active — defer to it.
 		if ( class_exists( '\WP\MCP\Core\McpAdapter' ) ) {
 			self::$source           = 'external';
-			self::$external_version = defined( 'WP_MCP_VERSION' ) ? (string) WP_MCP_VERSION : '';
+			self::$external_version = self::detect_external_version();
 			return;
 		}
 
@@ -128,6 +128,36 @@ final class Elementor_MCP_Adapter_Bootstrap {
 			\WP\MCP\Plugin::instance();
 			self::$source = self::is_loaded() ? 'bundled' : 'none';
 		}
+	}
+
+	/**
+	 * The version of an external adapter, read from the class before the constant.
+	 *
+	 * ORDER IS THE POINT. `McpAdapter::VERSION` is compiled into the class that
+	 * actually loaded; `WP_MCP_VERSION` is defined by whichever copy ran its
+	 * bootstrap, which on a site with several bundled copies need not be the same
+	 * one. The class constant is therefore the authoritative answer and the
+	 * global is the fallback, not the other way round.
+	 *
+	 * A copy bundled inside another plugin defines no global at all — and that is
+	 * exactly the case this diagnostic exists for. Observed on a production site:
+	 * Rank Math's bundled 0.4.1 won the load-order race, defined no
+	 * `WP_MCP_VERSION`, and exposed `McpAdapter::VERSION = '0.4.1'`. Reading only
+	 * the global would have reported "unknown" for the very site the feature was
+	 * written for.
+	 *
+	 * @since 1.33.0
+	 *
+	 * @return string Version string, or '' when neither source answers.
+	 */
+	private static function detect_external_version(): string {
+		if ( defined( '\WP\MCP\Core\McpAdapter::VERSION' ) ) {
+			$version = (string) constant( '\WP\MCP\Core\McpAdapter::VERSION' );
+			if ( '' !== $version ) {
+				return $version;
+			}
+		}
+		return defined( 'WP_MCP_VERSION' ) ? (string) WP_MCP_VERSION : '';
 	}
 
 	/**

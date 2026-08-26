@@ -122,6 +122,32 @@ class AdapterBootstrapTest extends TestCase {
 	}
 
 	/**
+	 * The live case that motivated the diagnostic, reproduced.
+	 *
+	 * Rank Math's bundled 0.4.1 won the load-order race on a production site: it
+	 * defined no `WP_MCP_VERSION` and exposed `McpAdapter::VERSION = '0.4.1'`.
+	 * Reading only the global would report "unknown version" for exactly the
+	 * site the feature exists for — so the class constant is read first, and it
+	 * is authoritative besides: it belongs to the class that actually loaded,
+	 * while the global belongs to whichever copy ran its bootstrap.
+	 */
+	public function test_the_external_version_comes_from_the_loaded_class(): void {
+		if ( ! class_exists( '\\WP\\MCP\\Core\\McpAdapter', false ) ) {
+			eval( 'namespace WP\\MCP\\Core; class McpAdapter { public const VERSION = "0.4.1"; }' );
+		}
+
+		$ref    = new ReflectionMethod( 'Elementor_MCP_Adapter_Bootstrap', 'detect_external_version' );
+		$actual = $ref->invoke( null );
+
+		$this->assertSame(
+			'0.4.1',
+			$actual,
+			'a bundled copy defines no WP_MCP_VERSION but does expose McpAdapter::VERSION'
+		);
+		$this->assertNotSame( '', $actual, 'the very case the diagnostic targets must not read as unknown' );
+	}
+
+	/**
 	 * The helpers only matter if something renders them. Round-1 of #65 caught
 	 * exactly this: `active_version()` and `is_outdated()` were added, the
 	 * changelog announced the connection screen would report the version, and no

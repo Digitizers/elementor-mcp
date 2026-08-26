@@ -1,5 +1,8 @@
 # Dependencies
-vendor/
+# Composer's dev dependencies at the REPO ROOT only. Anchored on purpose:
+# unanchored, this also matched includes/vendors/mcp-adapter/vendor/, the
+# adapter's php-mcp-schema runtime dependency that MUST ship in the plugin.
+/vendor/
 
 # Composer
 composer.lock

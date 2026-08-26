@@ -2,6 +2,14 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.33.0 — 2026-08-26
+
+- **Bundled MCP Adapter updated 0.4.1 → 0.6.1**, together with its `wordpress/php-mcp-schema` runtime dependency. That dependency is the substance of the change, not packaging detail: until 0.4.1 the adapter had no runtime dependencies and shipping its `includes/` alone was correct, but since 0.5.0 every MCP response is a typed DTO from `WP\McpSchema\*` — shipping `includes/` alone would load cleanly and then fatal on the first tool call. The bootstrap now registers a PSR-4 prefix for each tree, longest first.
+  - Brings adapter 0.5.0's **stricter input validation and fail-closed permission handling**, plus 0.6.0's `_meta` preservation on resource contents, `resources/templates/list`, case-insensitive resource URI matching, bounded retries on concurrent session mutation, and per-blog session storage on multisite.
+  - 0.6.1 repairs 0.6.0's release ZIP, whose Jetpack class map pointed at test-only files — any plugin calling `class_exists( 'WP_CLI' )` on a web request could hit an uncaught fatal.
+- **Every ability declares `meta.mcp.public = false`.** Adapter 0.6.0 exposes an ability with `meta.public` true through its own default MCP server unless that key opts out. No ability of ours sets `meta.public` today, so nothing was exposed — but that is a fact about the code as it stands, not an invariant anyone maintains, and one ability copied from an example would publish an Elementor write tool on a server this plugin does not control. The opt-out is now declared at registration, in production and in the test shim alike.
+- **The bootstrap reports which adapter is actually in force** (`active_version()`, `is_outdated()`). Where several plugins bundle their own copy, **load order decides, not version.** Measured on a production site on 2026-08-26: four plugins each shipped a copy — 0.4.1, 0.5.0, 0.5.0 and ours — and the **oldest won**, because pre-0.6.0 copies carry no Jetpack Autoloader to arbitrate. `ensure()` cannot fix load order, but the state is no longer invisible. To guarantee the newest wins, install the standalone MCP Adapter 0.6.1 as a plugin.
+
 ## 1.32.0 — 2026-08-23
 
 - New (**governance**): **operator rules are enforced on Elementor writes** (Aura P4.1, plan 3 of 4). An operator's rule in Aura — `block` or `warn` on a page/post by id or a freeze of the whole site — is pushed to SiteAgent, and this plugin now asks SiteAgent's matcher before every governed write. Elementor saves through its own paths rather than `/wp/v2/posts`, which is why SiteAgent's own core-REST enforcement could not cover them and this plugin needs its own point.

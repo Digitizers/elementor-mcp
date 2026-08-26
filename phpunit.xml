@@ -40,6 +40,7 @@
             <file>tests/unit/PremiumTierUnlockedTest.php</file>
             <file>tests/unit/AngieBridgeTest.php</file>
             <file>tests/unit/UpdaterTest.php</file>
+            <file>tests/unit/AdapterBootstrapTest.php</file>
         </testsuite>
     </testsuites>
 

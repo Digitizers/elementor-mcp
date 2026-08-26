@@ -9,9 +9,12 @@
  * @package WP\MCP
  */
 
-declare( strict_types = 1 );
+declare( strict_types=1 );
 
 namespace WP\MCP;
+
+// Exit if accessed directly.
+defined( 'ABSPATH' ) || exit;
 
 /**
  * Class - Autoloader
@@ -37,7 +40,8 @@ final class Autoloader {
 			return self::$is_loaded;
 		}
 
-		$autoloader      = WP_MCP_DIR . '/vendor/autoload.php';
+		// Jetpack Autoloader uses `autoload_packages.php` instead of `autoload.php`.
+		$autoloader      = WP_MCP_DIR . '/vendor/autoload_packages.php';
 		self::$is_loaded = self::require_autoloader( $autoloader );
 
 		return self::$is_loaded;
@@ -51,6 +55,7 @@ final class Autoloader {
 	private static function require_autoloader( string $autoloader_file ): bool {
 		if ( ! is_readable( $autoloader_file ) ) {
 			self::missing_autoloader_notice();
+
 			return false;
 		}
 

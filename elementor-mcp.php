@@ -3,7 +3,7 @@
  * Plugin Name:       MCP Tools for Elementor (Digitizers fork)
  * Plugin URI:        https://github.com/Digitizers/elementor-mcp
  * Description:       A Digitizers fork of elementor-mcp (originally by Mian Shahzad Raza / msrbuilds) — extends the WordPress MCP Adapter to expose Elementor data, widgets, and page-design tools as MCP tools for AI agents. Elementor 4.x-correct; bundles the MCP Adapter.
- * Version:           1.32.0
+ * Version:           1.33.0
  * Requires at least: 6.9
  * Tested up to:      7.1
  * Requires PHP:      8.0
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'ELEMENTOR_MCP_VERSION', '1.32.0' );
+define( 'ELEMENTOR_MCP_VERSION', '1.33.0' );
 define( 'ELEMENTOR_MCP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ELEMENTOR_MCP_URL', plugin_dir_url( __FILE__ ) );
 define( 'ELEMENTOR_MCP_BASENAME', plugin_basename( __FILE__ ) );
@@ -336,6 +336,27 @@ function elementor_mcp_register_ability( string $name, array $args ) {
 	if ( class_exists( 'Elementor_MCP_Governance' ) ) {
 		$args = Elementor_MCP_Governance::wrap_ability( $name, $args );
 	}
+	// MCP Adapter 0.6.0 changed a default: an ability with `meta.public` true is
+	// exposed through the adapter's DEFAULT MCP server unless `meta.mcp.public`
+	// opts out. None of our abilities set `meta.public` today, so nothing is
+	// exposed by that change — but "nothing sets it" is a fact about the code as
+	// it stands, not a property anyone maintains. One ability copied from an
+	// example that carries `public => true` would silently publish an Elementor
+	// write tool on a server we do not control.
+	//
+	// So the opt-out is declared, not inferred. Set explicitly and only when the
+	// caller has not decided for itself, which keeps a deliberate future
+	// exception possible without editing this line.
+	if ( ! isset( $args['meta']['mcp']['public'] ) ) {
+		if ( ! isset( $args['meta'] ) || ! is_array( $args['meta'] ) ) {
+			$args['meta'] = array();
+		}
+		if ( ! isset( $args['meta']['mcp'] ) || ! is_array( $args['meta']['mcp'] ) ) {
+			$args['meta']['mcp'] = array();
+		}
+		$args['meta']['mcp']['public'] = false;
+	}
+
 	// Outermost wrap: normalize the result shape so strict MCP clients never
 	// see a top-level JSON list/scalar in structuredContent (upstream 3.6.1).
 	// Lives here — not in the vendored adapter — so it survives adapter updates.

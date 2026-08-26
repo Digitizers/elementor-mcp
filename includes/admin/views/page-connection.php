@@ -26,6 +26,24 @@ $elementor_mcp_adapter_label = 'bundled' === $elementor_mcp_adapter_source
 	? __( 'Active (bundled)', 'elementor-mcp' )
 	: ( 'external' === $elementor_mcp_adapter_source ? __( 'Active (plugin)', 'elementor-mcp' ) : __( 'Not Active', 'elementor-mcp' ) );
 
+// WHICH adapter, not just whether one loaded. Where several plugins bundle a
+// copy the FIRST one loaded wins — by load order, not by version — so an
+// adapter older than the one shipped here can be the one actually serving. The
+// operator cannot act on a problem they cannot see, so the version is shown and
+// an older one is called out.
+$elementor_mcp_adapter_version  = class_exists( 'Elementor_MCP_Adapter_Bootstrap' )
+	? Elementor_MCP_Adapter_Bootstrap::active_version()
+	: '';
+$elementor_mcp_adapter_outdated = class_exists( 'Elementor_MCP_Adapter_Bootstrap' )
+	&& Elementor_MCP_Adapter_Bootstrap::is_outdated();
+if ( '' !== $elementor_mcp_adapter_version ) {
+	$elementor_mcp_adapter_label .= ' — ' . $elementor_mcp_adapter_version;
+} elseif ( 'external' === $elementor_mcp_adapter_source ) {
+	// No WP_MCP_VERSION at all: the signature of a copy bundled inside another
+	// plugin, every one of which observed in the wild predates what we ship.
+	$elementor_mcp_adapter_label .= ' — ' . __( 'unknown version', 'elementor-mcp' );
+}
+
 // Abilities API is core in WordPress 6.9+/7.0.
 $elementor_mcp_has_abilities = function_exists( 'wp_register_ability' );
 
@@ -123,6 +141,17 @@ $elementor_mcp_server_enabled = class_exists( 'Elementor_MCP_Plugin' )
 				<span class="elementor-mcp-status-card-info">
 					<span class="elementor-mcp-status-card-label"><?php esc_html_e( 'MCP Adapter', 'elementor-mcp' ); ?></span>
 					<span class="elementor-mcp-status-card-value"><?php echo esc_html( $elementor_mcp_adapter_label ); ?></span>
+					<?php if ( $elementor_mcp_adapter_outdated ) : ?>
+						<span class="elementor-mcp-status-card-note">
+							<?php
+							printf(
+								/* translators: %s: the adapter version bundled with this plugin */
+								esc_html__( 'Another plugin loaded an older MCP Adapter first. This plugin bundles %s — install the standalone MCP Adapter plugin to make the newest one win.', 'elementor-mcp' ),
+								esc_html( Elementor_MCP_Adapter_Bootstrap::BUNDLED_VERSION )
+							);
+							?>
+						</span>
+					<?php endif; ?>
 				</span>
 			</div>
 

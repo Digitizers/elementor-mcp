@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.32.0
+Stable tag: 1.33.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,12 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.33.0 =
+* Bundled MCP Adapter updated 0.4.1 -> 0.6.1, together with its `wordpress/php-mcp-schema` runtime dependency (required since adapter 0.5.0 — shipping the adapter alone would fatal on the first tool call).
+* Adapter 0.5.0's stricter input validation and fail-closed permission handling now apply.
+* Every ability declares `meta.mcp.public = false`, so adapter 0.6.0's new default cannot publish an Elementor tool on the adapter's own MCP server.
+* The connection screen can report which adapter version is actually in force, and whether it is older than the bundled one — on a site where another plugin loads its own copy first, load order decides and the older copy can win.
 
 = 1.32.0 =
 New: operator rules set in Aura (block or warn a page or post, or freeze the whole site) are now enforced on Elementor writes made through this plugin, when SiteAgent 2.10.0+ is installed. A block refuses the write before anything is saved or snapshotted; an approval does not override a rule; previews are unaffected. `server-info` reports whether rules are enforced on this site.

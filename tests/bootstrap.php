@@ -296,6 +296,19 @@ namespace {
 			if ( class_exists( 'Elementor_MCP_Call_Context' ) ) {
 				$args = Elementor_MCP_Call_Context::apply_write_guards( $args, $name );
 			}
+			// Mirrors production: adapter 0.6.0 publishes `meta.public` abilities
+			// on its DEFAULT server, so every registration declares the opt-out.
+			// Same reasoning as the write shield above — skipping it here would
+			// let a test assert an ability is unexposed while production exposed it.
+			if ( ! isset( $args['meta']['mcp']['public'] ) ) {
+				if ( ! isset( $args['meta'] ) || ! is_array( $args['meta'] ) ) {
+					$args['meta'] = array();
+				}
+				if ( ! isset( $args['meta']['mcp'] ) || ! is_array( $args['meta']['mcp'] ) ) {
+					$args['meta']['mcp'] = array();
+				}
+				$args['meta']['mcp']['public'] = false;
+			}
 			wp_register_ability( $name, $args );
 		}
 	}

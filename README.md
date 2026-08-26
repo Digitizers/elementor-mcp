@@ -39,8 +39,14 @@ This fork deliberately keeps the `elementor-mcp` identity and does **not** adopt
 | WordPress | >= 6.9 |
 | PHP | >= 8.0 |
 | Elementor | >= 3.20 (container support required) |
-| WordPress MCP Adapter | Bundled (no separate install) |
+| WordPress MCP Adapter | 0.6.1, bundled (no separate install) — see the note below |
 | WordPress Abilities API | Bundled in WP 6.9+, or via Composer |
+
+### A note on the bundled MCP Adapter
+
+The adapter is bundled, so no separate install is needed. But if **another** plugin on the site also bundles a copy — WP Rocket, Imagify and Rank Math all do — then whichever loads first wins, **by load order and not by version**. Copies older than 0.6.0 carry no Jetpack Autoloader to arbitrate, so an older adapter can beat the one shipped here, and it does happen: on a site measured on 2026-08-26 four copies were present and the oldest was the one in force.
+
+The plugin's connection screen reports the version actually loaded. To guarantee the newest one wins, install the standalone [MCP Adapter](https://github.com/WordPress/mcp-adapter/releases) 0.6.1 as a plugin — it loads as a real plugin and arbitrates in favour of the newest available classes.
 
 ## Installation
 

@@ -410,6 +410,7 @@ class Elementor_MCP_Governance {
 			'is_edit'         => $is_edit,
 			'baseline'        => 'inconclusive', // pre-write render state (edits only)
 			'rules_checked'   => array(), // post id => true, once before_page_write has gated it this run
+			'collateral'      => null, // Elementor_MCP_Collateral report for the protected post, set by record_page_write()
 		);
 
 		// Kit-scoped writes are snapshotted LAZILY at the kit write site (the
@@ -438,6 +439,54 @@ class Elementor_MCP_Governance {
 		if ( null !== self::$run['snapshot_id'] ) {
 			$post_id     = self::$run['post_id'];
 			$snapshot_id = self::$run['snapshot_id'];
+
+			// Collateral diff (1.34.0, P5.1): did the save change anything the tool
+			// never targeted, or drop a setting it asked for? Judged from the
+			// report save_page_data() recorded — before the render check, because
+			// it is deterministic and cheap, and a refused write needs no probe.
+			$collateral = self::$run['collateral'];
+			if ( is_array( $collateral ) && class_exists( 'Elementor_MCP_Collateral' ) && Elementor_MCP_Collateral::has_findings( $collateral ) ) {
+				$mode = self::collateral_mode( $name, $post_id, $collateral );
+				if ( 'refuse' === $mode ) {
+					$restore   = self::snapshots()->restore( $snapshot_id );
+					self::$run = null;
+					if ( empty( $restore['success'] ) ) {
+						return self::with_run_warnings( self::rollback_failed_error( $name, $post_id, $snapshot_id, 'the write changed elements it never targeted', $restore ) );
+					}
+					/**
+					 * Fires after a governed write was reverted because it changed
+					 * elements it never targeted (or dropped a requested setting).
+					 *
+					 * @since 1.34.0
+					 * @param string $name        Ability name.
+					 * @param int    $post_id     Reverted post id.
+					 * @param string $snapshot_id Snapshot restored.
+					 * @param array  $report      Elementor_MCP_Collateral report.
+					 */
+					do_action( 'elementor_mcp_governance_collateral_reverted', $name, $post_id, $snapshot_id, $collateral );
+					return self::with_run_warnings( self::collateral_refused_error( $name, $post_id, $snapshot_id, $collateral ) );
+				}
+				if ( 'warn' === $mode ) {
+					self::$run_warnings[] = array(
+						'rule'   => 'collateral',
+						'reason' => Elementor_MCP_Collateral::summarize( $collateral ),
+					);
+				}
+				if ( 'off' !== $mode ) {
+					/**
+					 * Fires when a governed write changed elements it never targeted
+					 * or dropped a requested setting, and the write was allowed to
+					 * stand (mode `warn`). The gateway records it on the action.
+					 *
+					 * @since 1.34.0
+					 * @param string $name    Ability name.
+					 * @param int    $post_id Post id.
+					 * @param array  $report  Elementor_MCP_Collateral report.
+					 * @param string $mode    The mode that decided it.
+					 */
+					do_action( 'elementor_mcp_governance_collateral', $name, $post_id, $collateral, $mode );
+				}
+			}
 
 			// Optional post-write render check: revert only when a CONFIRMED-healthy
 			// pre-write baseline turned 'broken' — i.e. the write actually broke the
@@ -484,6 +533,103 @@ class Elementor_MCP_Governance {
 		}
 		self::$run = null;
 		return self::with_run_warnings( $result );
+	}
+
+	/**
+	 * Record what a page-data save did to the page, for the collateral verdict
+	 * taken when the run ends. Called by Elementor_MCP_Data::save_page_data()
+	 * AFTER the save, with the tree as stored before it, the tree the tool asked
+	 * for (before coercion — see Elementor_MCP_Collateral for why that one), and
+	 * the tree as stored after it. A cheap no-op unless a governed run is in
+	 * flight AND this is the post the run snapshotted: the verdict's remedy is
+	 * that snapshot's restore, so a second post written by the same run has no
+	 * rollback point here and is not judged — stated as a limitation, not
+	 * hidden. The last save of the protected post within a run wins.
+	 *
+	 * @since 1.34.0
+	 * @param int   $post_id   The post that was written.
+	 * @param mixed $before    Tree stored before the save (decoded), or null.
+	 * @param mixed $requested Tree the tool asked to save (pre-coercion).
+	 * @param mixed $persisted Tree stored after the save (decoded), or null.
+	 * @return void
+	 */
+	public static function record_page_write( int $post_id, $before, $requested, $persisted ): void {
+		if ( null === self::$run || ! self::is_active() || ! class_exists( 'Elementor_MCP_Collateral' ) ) {
+			return;
+		}
+		if ( null === self::$run['snapshot_id'] || absint( $post_id ) !== (int) self::$run['post_id'] ) {
+			return;
+		}
+		self::$run['collateral'] = Elementor_MCP_Collateral::report( $before, $requested, $persisted );
+	}
+
+	/**
+	 * How a collateral finding is treated: `warn` (default) reports it on the
+	 * run's result through the warnings channel and leaves the write standing;
+	 * `refuse` restores the pre-write snapshot and returns an error; `off` skips
+	 * the verdict. No option and no admin toggle, on purpose — anything other
+	 * than the default is a deliberate, named decision by a site operator.
+	 * `warn` is the default (elementor-mcp#67, owner decision): Elementor's
+	 * save-time migrations and coerce_tree() repairs are expected to show up
+	 * here on untouched nodes, and refusing on those would be the failure that
+	 * makes people disable guards; `refuse` is for after field data bounds it.
+	 *
+	 * @since 1.34.0
+	 * @param string $name    Ability name.
+	 * @param int    $post_id Post id.
+	 * @param array  $report  Elementor_MCP_Collateral report.
+	 * @return string refuse|warn|off
+	 */
+	private static function collateral_mode( string $name, int $post_id, array $report ): string {
+		/**
+		 * Filters how a collateral finding on a governed page write is treated.
+		 *
+		 * @since 1.34.0
+		 * @param string $mode    refuse|warn|off. Default 'warn'.
+		 * @param string $name    Ability name.
+		 * @param int    $post_id Post id.
+		 * @param array  $report  Elementor_MCP_Collateral report.
+		 */
+		$mode = apply_filters( 'emcp_collateral_guard_mode', 'warn', $name, $post_id, $report );
+		return in_array( $mode, array( 'refuse', 'warn', 'off' ), true ) ? $mode : 'warn';
+	}
+
+	/**
+	 * The error a refused collateral verdict returns. Names the nodes rather
+	 * than the rule, and tells the agent not to retry: the pipeline is
+	 * deterministic, so the same call does the same thing again, and on a
+	 * second attempt the pre-write state would be the one already damaged.
+	 *
+	 * @since 1.34.0
+	 * @param string $name        Ability name.
+	 * @param int    $post_id     Post id.
+	 * @param string $snapshot_id Snapshot restored.
+	 * @param array  $report      Elementor_MCP_Collateral report.
+	 * @return \WP_Error
+	 */
+	private static function collateral_refused_error( string $name, int $post_id, string $snapshot_id, array $report ): \WP_Error {
+		return new \WP_Error(
+			'governance_collateral_refused',
+			sprintf(
+				/* translators: 1: tool name, 2: post id, 3: what changed */
+				__( '%1$s changed page %2$d beyond what it targeted, so the write was reverted: %3$s. Do not retry the same call — it will do the same thing again; read the page back and report the elements named.', 'elementor-mcp' ),
+				$name,
+				$post_id,
+				Elementor_MCP_Collateral::summarize( $report )
+			),
+			array(
+				'status'               => 422,
+				'post_id'              => $post_id,
+				'snapshot_id'          => $snapshot_id,
+				'rolled_back'          => true,
+				'targets'              => $report['targets'],
+				'collateral'           => array_slice( $report['collateral'], 0, 10 ),
+				'not_landed'           => array_slice( $report['not_landed'], 0, 10 ),
+				'gained'               => array_slice( $report['gained'], 0, 10 ),
+				'checked'              => $report['checked'],
+				'agent_must_not_retry' => true,
+			)
+		);
 	}
 
 	/**

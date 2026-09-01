@@ -10,7 +10,9 @@
  *
  * Elementor lets us ask it more precisely than a text-containment check can:
  * every node carries a stable `id` and structured JSON settings, so nodes are
- * matched by id and compared for equality. Three trees take part:
+ * matched by id and compared for equality. Four trees take part — two of them
+ * are the same requested tree either side of the coercion, for the reason given
+ * under "not landed" below:
  *
  *   - BEFORE     — `_elementor_data` as stored before the save. Elementor wrote
  *                  it, so it is already in Elementor's normalised form.

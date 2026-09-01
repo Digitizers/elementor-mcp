@@ -9,7 +9,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@elementor/angie-sdk": "1.5.0",
+		"@elementor/angie-sdk": "1.7.3",
 		"@modelcontextprotocol/sdk": "1.30.0"
 	},
 	"devDependencies": {

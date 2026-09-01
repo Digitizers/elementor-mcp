@@ -17,8 +17,10 @@ composer.lock
 .DS_Store
 Thumbs.db
 
-# Build output (bin/build-zip.sh)
-dist/
+# Build output (bin/build-zip.sh) at the REPO ROOT only. Anchored for the same
+# reason /vendor/ is: unanchored, this also matched assets/angie-bridge/dist/,
+# the committed Angie bridge bundle that class-angie-bridge.php enqueues.
+/dist/
 
 # PHPUnit cache
 .phpunit.cache/

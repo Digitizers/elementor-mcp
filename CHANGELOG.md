@@ -2,6 +2,15 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.33.1 — 2026-09-01
+
+- **Angie bridge: `@elementor/angie-sdk` 1.5.0 → 1.7.3**, bundle rebuilt (nine upstream releases, 2026-07-21 → 2026-09-01). The surface the bridge uses — `AngieMcpSdk`, `registerLocalServer()`, `isAngieReady()`, `getRegistrations()`, `getPendingRegistrations()` — is unchanged in signature, and `registerLocalServer` is unchanged in its compiled implementation. Typecheck clean, suite green. What did change was read, not assumed:
+  - **The detector now stamps its ready ping with an SDK instance id** (`payload.instanceId`). The side that answers it is Angie's own SDK copy, served from `editor-static-bucket.elementor.com/angie.umd.cjs` — **not pinned by any plugin version**, so the host can be newer or older than this bundle's copy at any time. Read from 1.7.3's host resolver: a same-origin ping whose id is unknown to the host's instance registry falls back to the first instance that owns an iframe, so a second SDK copy (this bundle) is still answered; a pre-1.7 host answers every same-origin ping. Initial registration is unaffected either way.
+  - **Refresh pings are now filtered per instance.** `isRefreshPingForThisInstance` drops an `sdk-angie-refresh-ping` whose `payload.instanceId` belongs to another instance. Whether Angie's iframe stamps its refresh pings is decided by the remote app, not by anything vendored, so re-registration after an in-place Angie refresh is the one behaviour this bump could change. It is the field-check item below, not a code change — answering every refresh ping (the 1.5.0 behaviour) is exactly what the filter was added to stop.
+  - `waitForReady()` still blocks on module-local sidebar state only the loading instance owns (1.7.3: awaits `sidebarV2BootPromise`, else polls `appState.iframe`), so the bridge keeps not calling it; the comment now names the range actually read.
+  - Upstream ships no changelog and no GitHub releases past 1.0.x; the delta was read from the published tarballs — `dist/*.d.ts`, `README.md`, and the compiled detector and registration code of both versions. The new surface (`triggerAngie` context attachments and suggestions, `AngieInteractionMode`, `setAngieInteractionMode`, `ModelsConfig`) is not used by the bridge.
+- **Field check (K3) to re-run on a site with Angie installed:** `emcpAngieBridgeDebug.isAngieReady()` → `true`, `pending()` → `[]`, `registrations()` → one `registered` entry; then refresh Angie's chat in place and confirm the six tools are still listed.
+
 ## 1.33.0 — 2026-08-26
 
 - **Bundled MCP Adapter updated 0.4.1 → 0.6.1**, together with its `wordpress/php-mcp-schema` runtime dependency. That dependency is the substance of the change, not packaging detail: until 0.4.1 the adapter had no runtime dependencies and shipping its `includes/` alone was correct, but since 0.5.0 every MCP response is a typed DTO from `WP\McpSchema\*` — shipping `includes/` alone would load cleanly and then fatal on the first tool call. The bootstrap now registers a PSR-4 prefix for each tree, longest first.

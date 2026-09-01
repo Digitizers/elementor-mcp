@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.33.0
+Stable tag: 1.33.1
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.33.1 =
+* Angie bridge: `@elementor/angie-sdk` updated 1.5.0 -> 1.7.3 and the bundle rebuilt. The tools exposed do not change. The SDK now identifies each of its instances on a page; the bridge's registration path was checked against that change by reading both SDK builds, and a live re-check on a site with Angie is listed in CHANGELOG.md.
 
 = 1.33.0 =
 * Bundled MCP Adapter updated 0.4.1 -> 0.6.1, together with its `wordpress/php-mcp-schema` runtime dependency (required since adapter 0.5.0 — shipping the adapter alone would fatal on the first tool call).

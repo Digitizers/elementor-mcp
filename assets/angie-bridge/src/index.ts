@@ -99,9 +99,10 @@ async function init(): Promise< void > {
 
 	window.__emcpAngieBridgeInit = true;
 
-	// Do NOT call sdk.waitForReady() here: in SDK 1.5.0 it blocks on
-	// module-local sidebar state (sidebarV2BootPromise / appState.iframe) that
-	// only exists when THIS SDK instance loaded the sidebar. Angie's own plugin
+	// Do NOT call sdk.waitForReady() here: in SDK 1.5.0 through 1.7.3 (both
+	// read) it blocks on module-local sidebar state (sidebarV2BootPromise /
+	// appState.iframe) that only exists when THIS SDK instance loaded the
+	// sidebar. Angie's own plugin
 	// loads the sidebar with its own SDK copy, so that state never populates in
 	// this bundle and the wait would spin forever. registerServer() queues the
 	// registration internally and the SDK processes the queue when its detector

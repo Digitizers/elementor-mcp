@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.33.1
+Stable tag: 1.34.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.34.0 =
+* New: collateral diff on governed page writes. After a governed save the plugin compares the page as stored before, what the tool asked for, and the page as stored after; an element the write never targeted that changed, was retyped or vanished — or a setting the tool asked for that is absent afterwards — is reported as a warning on the tool's result (default), or refused with the pre-write snapshot restored when a site operator sets the `emcp_collateral_guard_mode` filter to `refuse`. Settings this plugin renames on the way in (an advertised alias onto its canonical property) are judged after that rename, so a valid write is never reported as a dropped setting. No new settings screen; the default warns and never reverts.
 
 = 1.33.1 =
 * Angie bridge: `@elementor/angie-sdk` updated 1.5.0 -> 1.7.3 and the bundle rebuilt. The tools exposed do not change. The SDK now identifies each of its instances on a page; the bridge's registration path was checked against that change by reading both SDK builds, and a live re-check on a site with Angie is listed in CHANGELOG.md.

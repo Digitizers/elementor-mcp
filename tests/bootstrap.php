@@ -632,8 +632,13 @@ namespace {
 	}
 
 	if ( ! function_exists( 'do_action' ) ) {
+		/**
+		 * Records the firing so a test can assert WHAT a class announced and
+		 * with which arguments; callbacks registered via add_action() are not
+		 * invoked (add_action() only records registrations, see below).
+		 */
 		function do_action( string $tag, ...$args ): void {
-			// no-op
+			$GLOBALS['_actions_fired'][] = array( 'tag' => $tag, 'args' => $args );
 		}
 	}
 
@@ -1263,6 +1268,7 @@ namespace {
 			'Elementor_MCP_Widget_Generator'       => 'includes/class-widget-generator.php',
 			// SiteAgent governance bridge
 			'Elementor_MCP_Call_Context'           => 'includes/class-call-context.php',
+			'Elementor_MCP_Collateral'             => 'includes/class-collateral.php',
 			'Elementor_MCP_Governance'             => 'includes/class-governance.php',
 			'Elementor_MCP_Rules'                  => 'includes/class-rules.php',
 		];

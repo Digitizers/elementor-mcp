@@ -194,6 +194,12 @@ class Elementor_MCP_Data {
 	 * @return bool|\WP_Error True on success, WP_Error on failure.
 	 */
 	public function save_page_data( int $post_id, array $data ) {
+		// What the tool asked for, BEFORE coercion: the collateral diff derives
+		// the write's targets from this tree against the stored one, so a prop
+		// coerce_tree() repairs on a node the tool never touched is reported as
+		// collateral rather than absorbed into the targets (P5.1).
+		$requested = $data;
+
 		// v4 atomic: Elementor validates the WHOLE element tree on save, so one
 		// widget holding raw (unwrapped) prop values blocks every save of the
 		// page, including the edit meant to repair it (upstream #101/#102).
@@ -370,6 +376,21 @@ class Elementor_MCP_Data {
 			if ( file_exists( $css_path ) ) {
 				wp_delete_file( $css_path );
 			}
+		}
+
+		// Collateral diff (P5.1): hand governance the page as stored before the
+		// save, what the tool asked for, the page as stored now, and $data —
+		// the same tree after coercion, i.e. what was actually handed to
+		// Elementor. Both requested forms travel because they answer different
+		// questions (see Elementor_MCP_Collateral): pre-coercion derives the
+		// write's targets, post-coercion decides whether a target's settings
+		// landed. After BOTH save paths, so the fallback write is judged like
+		// the native one. A no-op unless a governed run is in flight for this
+		// post.
+		if ( class_exists( 'Elementor_MCP_Governance' ) ) {
+			$final_raw  = get_post_meta( $post_id, '_elementor_data', true );
+			$final_tree = ( is_string( $final_raw ) && '' !== $final_raw ) ? json_decode( $final_raw, true ) : null;
+			Elementor_MCP_Governance::record_page_write( $post_id, $pre_tree, $requested, is_array( $final_tree ) ? $final_tree : null, $data );
 		}
 
 		return true;

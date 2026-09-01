@@ -551,16 +551,18 @@ class Elementor_MCP_Governance {
 	 * @param mixed $before    Tree stored before the save (decoded), or null.
 	 * @param mixed $requested Tree the tool asked to save (pre-coercion).
 	 * @param mixed $persisted Tree stored after the save (decoded), or null.
+	 * @param mixed $coerced   The requested tree after coercion — what was handed
+	 *                         to Elementor. Null falls back to $requested.
 	 * @return void
 	 */
-	public static function record_page_write( int $post_id, $before, $requested, $persisted ): void {
+	public static function record_page_write( int $post_id, $before, $requested, $persisted, $coerced = null ): void {
 		if ( null === self::$run || ! self::is_active() || ! class_exists( 'Elementor_MCP_Collateral' ) ) {
 			return;
 		}
 		if ( null === self::$run['snapshot_id'] || absint( $post_id ) !== (int) self::$run['post_id'] ) {
 			return;
 		}
-		self::$run['collateral'] = Elementor_MCP_Collateral::report( $before, $requested, $persisted );
+		self::$run['collateral'] = Elementor_MCP_Collateral::report( $before, $requested, $persisted, $coerced );
 	}
 
 	/**

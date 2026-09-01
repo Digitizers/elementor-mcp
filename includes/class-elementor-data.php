@@ -379,13 +379,18 @@ class Elementor_MCP_Data {
 		}
 
 		// Collateral diff (P5.1): hand governance the page as stored before the
-		// save, what the tool asked for, and the page as stored now — after
-		// BOTH paths, so the fallback write is judged like the native one. A
-		// no-op unless a governed run is in flight for this post.
+		// save, what the tool asked for, the page as stored now, and $data —
+		// the same tree after coercion, i.e. what was actually handed to
+		// Elementor. Both requested forms travel because they answer different
+		// questions (see Elementor_MCP_Collateral): pre-coercion derives the
+		// write's targets, post-coercion decides whether a target's settings
+		// landed. After BOTH save paths, so the fallback write is judged like
+		// the native one. A no-op unless a governed run is in flight for this
+		// post.
 		if ( class_exists( 'Elementor_MCP_Governance' ) ) {
 			$final_raw  = get_post_meta( $post_id, '_elementor_data', true );
 			$final_tree = ( is_string( $final_raw ) && '' !== $final_raw ) ? json_decode( $final_raw, true ) : null;
-			Elementor_MCP_Governance::record_page_write( $post_id, $pre_tree, $requested, is_array( $final_tree ) ? $final_tree : null );
+			Elementor_MCP_Governance::record_page_write( $post_id, $pre_tree, $requested, is_array( $final_tree ) ? $final_tree : null, $data );
 		}
 
 		return true;

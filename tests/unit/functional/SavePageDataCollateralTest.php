@@ -14,6 +14,26 @@ namespace Elementor_MCP\Tests\Functional;
 
 use PHPUnit\Framework\TestCase;
 
+/** A typed prop that advertises `content` as an alias of its canonical name. */
+class Collateral_Aliased_Prop {
+	public function get_key(): string {
+		return 'string';
+	}
+	public function get_meta_item( string $item ) {
+		return 'aliases' === $item ? array( 'content' ) : null;
+	}
+	public function validate( $value ): bool {
+		return is_array( $value ) && 'string' === ( $value['$$type'] ?? '' ) && is_string( $value['value'] ?? null );
+	}
+}
+
+/** An atomic widget whose schema aliases `content` onto `text`. */
+class Collateral_Aliased_Widget {
+	public static function get_props_schema(): array {
+		return array( 'text' => new Collateral_Aliased_Prop() );
+	}
+}
+
 class SavePageDataCollateralTest extends TestCase {
 
 	protected function setUp(): void {
@@ -25,7 +45,10 @@ class SavePageDataCollateralTest extends TestCase {
 		$GLOBALS['_emcp_render_check']   = false;
 		$GLOBALS['_actions_fired']       = array();
 		$GLOBALS['_wp_meta_calls']       = array();
-		$GLOBALS['_widget_types']        = array( 'heading' => new \stdClass() ); // available on this site
+		$GLOBALS['_widget_types']        = array(
+			'heading'                    => new \stdClass(), // available, no schema → no coercion
+			'emcp-collateral-aliased' => new Collateral_Aliased_Widget(),
+		);
 		$GLOBALS['_post_meta'][55]       = array( '_elementor_data' => wp_json_encode( $this->page() ) );
 		\Elementor_MCP_Governance::reset_state();
 		\Elementor_MCP_Rules::reset_state();
@@ -139,6 +162,29 @@ class SavePageDataCollateralTest extends TestCase {
 
 		$this->assertSame( 'collateral', $result['warnings'][0]['rule'] );
 		$this->assertStringContainsString( 'h1: custom_css', $result['warnings'][0]['reason'] );
+	}
+
+	public function test_an_alias_the_coercion_renamed_is_not_reported_as_a_dropped_setting(): void {
+		// End to end through the real coerce_tree(): the tool writes `content`,
+		// the coercion renames it onto `text` and drops the alias key, Elementor
+		// persists that. Judged on the pre-coercion keys this reads as a dropped
+		// setting and, in refuse mode, reverts a perfectly good write (Codex
+		// round-1 P2).
+		$page = array(
+			array( 'id' => 'a1', 'elType' => 'widget', 'widgetType' => 'emcp-collateral-aliased', 'settings' => array(), 'elements' => array() ),
+		);
+		$GLOBALS['_post_meta'][55]['_elementor_data'] = wp_json_encode( $page );
+		$this->inject_document( true );
+
+		$requested = $page;
+		$requested[0]['settings']['content'] = 'Body';
+
+		$result = $this->governed_save( $requested );
+
+		$this->assertSame( array( 'saved' => true ), $result, 'No warnings: the alias landed under its canonical name.' );
+		$persisted = json_decode( $GLOBALS['_post_meta'][55]['_elementor_data'], true );
+		$this->assertArrayHasKey( 'text', $persisted[0]['settings'], 'The coercion really did rename it.' );
+		$this->assertArrayNotHasKey( 'content', $persisted[0]['settings'] );
 	}
 
 	public function test_fallback_path_is_judged_too(): void {

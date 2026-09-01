@@ -130,6 +130,50 @@ class CollateralTest extends TestCase {
 		$this->assertTrue( \Elementor_MCP_Collateral::has_findings( $report ) );
 	}
 
+	public function test_an_alias_the_coercion_renamed_is_landed_not_missing(): void {
+		// coerce_tree()'s apply_prop_aliases() renames an advertised alias onto
+		// its canonical prop and REMOVES the alias key. Reading the pre-coercion
+		// keys would call every aliased write a dropped setting — and in refuse
+		// mode revert it (Codex round-1 P2).
+		$before    = $this->page();
+		$requested = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['content'] = 'Body'; return $el; } );
+		$coerced   = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['text'] = 'Body'; return $el; } );
+		$persisted = $coerced;
+
+		$report = \Elementor_MCP_Collateral::report( $before, $requested, $persisted, $coerced );
+
+		$this->assertSame( array( 'h1' ), $report['targets'], 'The target is still derived from the pre-coercion tree.' );
+		$this->assertSame( array(), $report['not_landed'] );
+		$this->assertFalse( \Elementor_MCP_Collateral::has_findings( $report ) );
+	}
+
+	public function test_a_coercion_repair_on_an_untargeted_node_is_still_collateral(): void {
+		// The mirror of the case above, and why targets stay on the pre-coercion
+		// tree: the coercion rewrote h2, which the tool never touched. Judged
+		// against the coerced tree it would vanish into the targets; judged
+		// against what the tool asked for, it is reported.
+		$before    = $this->page();
+		$requested = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['title'] = 'Uno'; return $el; } );
+		$coerced   = $this->with( $requested, 'h2', static function ( $el ) { $el['settings']['title'] = array( '$$type' => 'string', 'value' => 'Two' ); return $el; } );
+		$persisted = $coerced;
+
+		$report = \Elementor_MCP_Collateral::report( $before, $requested, $persisted, $coerced );
+
+		$this->assertSame( array( 'h1' ), $report['targets'] );
+		$this->assertSame( array( array( 'id' => 'h2', 'kind' => 'changed', 'type' => 'heading', 'path' => '0.1' ) ), $report['collateral'] );
+	}
+
+	public function test_an_omitted_coerced_tree_falls_back_to_the_requested_one(): void {
+		$before    = $this->page();
+		$requested = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['custom_css'] = 'h1{}'; return $el; } );
+
+		$this->assertSame(
+			\Elementor_MCP_Collateral::report( $before, $requested, $before, $requested ),
+			\Elementor_MCP_Collateral::report( $before, $requested, $before ),
+			'No coercion ran → the requested tree answers both questions.'
+		);
+	}
+
 	public function test_a_requested_setting_rewritten_by_elementor_is_landed(): void {
 		$before    = $this->page();
 		$requested = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['title'] = 'raw'; return $el; } );

@@ -19,6 +19,9 @@
  *                  tool's own mutations, so the nodes whose payload differs
  *                  between the two are, by construction, the TARGETS of the
  *                  write. Nothing has to declare them.
+ *   - COERCED    — the same tree AFTER coerce_tree(): what was actually handed
+ *                  to Elementor to persist. Used only to judge whether a
+ *                  target's settings landed, never to derive targets.
  *   - PERSISTED  — `_elementor_data` re-read after the save.
  *
  * Collateral = an untargeted node (payload identical in BEFORE and REQUESTED)
@@ -34,13 +37,23 @@
  * targeted child would make every ancestor "targeted" (their own settings
  * would go unchecked) and a deleted target would make its parent look damaged.
  *
- * Not landed = a targeted node present in REQUESTED and PERSISTED whose
- * requested `settings` carry a key that is absent after the save. Only ABSENCE
- * is reported: a value Elementor rewrote into its canonical shape is normal,
- * and value-equality here would be the false positive save_page_data()'s
+ * Not landed = a targeted node present in COERCED and PERSISTED whose coerced
+ * `settings` carry a key that is absent after the save. Only ABSENCE is
+ * reported: a value Elementor rewrote into its canonical shape is normal, and
+ * value-equality here would be the false positive save_page_data()'s
  * projection check already declines to make. A key that was dropped is field
  * report #4's class — the write persisted, the tool said success, and the
  * setting was never there.
+ *
+ * COERCED rather than REQUESTED for this one question, and the split is the
+ * whole point of carrying both trees: `apply_prop_aliases()` deliberately
+ * renames an advertised alias onto its canonical prop and REMOVES the alias
+ * key, so a tool that legitimately writes `content` on a widget whose schema
+ * aliases it to `text` has no `content` key after the save — reading the
+ * pre-coercion keys would call every aliased write a dropped setting, and in
+ * `refuse` mode revert it (Codex round-1 P2). Targets stay on REQUESTED for
+ * the mirror-image reason: a prop coerce_tree() repaired on a node the tool
+ * never touched must read as collateral, not be absorbed into the targets.
  *
  * Pure: no WordPress, no I/O, no state. The verdict (warn / refuse / off) is
  * Elementor_MCP_Governance's, which is also where the report is recorded.
@@ -62,6 +75,10 @@ class Elementor_MCP_Collateral {
 	 * @param mixed $before    Tree stored before the save.
 	 * @param mixed $requested Tree the tool asked to save (pre-coercion).
 	 * @param mixed $persisted Tree stored after the save.
+	 * @param mixed $coerced   The requested tree after coerce_tree() — what was
+	 *                         handed to Elementor. Null (or not a list) falls
+	 *                         back to $requested, which is correct wherever no
+	 *                         coercion ran.
 	 * @return array{
 	 *   comparable: bool,
 	 *   targets: list<string>,
@@ -71,7 +88,7 @@ class Elementor_MCP_Collateral {
 	 *   not_landed: list<array{id:string,missing:list<string>}>
 	 * }
 	 */
-	public static function report( $before, $requested, $persisted ): array {
+	public static function report( $before, $requested, $persisted, $coerced = null ): array {
 		$report = array(
 			'comparable' => false,
 			'targets'    => array(),
@@ -88,6 +105,7 @@ class Elementor_MCP_Collateral {
 		$b = self::index( $before );
 		$r = self::index( $requested );
 		$p = self::index( $persisted );
+		$c = is_array( $coerced ) ? self::index( $coerced ) : $r;
 
 		// Targets: what the tool itself changed — present on one side only, or
 		// with a different payload. Derived, never declared.
@@ -131,12 +149,14 @@ class Elementor_MCP_Collateral {
 			}
 		}
 
-		// Not landed: a requested setting key that is absent after the save.
+		// Not landed: a setting key that is absent after the save. Read from the
+		// COERCED tree — see the class docblock: an alias the coercion renamed
+		// onto its canonical prop is not a dropped setting.
 		foreach ( array_keys( $targets ) as $id ) {
-			if ( ! isset( $r[ $id ] ) || ! isset( $p[ $id ] ) ) {
+			if ( ! isset( $c[ $id ] ) || ! isset( $p[ $id ] ) ) {
 				continue; // an intended delete, or a node Elementor dropped (the projection check owns that)
 			}
-			$wanted  = isset( $r[ $id ]['payload']['settings'] ) && is_array( $r[ $id ]['payload']['settings'] ) ? $r[ $id ]['payload']['settings'] : array();
+			$wanted  = isset( $c[ $id ]['payload']['settings'] ) && is_array( $c[ $id ]['payload']['settings'] ) ? $c[ $id ]['payload']['settings'] : array();
 			$got     = isset( $p[ $id ]['payload']['settings'] ) && is_array( $p[ $id ]['payload']['settings'] ) ? $p[ $id ]['payload']['settings'] : array();
 			$missing = array();
 			foreach ( array_keys( $wanted ) as $key ) {

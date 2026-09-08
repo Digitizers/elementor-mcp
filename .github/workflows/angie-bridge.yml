@@ -63,9 +63,22 @@ jobs:
       # it as an untracked file and pass — with nothing shipping (Codex round-1).
       # porcelain reports modified, deleted and untracked alike; any line is a
       # mismatch.
+      # Two questions, in order. First: is the bundle COMMITTED at all? A PR that
+      # deleted it and added dist/ to .gitignore would have the rebuild recreate
+      # it as an ignored file, which porcelain does not report — so the drift
+      # check alone would pass with nothing shipping (Codex round-2). Second:
+      # does the committed file match the rebuild?
       - name: Committed dist/ must match the rebuild
         run: |
-          drift="$(git status --porcelain -- dist/)"
+          if ! git ls-files --error-unmatch dist/angie-bridge.js >/dev/null 2>&1; then
+            echo "::error file=assets/angie-bridge/dist/angie-bridge.js::dist/angie-bridge.js is not tracked by git."
+            echo
+            echo "The bundle ships from the commit, so it must be committed — an ignored or"
+            echo "deleted dist/ means the release ZIP ships nothing. Remove dist/ from any"
+            echo ".gitignore and commit the built file."
+            exit 1
+          fi
+          drift="$(git status --porcelain --ignored -- dist/)"
           if [ -z "$drift" ]; then
             echo "dist/angie-bridge.js is exactly what the lockfile builds."
             exit 0

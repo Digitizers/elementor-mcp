@@ -1,0 +1,95 @@
+name: Angie bridge bundle
+
+# `assets/angie-bridge/dist/angie-bridge.js` is COMMITTED and SHIPPED VERBATIM:
+# bin/build-zip.sh excludes the bridge's src/ and package*.json and packages the
+# built file. So the lockfile is not the artifact — and nothing used to check
+# that the two agree.
+#
+# Dependabot's fast-uri bump (#70) recorded a fixed version in the lockfile while
+# the bundle would have kept shipping the vulnerable one; it had to be rebuilt by
+# hand (#71). The very next Dependabot PR (#72, qs) needed the opposite answer —
+# the dependency is tree-shaken out and the bundle does not change — and that
+# too had to be established by hand.
+#
+# This job answers the question once, mechanically: rebuild from the lockfile
+# and fail if the committed bundle differs. A lockfile-only PR that changes what
+# ships goes red with the diff in the log; one that does not goes green.
+
+on:
+  pull_request:
+    paths:
+      - "assets/angie-bridge/**"
+      - ".github/workflows/angie-bridge.yml"
+  push:
+    branches: [main]
+    paths:
+      - "assets/angie-bridge/**"
+      - ".github/workflows/angie-bridge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: Committed bundle matches the lockfile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: assets/angie-bridge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Same major the byte-identical reproductions were established on (#71,
+      # #72). The bundler and minifier are pinned by the lockfile, so the Node
+      # major should not change the output — but if it ever does, this is the
+      # first place to look, not the lockfile.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: assets/angie-bridge/package-lock.json
+
+      - name: Install from the lockfile
+        run: npm ci
+
+      - name: Rebuild the bundle
+        run: npm run build
+
+      # `git status --porcelain`, not `git diff`: diff sees only TRACKED changes,
+      # so a PR that deleted the committed bundle would have the rebuild recreate
+      # it as an untracked file and pass — with nothing shipping (Codex round-1).
+      # porcelain reports modified, deleted and untracked alike; any line is a
+      # mismatch.
+      # Two questions, in order. First: is the bundle COMMITTED at all? A PR that
+      # deleted it and added dist/ to .gitignore would have the rebuild recreate
+      # it as an ignored file, which porcelain does not report — so the drift
+      # check alone would pass with nothing shipping (Codex round-2). Second:
+      # does the committed file match the rebuild?
+      - name: Committed dist/ must match the rebuild
+        run: |
+          if ! git ls-files --error-unmatch dist/angie-bridge.js >/dev/null 2>&1; then
+            echo "::error file=assets/angie-bridge/dist/angie-bridge.js::dist/angie-bridge.js is not tracked by git."
+            echo
+            echo "The bundle ships from the commit, so it must be committed — an ignored or"
+            echo "deleted dist/ means the release ZIP ships nothing. Remove dist/ from any"
+            echo ".gitignore and commit the built file."
+            exit 1
+          fi
+          drift="$(git status --porcelain --ignored -- dist/)"
+          if [ -z "$drift" ]; then
+            echo "dist/angie-bridge.js is exactly what the lockfile builds."
+            exit 0
+          fi
+          echo "::error file=assets/angie-bridge/dist/angie-bridge.js::The committed bundle does not match what the lockfile builds."
+          echo
+          echo "The lockfile changed what ships, but dist/angie-bridge.js was not rebuilt (or is"
+          echo "not committed at all). Run \`npm ci && npm run build\` in assets/angie-bridge and"
+          echo "commit dist/ with the lockfile — the bundle is the artifact that reaches sites,"
+          echo "not the lock."
+          echo
+          echo "$drift"
+          git --no-pager diff --stat -- dist/
+          exit 1

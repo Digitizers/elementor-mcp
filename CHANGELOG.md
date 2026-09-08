@@ -2,6 +2,14 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.34.1 — 2026-09-08
+
+- **Security (bundled dependency): the Angie bridge bundle is rebuilt with `fast-uri` 3.1.7.** The update fixes six high-severity advisories in URI parsing: authority injection via an unvalidated port in `serialize()` (GHSA-qw65-cvwx-89v3), host confusion via unbalanced or misplaced IP-literal brackets (GHSA-58mr-gqgx-xq4g), host confusion via skipped IDN canonicalization on scheme-relative references (GHSA-5jgf-p345-68v8) and via percent-encoded scheme normalization (GHSA-jqff-g426-hqxp), and server-side request forgery via repeated hostname percent-decoding (GHSA-fph4-wmhf-6fwf) and via malformed IPv6 normalization (GHSA-f65p-4m7j-42xc).
+  - **The lockfile is not the shipped artifact.** `fast-uri` is a runtime transitive dependency (`@modelcontextprotocol/sdk` → `ajv` → `fast-uri`) and is compiled into `assets/angie-bridge/dist/angie-bridge.js`, which is committed and shipped as-is: `bin/build-zip.sh` excludes the bridge's `src/` and `package*.json` and packages the built `dist/` file, and no CI job rebuilds or verifies it. So Dependabot's lockfile-only PR (#70) would have recorded 3.1.7 while every install kept running 3.1.5. The bundle is rebuilt here and committed with the lock.
+  - **Reproducibility was established before the change, not assumed.** `npm ci && npm run build` at the *pre-bump* lock reproduced the committed bundle byte-for-byte (sha256 `890361694e5f…`), so the post-bump difference is attributable to the dependency alone. The rebuilt bundle is sha256 `7418868fe171…`; the diff is 48 lines, entirely inside vendored URI-parsing code (IPv4/IPv6 literals, port, scheme, percent-decoding, normalisation), and touches no line of this plugin's own source.
+  - `npm audit` no longer reports `fast-uri`. Two pre-existing advisories in the bridge's dev/transitive tree are untouched and out of scope here: `nanoid` (high) and `qs` (moderate).
+  - No tool, behaviour, or setting changes.
+
 ## 1.34.0 — 2026-09-01
 
 - New: **collateral diff on governed page writes** (references P5.1, elementor-mcp#67). Every other check in the write path asks "did my change land?"; this one asks "did anything **else** change?" — the question Respira's builder-type guard exists for, where every known incident came from the writer's own serialiser retyping or emptying nodes the caller never addressed, with ids, order and stored text intact so nothing complained. After a governed save, `Elementor_MCP_Collateral` compares three trees: the page as stored **before**, the tree the tool **asked** for (before `coerce_tree()`), and the page as stored **after**.

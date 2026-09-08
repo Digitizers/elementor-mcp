@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.34.0
+Stable tag: 1.34.1
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.34.1 =
+* Security (bundled dependency): the Angie bridge bundle is rebuilt with `fast-uri` 3.1.7, which fixes six high-severity advisories in URI parsing — authority injection via an unvalidated port, host confusion via unbalanced IP-literal brackets and via percent-encoded scheme normalization, skipped IDN canonicalization on scheme-relative references, and two server-side request forgery paths through hostname percent-decoding and malformed IPv6 normalization. `fast-uri` reaches the bundle through the MCP SDK's schema validator and is compiled into the shipped `angie-bridge.js`, so updating the lockfile alone would have left every install running the vulnerable copy. No tool, behaviour or setting changes.
 
 = 1.34.0 =
 * New: collateral diff on governed page writes. After a governed save the plugin compares the page as stored before, what the tool asked for, and the page as stored after; an element the write never targeted that changed, was retyped or vanished — or a setting the tool asked for that is absent afterwards — is reported as a warning on the tool's result (default), or refused with the pre-write snapshot restored when a site operator sets the `emcp_collateral_guard_mode` filter to `refuse`. Settings this plugin renames on the way in (an advertised alias onto its canonical property) are judged after that rename, so a valid write is never reported as a dropped setting. No new settings screen; the default warns and never reverts.

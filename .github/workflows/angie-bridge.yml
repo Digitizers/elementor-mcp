@@ -58,17 +58,25 @@ jobs:
       - name: Rebuild the bundle
         run: npm run build
 
+      # `git status --porcelain`, not `git diff`: diff sees only TRACKED changes,
+      # so a PR that deleted the committed bundle would have the rebuild recreate
+      # it as an untracked file and pass — with nothing shipping (Codex round-1).
+      # porcelain reports modified, deleted and untracked alike; any line is a
+      # mismatch.
       - name: Committed dist/ must match the rebuild
         run: |
-          if git diff --quiet -- dist/; then
+          drift="$(git status --porcelain -- dist/)"
+          if [ -z "$drift" ]; then
             echo "dist/angie-bridge.js is exactly what the lockfile builds."
             exit 0
           fi
           echo "::error file=assets/angie-bridge/dist/angie-bridge.js::The committed bundle does not match what the lockfile builds."
           echo
-          echo "The lockfile changed what ships, but dist/angie-bridge.js was not rebuilt."
-          echo "Run \`npm ci && npm run build\` in assets/angie-bridge and commit dist/ with"
-          echo "the lockfile — the bundle is the artifact that reaches sites, not the lock."
+          echo "The lockfile changed what ships, but dist/angie-bridge.js was not rebuilt (or is"
+          echo "not committed at all). Run \`npm ci && npm run build\` in assets/angie-bridge and"
+          echo "commit dist/ with the lockfile — the bundle is the artifact that reaches sites,"
+          echo "not the lock."
           echo
+          echo "$drift"
           git --no-pager diff --stat -- dist/
           exit 1

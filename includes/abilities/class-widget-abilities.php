@@ -359,6 +359,7 @@ class Elementor_MCP_Widget_Abilities {
 					'properties' => array(
 						'success'    => array( 'type' => 'boolean' ),
 						'element_id' => array( 'type' => 'string' ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -423,6 +424,10 @@ class Elementor_MCP_Widget_Abilities {
 		return array(
 			'success'    => true,
 			'element_id' => $element_id,
+			// The same write through update-element carries this channel;
+			// the dedicated widget path must not be the silent one (Codex
+			// round-7 P2 on #74). See Elementor_MCP_Element_Factory::settings_warnings().
+			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 

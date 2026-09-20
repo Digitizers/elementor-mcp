@@ -58,6 +58,30 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 	}
 
 	/**
+	 * Creation goes through the same normalizer as update: add-container and
+	 * build-page build classic containers with the factory, and the legacy
+	 * section/column creators too (Codex round-5 P2 on #74).
+	 * @test
+	 */
+	public function test_creating_a_classic_layout_element_normalizes_the_navigator_label_too(): void {
+		$factory = $this->make_factory();
+
+		$c = $factory->create_container( array( 'editor_settings' => array( 'title' => 'Hero' ), 'justify_content' => 'center' ) );
+		$this->assertSame( 'Hero', $c['settings']['_title'] );
+		$this->assertArrayNotHasKey( 'editor_settings', $c['settings'] );
+		$this->assertSame( 'center', $c['settings']['flex_justify_content'], 'the flex shorthand pass still runs' );
+
+		$s = $factory->create_section( array( 'editor_settings' => array( 'title' => 'Sec' ) ) );
+		$this->assertSame( 'Sec', $s['settings']['_title'] );
+		$this->assertArrayNotHasKey( 'editor_settings', $s['settings'] );
+
+		$col = $factory->create_column( array( '_title' => 'Keep', 'editor_settings' => array( 'title' => 'Alias', 'other' => 1 ) ) );
+		$this->assertSame( 'Keep', $col['settings']['_title'], 'canonical wins at creation too' );
+		$this->assertSame( array( 'other' => 1 ), $col['settings']['editor_settings'] );
+		$this->assertSame( 100, $col['settings']['_column_size'], 'defaults untouched' );
+	}
+
+	/**
 	 * On a classic WIDGET `editor_settings` can be an ordinary compound control
 	 * name (this repo's widget builder registers controls with arbitrary names),
 	 * so nothing is lifted out of it — the same reason the atomic hoist leaves

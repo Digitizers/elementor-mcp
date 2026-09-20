@@ -736,36 +736,17 @@ class Elementor_MCP_Data {
 				$is_atomic = self::is_atomic_element( $item );
 
 				// Navigator label on a CLASSIC LAYOUT element (container,
-				// section, column). Classic Elementor serializes the Navigator
-				// name as `settings._title`; only atomic elements keep
-				// `editor_settings` at the element root (the hoist below). An
-				// agent that nests `editor_settings.title` under `settings` on
-				// a classic container used to get a dead key and a success
-				// response — the silent-no-op class this repo's field reports
-				// keep finding. Remap the one key that has a classic home;
-				// leave any other `editor_settings` member where the agent put
-				// it (mirrors EMCP 3.16.x, upstream #133; P6.2).
-				//
-				// LAYOUT ELEMENTS ONLY, never a classic widget: on a widget
-				// `editor_settings` can be an ordinary compound control name —
-				// this repo's own widget builder registers controls with
-				// arbitrary names — and lifting its `title` member out would
-				// corrupt that control while reporting success (Codex round-1
-				// P2 on #74), the same reasoning the hoist below gives for
-				// leaving classic widgets alone.
-				//
-				// The canonical key wins: a payload carrying BOTH `_title` and
-				// the alias keeps its explicit `_title` (the alias is still
-				// removed), as every other alias normalizer in this repo does
-				// (Codex round-2 P2 on #74).
-				if ( ! $is_atomic && in_array( $item['elType'] ?? '', array( 'container', 'section', 'column' ), true ) && isset( $settings['editor_settings'] ) && is_array( $settings['editor_settings'] ) && array_key_exists( 'title', $settings['editor_settings'] ) ) {
-					if ( ! array_key_exists( '_title', $settings ) ) {
-						$settings['_title'] = $settings['editor_settings']['title'];
-					}
-					unset( $settings['editor_settings']['title'] );
-					if ( empty( $settings['editor_settings'] ) ) {
-						unset( $settings['editor_settings'] );
-					}
+				// section, column): classic Elementor serializes it as
+				// `settings._title`; only atomic elements keep `editor_settings`
+				// at the root (the hoist below). The ONE normalizer shared with
+				// creation lives in the factory — see
+				// Elementor_MCP_Element_Factory::normalize_classic_navigator_title()
+				// for the layout-only / canonical-wins rules and the reasons
+				// (Codex rounds 1, 2 and 5 on #74). Never a classic widget:
+				// there `editor_settings` can be an ordinary control, the same
+				// reason the hoist below leaves classic widgets alone.
+				if ( ! $is_atomic && in_array( $item['elType'] ?? '', array( 'container', 'section', 'column' ), true ) ) {
+					$settings = Elementor_MCP_Element_Factory::normalize_classic_navigator_title( $settings );
 				}
 
 				// Sibling-root keys: on v4 atomic elements the local `styles`

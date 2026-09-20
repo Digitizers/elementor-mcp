@@ -18,6 +18,40 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_MCP_Element_Factory {
 
 	/**
+	 * Navigator label on a CLASSIC LAYOUT element (container, section,
+	 * column): classic Elementor serializes the Navigator name as
+	 * `settings._title`, while an agent naturally sends the atomic spelling,
+	 * `editor_settings.title`. Remap that one key; leave any other
+	 * `editor_settings` member where the agent put it. The canonical key
+	 * wins when both are present, and the alias is removed either way.
+	 *
+	 * ONE normalizer for creation AND update (Codex round-5 P2 on #74):
+	 * `create_container()` (through normalize_container_settings()),
+	 * `create_section()`, `create_column()` and
+	 * `Elementor_MCP_Data::update_element_settings()` all go through here,
+	 * so a payload that works on update also works on add-container and
+	 * build-page. Never called for a widget: there `editor_settings` can be
+	 * an ordinary compound control (this repo's widget builder registers
+	 * controls with arbitrary names). Mirrors EMCP 3.16.x (#133); P6.2.
+	 *
+	 * @param array $settings Settings as the agent sent them.
+	 * @return array Settings with the label where classic Elementor reads it.
+	 */
+	public static function normalize_classic_navigator_title( array $settings ): array {
+		if ( ! isset( $settings['editor_settings'] ) || ! is_array( $settings['editor_settings'] ) || ! array_key_exists( 'title', $settings['editor_settings'] ) ) {
+			return $settings;
+		}
+		if ( ! array_key_exists( '_title', $settings ) ) {
+			$settings['_title'] = $settings['editor_settings']['title'];
+		}
+		unset( $settings['editor_settings']['title'] );
+		if ( empty( $settings['editor_settings'] ) ) {
+			unset( $settings['editor_settings'] );
+		}
+		return $settings;
+	}
+
+	/**
 	 * Warnings about settings that PERSIST but will probably not do what the
 	 * agent meant — a channel beside success, never a refusal, never a
 	 * coercion (mirrors EMCP 3.16.x; P6.2 of the 2026-09-18 reverification).
@@ -147,7 +181,7 @@ class Elementor_MCP_Element_Factory {
 			'elType'     => 'section',
 			'widgetType' => null,
 			'isInner'    => false,
-			'settings'   => $settings,
+			'settings'   => self::normalize_classic_navigator_title( $settings ),
 			'elements'   => $columns,
 		);
 	}
@@ -171,7 +205,7 @@ class Elementor_MCP_Element_Factory {
 			'elType'     => 'column',
 			'widgetType' => null,
 			'isInner'    => false,
-			'settings'   => array_merge( $defaults, $settings ),
+			'settings'   => array_merge( $defaults, self::normalize_classic_navigator_title( $settings ) ),
 			'elements'   => $widgets,
 		);
 	}
@@ -208,6 +242,9 @@ class Elementor_MCP_Element_Factory {
 	 * @return array Settings with shorthand keys remapped.
 	 */
 	public static function normalize_container_settings( array $settings ): array {
+		// The Navigator label alias is a classic-layout alias like the flex
+		// shorthands below, normalized in the same pass (creation and update).
+		$settings = self::normalize_classic_navigator_title( $settings );
 		foreach ( self::CONTAINER_KEY_ALIASES as $shorthand => $flex_key ) {
 			if ( ! array_key_exists( $shorthand, $settings ) ) {
 				continue;

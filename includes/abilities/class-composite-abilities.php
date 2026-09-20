@@ -353,7 +353,13 @@ class Elementor_MCP_Composite_Abilities {
 				if ( ! empty( $widget_type ) ) {
 					$widget = $this->build_widget( $widget_type, $settings );
 					$this->elements_created++;
-					$this->collect_settings_warnings( $widget['id'] ?? '', is_array( $settings ) ? $settings : array() );
+					// Classic dimensions only: an atomic widget's spacing is flat
+					// scalar style params, so a classic-shaped partial object is
+					// not a partial dimension there and the advice would not
+					// apply (Codex round-12 P2 on #74).
+					if ( ! Elementor_MCP_Data::is_atomic_element( $widget ) ) {
+						$this->collect_settings_warnings( $widget['id'] ?? '', is_array( $settings ) ? $settings : array() );
+					}
 
 					// Widgets placed directly inside a row container must be
 					// wrapped in a column container. Elementor's flexbox model

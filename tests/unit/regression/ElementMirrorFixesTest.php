@@ -363,6 +363,37 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 	}
 
 	/**
+	 * Atomic elements have flat scalar spacing, not {top,right,bottom,left}
+	 * controls — a classic-shaped partial object is not a partial dimension
+	 * there and the "supply all four sides" advice would not apply, so the
+	 * classic check is skipped for them everywhere (Codex round-12 P2).
+	 * @test
+	 */
+	public function test_atomic_elements_never_get_the_classic_dimension_warning(): void {
+		$atomic_tree = array( array( 'id' => 'a1', 'elType' => 'widget', 'widgetType' => 'e-heading', 'settings' => array(), 'styles' => array(), 'editor_settings' => array(), 'elements' => array() ) );
+		$ability     = $this->ability_with_tree( $atomic_tree );
+		$partial     = array( 'padding' => array( 'top' => '1' ) );
+
+		$ue = $ability->execute_update_element( array( 'post_id' => 7, 'element_id' => 'a1', 'settings' => $partial ) );
+		$this->assertSame( array(), $ue['settings_warnings'] );
+
+		$b = $ability->execute_batch_update( array( 'post_id' => 7, 'operations' => array( array( 'element_id' => 'a1', 'settings' => $partial ) ) ) );
+		$this->assertSame( array(), $b['settings_warnings'] );
+
+		$data = $this->createStub( \Elementor_MCP_Data::class );
+		$data->method( 'save_page_data' )->willReturn( true );
+		$data->method( 'save_page_settings' )->willReturn( true );
+		$composite = new \Elementor_MCP_Composite_Abilities( $data, $this->make_factory() );
+		$page      = $composite->execute_build_page( array( 'title' => 'T', 'structure' => array(
+			array( 'type' => 'container', 'settings' => array(), 'children' => array(
+				array( 'type' => 'widget', 'widget_type' => 'e-heading', 'settings' => array( 'title' => 'x', 'padding' => array( 'top' => '1' ) ) ),
+			) ),
+		) ) );
+		$this->assertIsArray( $page );
+		$this->assertSame( array(), $page['settings_warnings'], 'the atomic widget in a built page is skipped too' );
+	}
+
+	/**
 	 * The governance wrapper attaches its OWN `warnings` ({rule, reason}
 	 * entries) to a governed outcome; the settings channel must not sit on
 	 * that key or one of the two is lost (Codex round-2 P1 on #74).

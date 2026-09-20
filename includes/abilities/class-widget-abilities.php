@@ -430,7 +430,7 @@ class Elementor_MCP_Widget_Abilities {
 			// The same write through update-element carries this channel;
 			// the dedicated widget path must not be the silent one (Codex
 			// round-7 P2 on #74). See Elementor_MCP_Element_Factory::settings_warnings().
-			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+			'settings_warnings' => Elementor_MCP_Data::is_atomic_element( $element ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 

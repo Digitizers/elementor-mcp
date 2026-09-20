@@ -407,7 +407,10 @@ class Elementor_MCP_Layout_Abilities {
 			'success'      => true,
 			'element_id'   => $element_id,
 			'element_type' => $element['elType'] ?? 'unknown',
-			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+			// Classic elements only — an atomic element's spacing is flat
+			// style params, never a {top,right,bottom,left} control (Codex
+			// round-12 P2 on #74).
+			'settings_warnings' => Elementor_MCP_Data::is_atomic_element( $element ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 
@@ -512,7 +515,9 @@ class Elementor_MCP_Layout_Abilities {
 
 			if ( $ok ) {
 				$updated_count++;
-				$sent[ $eid ] = array_merge( $sent[ $eid ] ?? array(), is_array( $settings ) ? $settings : array() );
+				if ( ! Elementor_MCP_Data::is_atomic_element( $element ) ) {
+					$sent[ $eid ] = array_merge( $sent[ $eid ] ?? array(), is_array( $settings ) ? $settings : array() );
+				}
 			} else {
 				$failed[] = array( 'element_id' => $eid, 'reason' => 'update failed' );
 			}

@@ -753,8 +753,15 @@ class Elementor_MCP_Data {
 				// corrupt that control while reporting success (Codex round-1
 				// P2 on #74), the same reasoning the hoist below gives for
 				// leaving classic widgets alone.
+				//
+				// The canonical key wins: a payload carrying BOTH `_title` and
+				// the alias keeps its explicit `_title` (the alias is still
+				// removed), as every other alias normalizer in this repo does
+				// (Codex round-2 P2 on #74).
 				if ( ! $is_atomic && in_array( $item['elType'] ?? '', array( 'container', 'section', 'column' ), true ) && isset( $settings['editor_settings'] ) && is_array( $settings['editor_settings'] ) && array_key_exists( 'title', $settings['editor_settings'] ) ) {
-					$settings['_title'] = $settings['editor_settings']['title'];
+					if ( ! array_key_exists( '_title', $settings ) ) {
+						$settings['_title'] = $settings['editor_settings']['title'];
+					}
 					unset( $settings['editor_settings']['title'] );
 					if ( empty( $settings['editor_settings'] ) ) {
 						unset( $settings['editor_settings'] );

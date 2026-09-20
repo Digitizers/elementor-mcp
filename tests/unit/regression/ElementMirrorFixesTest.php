@@ -58,6 +58,29 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 	}
 
 	/**
+	 * A label an older build wrote to the dead nested key must not survive
+	 * beside the new `_title` after a top-level merge (Codex round-10 P2).
+	 * @test
+	 */
+	public function test_a_stale_nested_title_stored_by_an_older_build_is_dropped_when_the_label_is_set(): void {
+		$data = new \Elementor_MCP_Data();
+		$tree = array( array( 'id' => 'c1', 'elType' => 'container', 'settings' => array( 'editor_settings' => array( 'title' => 'Old', 'other' => 1 ) ), 'elements' => array() ) );
+
+		$data->update_element_settings( $tree, 'c1', array( 'editor_settings' => array( 'title' => 'New' ) ) );
+		$this->assertSame( 'New', $tree[0]['settings']['_title'] );
+		$this->assertSame( array( 'other' => 1 ), $tree[0]['settings']['editor_settings'], 'the stale title is gone, the other stored member is kept' );
+
+		$tree2 = array( array( 'id' => 'c2', 'elType' => 'section', 'settings' => array( 'editor_settings' => array( 'title' => 'Old' ) ), 'elements' => array() ) );
+		$data->update_element_settings( $tree2, 'c2', array( '_title' => 'Explicit' ) );
+		$this->assertSame( 'Explicit', $tree2[0]['settings']['_title'] );
+		$this->assertArrayNotHasKey( 'editor_settings', $tree2[0]['settings'], 'an explicit _title clears the dead key too, and an emptied editor_settings is dropped' );
+
+		$tree3 = array( array( 'id' => 'c3', 'elType' => 'container', 'settings' => array( 'editor_settings' => array( 'title' => 'Old' ) ), 'elements' => array() ) );
+		$data->update_element_settings( $tree3, 'c3', array( 'flex_direction' => 'row' ) );
+		$this->assertSame( array( 'title' => 'Old' ), $tree3[0]['settings']['editor_settings'], 'an update that does not touch the label leaves the stored settings alone' );
+	}
+
+	/**
 	 * Creation goes through the same normalizer as update: add-container and
 	 * build-page build classic containers with the factory, and the legacy
 	 * section/column creators too (Codex round-5 P2 on #74).

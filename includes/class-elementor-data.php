@@ -747,6 +747,18 @@ class Elementor_MCP_Data {
 				// reason the hoist below leaves classic widgets alone.
 				if ( ! $is_atomic && in_array( $item['elType'] ?? '', array( 'container', 'section', 'column' ), true ) ) {
 					$settings = Elementor_MCP_Element_Factory::normalize_classic_navigator_title( $settings );
+					// A label written by an older build sits in the STORED
+					// settings as the dead nested key. The top-level merge below
+					// would leave it there beside the new `_title`, two labels
+					// disagreeing; drop the stale nested title (other members of
+					// the stored `editor_settings` are kept) whenever this update
+					// sets `_title` (Codex round-10 P2 on #74).
+					if ( array_key_exists( '_title', $settings ) && isset( $item['settings']['editor_settings'] ) && is_array( $item['settings']['editor_settings'] ) && array_key_exists( 'title', $item['settings']['editor_settings'] ) ) {
+						unset( $item['settings']['editor_settings']['title'] );
+						if ( empty( $item['settings']['editor_settings'] ) ) {
+							unset( $item['settings']['editor_settings'] );
+						}
+					}
 				}
 
 				// Sibling-root keys: on v4 atomic elements the local `styles`

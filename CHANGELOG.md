@@ -2,6 +2,15 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.35.0 — 2026-09-21
+
+- **Navigator labels on classic elements persist.** `update_element_settings()` remaps `settings.editor_settings.title` → `settings._title` on a non-atomic element — classic Elementor's serialization of the Navigator name — and leaves any other `editor_settings` member where the agent put it. Atomic elements keep the existing root hoist. Before this, an agent labelling a classic container got a dead nested key and a success response: the silent-no-op class the field reports keep finding (FIELD-REPORT-4). Mirrors EMCP 3.16.x (upstream #133); P6.2 of `references` `docs/comparisons/reverification-2026-09-18.md` §2.2.
+- **A `warnings` channel on the layout write tools** (`add-container`, `update-container`, `update-element`, `batch-update` — prefixed `<element_id>: ` in a batch): "this persisted, but it probably will not do what you meant". Two cases, both from `Elementor_MCP_Element_Factory::settings_warnings()`:
+  - **Partial classic dimensions.** `margin` / `padding` / `border_radius` / `border_width` (responsive `_tablet`/`_mobile` and `_`-prefixed variants included) with 1–3 blank or missing sides: Elementor may omit the entire CSS rule. The value is saved exactly as sent — coercing a blank side to `0` would silently destroy inheritance, which is worse. Typed atomic props (`$$type`) are a different data model and are not inspected. (Upstream #134.)
+  - **Grid's two-row default.** A grid container created without `grid_rows_grid` gets two rows; the warning spells the one-row shape (`{"unit":"fr","size":1}`). Creation only — an update never re-warns about a default the element already has. (Upstream #135.) The `add-container` description says both things too.
+  - The key is always present (`[]` when quiet) and declared in each tool's `output_schema`. Never a refusal, never a rollback.
+- Tests: `tests/unit/regression/ElementMirrorFixesTest.php` (12). Suite 1271 green.
+
 ## 1.34.1 — 2026-09-08
 
 - **Security (bundled dependency): the Angie bridge bundle is rebuilt with `fast-uri` 3.1.7.** The update fixes six high-severity advisories in URI parsing: authority injection via an unvalidated port in `serialize()` (GHSA-qw65-cvwx-89v3), host confusion via unbalanced or misplaced IP-literal brackets (GHSA-58mr-gqgx-xq4g), host confusion via skipped IDN canonicalization on scheme-relative references (GHSA-5jgf-p345-68v8) and via percent-encoded scheme normalization (GHSA-jqff-g426-hqxp), and server-side request forgery via repeated hostname percent-decoding (GHSA-fph4-wmhf-6fwf) and via malformed IPv6 normalization (GHSA-f65p-4m7j-42xc).

@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.34.1
+Stable tag: 1.35.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,10 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.35.0 =
+* Fix: a Navigator label set through `editor_settings.title` on a classic element (container, section, column, classic widget) is now saved as `settings._title`, where classic Elementor reads it; it used to be written to a dead nested key with a success response. Atomic elements are unchanged (their `editor_settings` stays at the element root).
+* New: a `warnings` list on `add-container`, `update-container`, `update-element` and `batch-update` — what persisted but will probably not do what you meant. Partial classic dimensions (`margin`/`padding`/`border_radius`/`border_width` with 1–3 blank sides, including responsive variants) are saved exactly as sent and warned about, because Elementor may drop the whole CSS rule; a grid container created without `grid_rows_grid` is warned about Elementor's two-row default. Nothing is coerced and nothing is refused. The key is always present (empty when there is nothing to say) and declared in each tool's output schema.
 
 = 1.34.1 =
 * Security (bundled dependency): the Angie bridge bundle is rebuilt with `fast-uri` 3.1.7, which fixes six high-severity advisories in URI parsing — authority injection via an unvalidated port, host confusion via unbalanced IP-literal brackets and via percent-encoded scheme normalization, skipped IDN canonicalization on scheme-relative references, and two server-side request forgery paths through hostname percent-decoding and malformed IPv6 normalization. `fast-uri` reaches the bundle through the MCP SDK's schema validator and is compiled into the shipped `angie-bridge.js`, so updating the lockfile alone would have left every install running the vulnerable copy. No tool, behaviour or setting changes.

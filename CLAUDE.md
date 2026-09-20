@@ -21,6 +21,8 @@ Reports from real client builds that used this plugin end to end. Each one was v
 
 The recurring theme across all of them: **failures here are silent.** A tool returns success, the data changes, and the page looks the same. When adding a write path, prefer erroring loudly over accepting input you'll drop.
 
+Since 1.35.0 there is a third answer between "refuse" and "accept": the **`warnings` channel** on the layout write tools (`add-container`, `update-container`, `update-element`, `batch-update`), built by `Elementor_MCP_Element_Factory::settings_warnings()` — "this persisted, but it probably will not do what you meant" (partial classic dimensions Elementor may drop the whole rule for; a grid created without `grid_rows_grid`). Values are never coerced and the write is never refused; the key is always present and declared in the output schema. Add a case there when a known Elementor semantic makes a valid-looking write misfire, rather than silently normalising the input.
+
 ## Companion projects (sibling folders, edit from here)
 
 | Project | Path | What it is |

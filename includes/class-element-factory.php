@@ -18,6 +18,55 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_MCP_Element_Factory {
 
 	/**
+	 * Warnings about settings that PERSIST but will probably not do what the
+	 * agent meant — a channel beside success, never a refusal, never a
+	 * coercion (mirrors EMCP 3.16.x; P6.2 of the 2026-09-18 reverification).
+	 *
+	 * - Partial classic dimensions (`margin`, `padding`, `border_radius`,
+	 *   `border_width`, their responsive `_tablet`/`_mobile` and `_`-prefixed
+	 *   variants): when 1–3 of the four sides are blank or missing, Elementor
+	 *   may omit the ENTIRE CSS rule. The value is left exactly as sent — a
+	 *   blank side coerced to 0 would silently destroy inheritance, which is
+	 *   worse than the rule being dropped (upstream #134). A typed atomic prop
+	 *   (`$$type`) is a different data model and is not inspected.
+	 * - A grid container created without `grid_rows_grid` gets Elementor's
+	 *   two-row default; warned at creation only — an update never re-warns
+	 *   about a default the element already has (upstream #135).
+	 *
+	 * @param array $settings The settings as the agent sent them.
+	 * @param bool  $creating Whether this is element creation (add-container).
+	 * @return string[] Human-readable warnings; empty when there is nothing to say.
+	 */
+	public static function settings_warnings( array $settings, bool $creating = false ): array {
+		$warnings = array();
+		foreach ( $settings as $key => $value ) {
+			if ( ! is_string( $key ) || ! preg_match( '/^_?(?:margin|padding|border_radius|border_width)(?:_[a-z0-9_]+)?$/', $key ) ) {
+				continue;
+			}
+			if ( ! is_array( $value ) || isset( $value['$$type'] ) ) {
+				continue;
+			}
+			$blank = array();
+			foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+				if ( ! isset( $value[ $side ] ) || '' === $value[ $side ] ) {
+					$blank[] = $side;
+				}
+			}
+			if ( count( $blank ) > 0 && count( $blank ) < 4 ) {
+				$warnings[] = sprintf(
+					'%s has blank or missing sides (%s). Elementor may omit the entire CSS rule. Supply all four sides (use 0 where intended); values were left unchanged to preserve inheritance.',
+					$key,
+					implode( ', ', $blank )
+				);
+			}
+		}
+		if ( $creating && 'grid' === ( $settings['container_type'] ?? '' ) && ! isset( $settings['grid_rows_grid'] ) ) {
+			$warnings[] = 'Elementor defaults grid_rows_grid to 2 rows. For a single-row grid, explicitly set grid_rows_grid: {"unit":"fr","size":1} inside settings.';
+		}
+		return $warnings;
+	}
+
+	/**
 	 * Creates a container element.
 	 *
 	 * @since 1.0.0

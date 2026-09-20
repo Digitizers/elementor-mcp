@@ -391,6 +391,20 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 		) ) );
 		$this->assertIsArray( $page );
 		$this->assertSame( array(), $page['settings_warnings'], 'the atomic widget in a built page is skipped too' );
+
+		// add-widget accepts any registered type, an atomic one included.
+		$data->method( 'get_page_data' )->willReturn( $this->container_tree() );
+		$data->method( 'insert_element' )->willReturn( true );
+		$schema    = $this->createStub( \Elementor_MCP_Schema_Generator::class );
+		$validator = $this->createStub( \Elementor_MCP_Settings_Validator::class );
+		$validator->method( 'validate' )->willReturn( true );
+		$this->allow_all_caps();
+		$widgets = new \Elementor_MCP_Widget_Abilities( $data, $this->make_factory(), $schema, $validator );
+		$GLOBALS['_widget_types'] = array( 'e-heading' => new \stdClass() );
+		$added = $widgets->execute_add_widget( array( 'post_id' => 7, 'parent_id' => 'c1', 'widget_type' => 'e-heading', 'settings' => array( 'title' => 'x', 'padding' => array( 'top' => '1' ) ) ) );
+		unset( $GLOBALS['_widget_types'] );
+		$this->assertArrayHasKey( 'element_id', $added );
+		$this->assertSame( array(), $added['settings_warnings'], 'add-widget of an atomic type is skipped as well' );
 	}
 
 	/**

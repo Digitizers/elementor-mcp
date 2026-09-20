@@ -319,8 +319,14 @@ class Elementor_MCP_Widget_Abilities {
 		return array(
 			'element_id'  => $widget['id'],
 			'widget_type' => $widget_type,
-			// Creation warns like the update path does (Codex round-9 P2 on #74).
-			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+			// Creation warns like the update path does (Codex round-9 P2 on
+			// #74) — for a classic widget: this tool accepts any registered
+			// type, an atomic one included, and atomic spacing is flat style
+			// params, not a four-sided control (round-13 P2).
+			// Judged by the TYPE (Elementor_MCP_Atomic_Widget_Map, the same
+			// test build-page uses), not by the created array: create_widget()
+			// builds a classic-shaped node whatever the type name says.
+			'settings_warnings' => ( class_exists( 'Elementor_MCP_Atomic_Widget_Map' ) && Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type ) ) || Elementor_MCP_Data::is_atomic_element( $widget ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 

@@ -356,8 +356,8 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 		$GLOBALS['_registered_abilities'] = array();
 		$widgets->register();
 		$composite->register();
-		foreach ( array( 'elementor-mcp/add-widget', 'elementor-mcp/build-page' ) as $name ) {
-			$this->assertSame( array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), $GLOBALS['_registered_abilities'][ $name ]['output_schema']['properties']['settings_warnings'], $name );
+		foreach ( array( 'elementor-mcp/add-widget', 'elementor-mcp/build-page', 'elementor-mcp/add-heading' ) as $name ) {
+			$this->assertSame( array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), $GLOBALS['_registered_abilities'][ $name ]['output_schema']['properties']['settings_warnings'], $name . ' (a convenience tool delegates to add-widget and must declare the channel too)' );
 		}
 		unset( $GLOBALS['_widget_types'] );
 	}

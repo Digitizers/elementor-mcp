@@ -515,6 +515,9 @@ class Elementor_MCP_Widget_Abilities {
 					'type'       => 'object',
 					'properties' => array(
 						'element_id' => array( 'type' => 'string' ),
+						// Delegates to execute_add_widget(), so the answer carries
+						// the channel; the schema must say so (Codex round-14 P2).
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(

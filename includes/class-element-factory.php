@@ -18,6 +18,94 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_MCP_Element_Factory {
 
 	/**
+	 * Navigator label on a CLASSIC LAYOUT element (container, section,
+	 * column): classic Elementor serializes the Navigator name as
+	 * `settings._title`, while an agent naturally sends the atomic spelling,
+	 * `editor_settings.title`. Remap that one key; leave any other
+	 * `editor_settings` member where the agent put it. The canonical key
+	 * wins when both are present, and the alias is removed either way.
+	 *
+	 * ONE normalizer for creation AND update (Codex round-5 P2 on #74):
+	 * `create_container()` (through normalize_container_settings()),
+	 * `create_section()`, `create_column()` and
+	 * `Elementor_MCP_Data::update_element_settings()` all go through here,
+	 * so a payload that works on update also works on add-container and
+	 * build-page. Never called for a widget: there `editor_settings` can be
+	 * an ordinary compound control (this repo's widget builder registers
+	 * controls with arbitrary names). Mirrors EMCP 3.16.x (#133); P6.2.
+	 *
+	 * @param array $settings Settings as the agent sent them.
+	 * @return array Settings with the label where classic Elementor reads it.
+	 */
+	public static function normalize_classic_navigator_title( array $settings ): array {
+		if ( ! isset( $settings['editor_settings'] ) || ! is_array( $settings['editor_settings'] ) || ! array_key_exists( 'title', $settings['editor_settings'] ) ) {
+			return $settings;
+		}
+		if ( ! array_key_exists( '_title', $settings ) ) {
+			$settings['_title'] = $settings['editor_settings']['title'];
+		}
+		unset( $settings['editor_settings']['title'] );
+		if ( empty( $settings['editor_settings'] ) ) {
+			unset( $settings['editor_settings'] );
+		}
+		return $settings;
+	}
+
+	/**
+	 * Warnings about settings that PERSIST but will probably not do what the
+	 * agent meant — a channel beside success, never a refusal, never a
+	 * coercion (mirrors EMCP 3.16.x; P6.2 of the 2026-09-18 reverification).
+	 *
+	 * - Partial classic dimensions (`margin`, `padding`, `border_radius`,
+	 *   `border_width`, their `_`-prefixed variants and Elementor's own
+	 *   responsive suffixes — `_widescreen`, `_laptop`, `_tablet_extra`,
+	 *   `_tablet`, `_mobile_extra`, `_mobile` — and NOTHING else: the universal
+	 *   update tool reaches custom widgets whose controls have arbitrary
+	 *   names, and a `padding_config` control with a `top` member is not a
+	 *   dimension, so an open suffix produced false warnings, Codex round-4
+	 *   P2 on #74): when 1–3 of the four sides are blank or missing, Elementor
+	 *   may omit the ENTIRE CSS rule. The value is left exactly as sent — a
+	 *   blank side coerced to 0 would silently destroy inheritance, which is
+	 *   worse than the rule being dropped (upstream #134). A typed atomic prop
+	 *   (`$$type`) is a different data model and is not inspected.
+	 * - A grid container created without `grid_rows_grid` gets Elementor's
+	 *   two-row default; warned at creation only — an update never re-warns
+	 *   about a default the element already has (upstream #135).
+	 *
+	 * @param array $settings The settings as the agent sent them.
+	 * @param bool  $creating Whether this is element creation (add-container).
+	 * @return string[] Human-readable warnings; empty when there is nothing to say.
+	 */
+	public static function settings_warnings( array $settings, bool $creating = false ): array {
+		$warnings = array();
+		foreach ( $settings as $key => $value ) {
+			if ( ! is_string( $key ) || ! preg_match( '/^_?(?:margin|padding|border_radius|border_width)(?:_(?:widescreen|laptop|tablet_extra|tablet|mobile_extra|mobile))?$/', $key ) ) {
+				continue;
+			}
+			if ( ! is_array( $value ) || isset( $value['$$type'] ) ) {
+				continue;
+			}
+			$blank = array();
+			foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+				if ( ! isset( $value[ $side ] ) || '' === $value[ $side ] ) {
+					$blank[] = $side;
+				}
+			}
+			if ( count( $blank ) > 0 && count( $blank ) < 4 ) {
+				$warnings[] = sprintf(
+					'%s has blank or missing sides (%s). Elementor may omit the entire CSS rule. Supply all four sides (use 0 where intended); values were left unchanged to preserve inheritance.',
+					$key,
+					implode( ', ', $blank )
+				);
+			}
+		}
+		if ( $creating && 'grid' === ( $settings['container_type'] ?? '' ) && ! isset( $settings['grid_rows_grid'] ) ) {
+			$warnings[] = 'Elementor defaults grid_rows_grid to 2 rows. For a single-row grid, explicitly set grid_rows_grid: {"unit":"fr","size":1} inside settings.';
+		}
+		return $warnings;
+	}
+
+	/**
 	 * Creates a container element.
 	 *
 	 * @since 1.0.0
@@ -93,7 +181,7 @@ class Elementor_MCP_Element_Factory {
 			'elType'     => 'section',
 			'widgetType' => null,
 			'isInner'    => false,
-			'settings'   => $settings,
+			'settings'   => self::normalize_classic_navigator_title( $settings ),
 			'elements'   => $columns,
 		);
 	}
@@ -117,7 +205,7 @@ class Elementor_MCP_Element_Factory {
 			'elType'     => 'column',
 			'widgetType' => null,
 			'isInner'    => false,
-			'settings'   => array_merge( $defaults, $settings ),
+			'settings'   => array_merge( $defaults, self::normalize_classic_navigator_title( $settings ) ),
 			'elements'   => $widgets,
 		);
 	}
@@ -154,6 +242,9 @@ class Elementor_MCP_Element_Factory {
 	 * @return array Settings with shorthand keys remapped.
 	 */
 	public static function normalize_container_settings( array $settings ): array {
+		// The Navigator label alias is a classic-layout alias like the flex
+		// shorthands below, normalized in the same pass (creation and update).
+		$settings = self::normalize_classic_navigator_title( $settings );
 		foreach ( self::CONTAINER_KEY_ALIASES as $shorthand => $flex_key ) {
 			if ( ! array_key_exists( $shorthand, $settings ) ) {
 				continue;

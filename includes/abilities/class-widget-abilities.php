@@ -233,6 +233,7 @@ class Elementor_MCP_Widget_Abilities {
 					'properties' => array(
 						'element_id'  => array( 'type' => 'string' ),
 						'widget_type' => array( 'type' => 'string' ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -318,6 +319,14 @@ class Elementor_MCP_Widget_Abilities {
 		return array(
 			'element_id'  => $widget['id'],
 			'widget_type' => $widget_type,
+			// Creation warns like the update path does (Codex round-9 P2 on
+			// #74) — for a classic widget: this tool accepts any registered
+			// type, an atomic one included, and atomic spacing is flat style
+			// params, not a four-sided control (round-13 P2).
+			// Judged by the TYPE (Elementor_MCP_Atomic_Widget_Map, the same
+			// test build-page uses), not by the created array: create_widget()
+			// builds a classic-shaped node whatever the type name says.
+			'settings_warnings' => ( class_exists( 'Elementor_MCP_Atomic_Widget_Map' ) && Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type ) ) || Elementor_MCP_Data::is_atomic_element( $widget ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 
@@ -359,6 +368,7 @@ class Elementor_MCP_Widget_Abilities {
 					'properties' => array(
 						'success'    => array( 'type' => 'boolean' ),
 						'element_id' => array( 'type' => 'string' ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -423,6 +433,10 @@ class Elementor_MCP_Widget_Abilities {
 		return array(
 			'success'    => true,
 			'element_id' => $element_id,
+			// The same write through update-element carries this channel;
+			// the dedicated widget path must not be the silent one (Codex
+			// round-7 P2 on #74). See Elementor_MCP_Element_Factory::settings_warnings().
+			'settings_warnings' => Elementor_MCP_Data::is_atomic_element( $element ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 
@@ -501,6 +515,9 @@ class Elementor_MCP_Widget_Abilities {
 					'type'       => 'object',
 					'properties' => array(
 						'element_id' => array( 'type' => 'string' ),
+						// Delegates to execute_add_widget(), so the answer carries
+						// the channel; the schema must say so (Codex round-14 P2).
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(

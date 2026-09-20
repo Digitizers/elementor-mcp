@@ -109,7 +109,7 @@ class Elementor_MCP_Layout_Abilities {
 			'elementor-mcp/add-container',
 			array(
 				'label'               => __( 'Add Container', 'elementor-mcp' ),
-				'description'         => __( 'Adds a container to a page. Supports both flex (default) and grid layouts via container_type. Omit parent_id for top-level, or provide a parent container ID for nesting. Flex tips: Use flex_direction=row for side-by-side children, flex_wrap=wrap for wrapping, flex_justify_content for main-axis alignment (e.g. space-between, center), flex_align_items for cross-axis alignment. (The shorthand justify_content / align_items are also accepted and remapped to flex_justify_content / flex_align_items.) Grid tips: Set container_type=grid with grid_columns_grid, grid_rows_grid, grid_gaps. Background: set background_background=classic and background_color=#hex. Border: set border_border=solid, border_width, border_color. Also supports min_height, overflow, html_tag, padding, margin, position, z_index, animation.', 'elementor-mcp' ),
+				'description'         => __( 'Adds a container to a page. Supports both flex (default) and grid layouts via container_type. Omit parent_id for top-level, or provide a parent container ID for nesting. Flex tips: Use flex_direction=row for side-by-side children, flex_wrap=wrap for wrapping, flex_justify_content for main-axis alignment (e.g. space-between, center), flex_align_items for cross-axis alignment. (The shorthand justify_content / align_items are also accepted and remapped to flex_justify_content / flex_align_items.) Grid tips: Set container_type=grid with grid_columns_grid, grid_rows_grid, grid_gaps. Elementor defaults to 2 rows; for a single row explicitly set grid_rows_grid: {"unit":"fr","size":1}. Background: set background_background=classic and background_color=#hex. Border: set border_border=solid, border_width, border_color. Supply all four sides for margin/padding/border dimensions: one blank side may suppress the entire CSS rule; partial dimensions are saved unchanged and reported in the response\'s settings_warnings. Also supports min_height, overflow, html_tag, padding, margin, position, z_index, animation.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_add_container' ),
 				'permission_callback' => array( $this, 'check_edit_permission' ),
@@ -140,6 +140,7 @@ class Elementor_MCP_Layout_Abilities {
 					'properties' => array(
 						'element_id' => array( 'type' => 'string' ),
 						'post_id'    => array( 'type' => 'integer' ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -207,6 +208,13 @@ class Elementor_MCP_Layout_Abilities {
 		return array(
 			'element_id' => $container['id'],
 			'post_id'    => $post_id,
+			// A warnings channel beside success (P6.2): what persisted but
+			// will probably not do what the agent meant. Never a refusal.
+			// Its OWN key: `warnings` belongs to the governance wrapper
+			// (Elementor_MCP_Governance::with_run_warnings() overwrites it
+			// with {rule, reason} entries on a governed run — Codex round-2
+			// P1 on #74), so the two channels never collide.
+			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array(), true ),
 		);
 	}
 
@@ -244,7 +252,8 @@ class Elementor_MCP_Layout_Abilities {
 				'output_schema'       => array(
 					'type'       => 'object',
 					'properties' => array(
-						'success' => array( 'type' => 'boolean' ),
+						'success'  => array( 'type' => 'boolean' ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -305,7 +314,7 @@ class Elementor_MCP_Layout_Abilities {
 			return $result;
 		}
 
-		return array( 'success' => true );
+		return array( 'success' => true, 'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ) );
 	}
 
 	// -------------------------------------------------------------------------
@@ -345,6 +354,7 @@ class Elementor_MCP_Layout_Abilities {
 						'success'     => array( 'type' => 'boolean' ),
 						'element_id'  => array( 'type' => 'string' ),
 						'element_type' => array( 'type' => 'string' ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -397,6 +407,10 @@ class Elementor_MCP_Layout_Abilities {
 			'success'      => true,
 			'element_id'   => $element_id,
 			'element_type' => $element['elType'] ?? 'unknown',
+			// Classic elements only — an atomic element's spacing is flat
+			// style params, never a {top,right,bottom,left} control (Codex
+			// round-12 P2 on #74).
+			'settings_warnings' => Elementor_MCP_Data::is_atomic_element( $element ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 
@@ -441,6 +455,7 @@ class Elementor_MCP_Layout_Abilities {
 						'success'  => array( 'type' => 'boolean' ),
 						'updated'  => array( 'type' => 'integer' ),
 						'failed'   => array( 'type' => 'array', 'items' => array( 'type' => 'object' ) ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -472,6 +487,13 @@ class Elementor_MCP_Layout_Abilities {
 
 		$updated_count = 0;
 		$failed        = array();
+		// What this batch SENT per element, later operations overriding
+		// earlier ones key by key — the warnings are judged on that merged
+		// payload after the loop, not per operation: an earlier partial
+		// dimension a later operation completes must not warn about a
+		// value that was overwritten before the single save (Codex round-7
+		// P2 on #74).
+		$sent          = array();
 
 		foreach ( $operations as $op ) {
 			$eid      = sanitize_text_field( $op['element_id'] ?? '' );
@@ -493,6 +515,9 @@ class Elementor_MCP_Layout_Abilities {
 
 			if ( $ok ) {
 				$updated_count++;
+				if ( ! Elementor_MCP_Data::is_atomic_element( $element ) ) {
+					$sent[ $eid ] = array_merge( $sent[ $eid ] ?? array(), is_array( $settings ) ? $settings : array() );
+				}
 			} else {
 				$failed[] = array( 'element_id' => $eid, 'reason' => 'update failed' );
 			}
@@ -504,10 +529,18 @@ class Elementor_MCP_Layout_Abilities {
 			return $result;
 		}
 
+		$warnings = array();
+		foreach ( $sent as $eid => $merged ) {
+			foreach ( Elementor_MCP_Element_Factory::settings_warnings( $merged ) as $warning ) {
+				$warnings[] = $eid . ': ' . $warning;
+			}
+		}
+
 		return array(
-			'success' => empty( $failed ),
-			'updated' => $updated_count,
-			'failed'  => $failed,
+			'success'  => empty( $failed ),
+			'updated'  => $updated_count,
+			'failed'   => $failed,
+			'settings_warnings' => $warnings,
 		);
 	}
 

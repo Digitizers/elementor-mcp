@@ -733,6 +733,34 @@ class Elementor_MCP_Data {
 					$item['settings'] = array();
 				}
 
+				$is_atomic = self::is_atomic_element( $item );
+
+				// Navigator label on a CLASSIC LAYOUT element (container,
+				// section, column): classic Elementor serializes it as
+				// `settings._title`; only atomic elements keep `editor_settings`
+				// at the root (the hoist below). The ONE normalizer shared with
+				// creation lives in the factory — see
+				// Elementor_MCP_Element_Factory::normalize_classic_navigator_title()
+				// for the layout-only / canonical-wins rules and the reasons
+				// (Codex rounds 1, 2 and 5 on #74). Never a classic widget:
+				// there `editor_settings` can be an ordinary control, the same
+				// reason the hoist below leaves classic widgets alone.
+				if ( ! $is_atomic && in_array( $item['elType'] ?? '', array( 'container', 'section', 'column' ), true ) ) {
+					$settings = Elementor_MCP_Element_Factory::normalize_classic_navigator_title( $settings );
+					// A label written by an older build sits in the STORED
+					// settings as the dead nested key. The top-level merge below
+					// would leave it there beside the new `_title`, two labels
+					// disagreeing; drop the stale nested title (other members of
+					// the stored `editor_settings` are kept) whenever this update
+					// sets `_title` (Codex round-10 P2 on #74).
+					if ( array_key_exists( '_title', $settings ) && isset( $item['settings']['editor_settings'] ) && is_array( $item['settings']['editor_settings'] ) && array_key_exists( 'title', $item['settings']['editor_settings'] ) ) {
+						unset( $item['settings']['editor_settings']['title'] );
+						if ( empty( $item['settings']['editor_settings'] ) ) {
+							unset( $item['settings']['editor_settings'] );
+						}
+					}
+				}
+
 				// Sibling-root keys: on v4 atomic elements the local `styles`
 				// map and `editor_settings` (Navigator label = editor_settings.
 				// title) live at the element ROOT, as siblings of `settings`.
@@ -747,7 +775,6 @@ class Elementor_MCP_Data {
 				// and hoisting them would delete the control's value from
 				// `settings` while reporting success, leaving the widget
 				// rendering its old value forever (Codex retro-round).
-				$is_atomic      = self::is_atomic_element( $item );
 				$touched_styles = false;
 				foreach ( $is_atomic ? array( 'styles', 'editor_settings' ) : array() as $root_key ) {
 					if ( ! array_key_exists( $root_key, $settings ) ) {

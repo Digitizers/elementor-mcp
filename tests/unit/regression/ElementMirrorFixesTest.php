@@ -38,12 +38,30 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 	/** @test */
 	public function test_a_classic_remap_keeps_other_editor_settings_keys_nested(): void {
 		$data = new \Elementor_MCP_Data();
-		$tree = array( array( 'id' => 'w1', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => array(), 'elements' => array() ) );
+		$tree = array( array( 'id' => 's1', 'elType' => 'section', 'settings' => array(), 'elements' => array() ) );
 
-		$data->update_element_settings( $tree, 'w1', array( 'editor_settings' => array( 'title' => 'H', 'other' => 1 ) ) );
+		$data->update_element_settings( $tree, 's1', array( 'editor_settings' => array( 'title' => 'H', 'other' => 1 ) ) );
 
 		$this->assertSame( 'H', $tree[0]['settings']['_title'] );
 		$this->assertSame( array( 'other' => 1 ), $tree[0]['settings']['editor_settings'], 'only title is remapped; the rest stays where the agent put it' );
+	}
+
+	/**
+	 * On a classic WIDGET `editor_settings` can be an ordinary compound control
+	 * name (this repo's widget builder registers controls with arbitrary names),
+	 * so nothing is lifted out of it — the same reason the atomic hoist leaves
+	 * classic widgets alone (Codex round-1 P2 on #74).
+	 * @test
+	 */
+	public function test_a_classic_widget_keeps_an_editor_settings_control_intact(): void {
+		$data = new \Elementor_MCP_Data();
+		$tree = array( array( 'id' => 'w1', 'elType' => 'widget', 'widgetType' => 'my-custom', 'settings' => array(), 'elements' => array() ) );
+
+		$data->update_element_settings( $tree, 'w1', array( 'editor_settings' => array( 'title' => 'Control value', 'size' => 12 ) ) );
+
+		$this->assertSame( array( 'title' => 'Control value', 'size' => 12 ), $tree[0]['settings']['editor_settings'], 'the control payload is saved exactly as sent' );
+		$this->assertArrayNotHasKey( '_title', $tree[0]['settings'] );
+		$this->assertArrayNotHasKey( 'editor_settings', $tree[0], 'and nothing is hoisted either' );
 	}
 
 	/** @test */

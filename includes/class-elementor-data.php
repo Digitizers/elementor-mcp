@@ -735,16 +735,25 @@ class Elementor_MCP_Data {
 
 				$is_atomic = self::is_atomic_element( $item );
 
-				// Navigator label on a CLASSIC element. Classic Elementor
-				// serializes the Navigator name as `settings._title`; only
-				// atomic elements keep `editor_settings` at the element root
-				// (the hoist below). An agent that nests `editor_settings.title`
-				// under `settings` on a classic container used to get a dead
-				// key and a success response — the silent-no-op class this
-				// repo's field reports keep finding. Remap the one key that has
-				// a classic home; leave any other `editor_settings` member where
-				// the agent put it (mirrors EMCP 3.16.x, upstream #133; P6.2).
-				if ( ! $is_atomic && isset( $settings['editor_settings'] ) && is_array( $settings['editor_settings'] ) && array_key_exists( 'title', $settings['editor_settings'] ) ) {
+				// Navigator label on a CLASSIC LAYOUT element (container,
+				// section, column). Classic Elementor serializes the Navigator
+				// name as `settings._title`; only atomic elements keep
+				// `editor_settings` at the element root (the hoist below). An
+				// agent that nests `editor_settings.title` under `settings` on
+				// a classic container used to get a dead key and a success
+				// response — the silent-no-op class this repo's field reports
+				// keep finding. Remap the one key that has a classic home;
+				// leave any other `editor_settings` member where the agent put
+				// it (mirrors EMCP 3.16.x, upstream #133; P6.2).
+				//
+				// LAYOUT ELEMENTS ONLY, never a classic widget: on a widget
+				// `editor_settings` can be an ordinary compound control name —
+				// this repo's own widget builder registers controls with
+				// arbitrary names — and lifting its `title` member out would
+				// corrupt that control while reporting success (Codex round-1
+				// P2 on #74), the same reasoning the hoist below gives for
+				// leaving classic widgets alone.
+				if ( ! $is_atomic && in_array( $item['elType'] ?? '', array( 'container', 'section', 'column' ), true ) && isset( $settings['editor_settings'] ) && is_array( $settings['editor_settings'] ) && array_key_exists( 'title', $settings['editor_settings'] ) ) {
 					$settings['_title'] = $settings['editor_settings']['title'];
 					unset( $settings['editor_settings']['title'] );
 					if ( empty( $settings['editor_settings'] ) ) {

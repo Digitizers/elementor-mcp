@@ -163,7 +163,7 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 == Changelog ==
 
 = 1.35.0 =
-* Fix: a Navigator label set through `editor_settings.title` on a classic element (container, section, column, classic widget) is now saved as `settings._title`, where classic Elementor reads it; it used to be written to a dead nested key with a success response. Atomic elements are unchanged (their `editor_settings` stays at the element root).
+* Fix: a Navigator label set through `editor_settings.title` on a classic layout element (container, section, column) is now saved as `settings._title`, where classic Elementor reads it; it used to be written to a dead nested key with a success response. Atomic elements are unchanged (their `editor_settings` stays at the element root), and a classic widget's `editor_settings` is left intact because it can be a control of that widget.
 * New: a `warnings` list on `add-container`, `update-container`, `update-element` and `batch-update` — what persisted but will probably not do what you meant. Partial classic dimensions (`margin`/`padding`/`border_radius`/`border_width` with 1–3 blank sides, including responsive variants) are saved exactly as sent and warned about, because Elementor may drop the whole CSS rule; a grid container created without `grid_rows_grid` is warned about Elementor's two-row default. Nothing is coerced and nothing is refused. The key is always present (empty when there is nothing to say) and declared in each tool's output schema.
 
 = 1.34.1 =

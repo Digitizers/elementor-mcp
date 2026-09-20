@@ -38,6 +38,15 @@ class Elementor_MCP_Composite_Abilities {
 	private $elements_created = 0;
 
 	/**
+	 * Settings warnings collected while building the structure, each
+	 * prefixed with the created element's id — the same channel the layout
+	 * and widget write tools carry (Codex round-9 P2 on #74).
+	 *
+	 * @var string[]
+	 */
+	private $settings_warnings = array();
+
+	/**
 	 * Attachment alt-meta writes implied by the structure being built,
 	 * collected during the build and applied only after the page save
 	 * succeeds (and only for attachments the user may edit).
@@ -154,6 +163,7 @@ class Elementor_MCP_Composite_Abilities {
 						'edit_url'         => array( 'type' => 'string' ),
 						'preview_url'      => array( 'type' => 'string' ),
 						'elements_created' => array( 'type' => 'integer' ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -212,6 +222,7 @@ class Elementor_MCP_Composite_Abilities {
 
 		// 2. Build the Elementor element tree from the declarative structure.
 		$this->elements_created  = 0;
+		$this->settings_warnings = array();
 		$this->pending_alt_writes = array();
 		$elements                = $this->build_elements( $structure );
 
@@ -245,6 +256,7 @@ class Elementor_MCP_Composite_Abilities {
 			'edit_url'         => $edit_url,
 			'preview_url'      => $preview_url ? $preview_url : '',
 			'elements_created' => $this->elements_created,
+			'settings_warnings' => $this->settings_warnings,
 		);
 	}
 
@@ -272,6 +284,20 @@ class Elementor_MCP_Composite_Abilities {
 	 * @param string $parent_direction The parent container's flex_direction.
 	 * @return array The Elementor element tree.
 	 */
+	/**
+	 * Append `<id>: <warning>` for every settings warning the factory has
+	 * about what the agent sent for one created element.
+	 *
+	 * @param string $id       The created element's id.
+	 * @param array  $settings The settings as the agent sent them.
+	 * @param bool   $creating Passed through to settings_warnings().
+	 */
+	private function collect_settings_warnings( string $id, array $settings, bool $creating = false ): void {
+		foreach ( Elementor_MCP_Element_Factory::settings_warnings( $settings, $creating ) as $warning ) {
+			$this->settings_warnings[] = $id . ': ' . $warning;
+		}
+	}
+
 	private function build_elements( array $items, bool $is_inner = false, string $parent_direction = '' ): array {
 		$elements  = array();
 		$is_in_row = ( 'row' === $parent_direction || 'row-reverse' === $parent_direction );
@@ -317,6 +343,7 @@ class Elementor_MCP_Composite_Abilities {
 				}
 
 				$this->elements_created++;
+				$this->collect_settings_warnings( $container['id'], $settings, true );
 				$elements[] = $container;
 
 			} elseif ( 'widget' === $type ) {
@@ -326,6 +353,7 @@ class Elementor_MCP_Composite_Abilities {
 				if ( ! empty( $widget_type ) ) {
 					$widget = $this->build_widget( $widget_type, $settings );
 					$this->elements_created++;
+					$this->collect_settings_warnings( $widget['id'] ?? '', is_array( $settings ) ? $settings : array() );
 
 					// Widgets placed directly inside a row container must be
 					// wrapped in a column container. Elementor's flexbox model

@@ -233,6 +233,7 @@ class Elementor_MCP_Widget_Abilities {
 					'properties' => array(
 						'element_id'  => array( 'type' => 'string' ),
 						'widget_type' => array( 'type' => 'string' ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -318,6 +319,8 @@ class Elementor_MCP_Widget_Abilities {
 		return array(
 			'element_id'  => $widget['id'],
 			'widget_type' => $widget_type,
+			// Creation warns like the update path does (Codex round-9 P2 on #74).
+			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 

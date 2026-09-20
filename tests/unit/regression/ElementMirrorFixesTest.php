@@ -292,6 +292,54 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 	}
 
 	/**
+	 * Creation paths warn like the update paths: add-widget and build-page
+	 * (whose containers and widgets come straight from the factory), so the
+	 * first write is never the silent one (Codex round-9 P2 on #74).
+	 * @test
+	 */
+	public function test_add_widget_and_build_page_carry_settings_warnings_too(): void {
+		$data = $this->createStub( \Elementor_MCP_Data::class );
+		$data->method( 'get_page_data' )->willReturn( $this->container_tree() );
+		$data->method( 'save_page_data' )->willReturn( true );
+		$data->method( 'save_page_settings' )->willReturn( true );
+		$data->method( 'insert_element' )->willReturn( true );
+		$schema    = $this->createStub( \Elementor_MCP_Schema_Generator::class );
+		$validator = $this->createStub( \Elementor_MCP_Settings_Validator::class );
+		$validator->method( 'validate' )->willReturn( true );
+		$this->allow_all_caps();
+
+		$widgets = new \Elementor_MCP_Widget_Abilities( $data, $this->make_factory(), $schema, $validator );
+		$GLOBALS['_widget_types'] = array( 'heading' => new \stdClass() ); // the Plugin stub's registry: `heading` exists
+		$out     = $widgets->execute_add_widget( array( 'post_id' => 7, 'parent_id' => 'c1', 'widget_type' => 'heading', 'settings' => array( 'title' => 'x', '_padding' => array( 'top' => '10' ) ) ) );
+		$this->assertArrayHasKey( 'element_id', $out );
+		$this->assertCount( 1, $out['settings_warnings'] );
+		$this->assertStringContainsString( '_padding', $out['settings_warnings'][0] );
+
+		$composite = new \Elementor_MCP_Composite_Abilities( $data, $this->make_factory() );
+		$page      = $composite->execute_build_page( array( 'title' => 'T', 'structure' => array(
+			array( 'type' => 'container', 'settings' => array( 'container_type' => 'grid' ), 'children' => array(
+				array( 'type' => 'widget', 'widget_type' => 'heading', 'settings' => array( 'title' => 'x', 'margin' => array( 'top' => '0' ) ) ),
+			) ),
+		) ) );
+		$this->assertIsArray( $page );
+		$this->assertCount( 2, $page['settings_warnings'], 'the grid default and the widget\'s partial margin, each prefixed with its created id' );
+		$this->assertMatchesRegularExpression( '/^[a-z0-9]+: /', $page['settings_warnings'][0] );
+		$this->assertStringContainsString( 'margin', $page['settings_warnings'][0] . $page['settings_warnings'][1] );
+		$this->assertStringContainsString( 'grid_rows_grid', $page['settings_warnings'][0] . $page['settings_warnings'][1] );
+
+		$clean = $composite->execute_build_page( array( 'title' => 'T', 'structure' => array( array( 'type' => 'container', 'settings' => array( 'container_type' => 'flex' ) ) ) ) );
+		$this->assertSame( array(), $clean['settings_warnings'] );
+
+		$GLOBALS['_registered_abilities'] = array();
+		$widgets->register();
+		$composite->register();
+		foreach ( array( 'elementor-mcp/add-widget', 'elementor-mcp/build-page' ) as $name ) {
+			$this->assertSame( array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), $GLOBALS['_registered_abilities'][ $name ]['output_schema']['properties']['settings_warnings'], $name );
+		}
+		unset( $GLOBALS['_widget_types'] );
+	}
+
+	/**
 	 * The governance wrapper attaches its OWN `warnings` ({rule, reason}
 	 * entries) to a governed outcome; the settings channel must not sit on
 	 * that key or one of the two is lost (Codex round-2 P1 on #74).

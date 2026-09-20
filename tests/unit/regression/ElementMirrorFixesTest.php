@@ -46,6 +46,17 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 		$this->assertSame( array( 'other' => 1 ), $tree[0]['settings']['editor_settings'], 'only title is remapped; the rest stays where the agent put it' );
 	}
 
+	/** @test */
+	public function test_an_explicit_canonical_title_wins_over_the_alias(): void {
+		$data = new \Elementor_MCP_Data();
+		$tree = array( array( 'id' => 'c1', 'elType' => 'container', 'settings' => array(), 'elements' => array() ) );
+
+		$data->update_element_settings( $tree, 'c1', array( '_title' => 'Canonical', 'editor_settings' => array( 'title' => 'Stale alias' ) ) );
+
+		$this->assertSame( 'Canonical', $tree[0]['settings']['_title'], 'the canonical key wins, as in every other alias normalizer here' );
+		$this->assertArrayNotHasKey( 'editor_settings', $tree[0]['settings'], 'the alias is still removed' );
+	}
+
 	/**
 	 * On a classic WIDGET `editor_settings` can be an ordinary compound control
 	 * name (this repo's widget builder registers controls with arbitrary names),
@@ -130,7 +141,8 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 	}
 
 	// ---------------------------------------------------------------------
-	// The warnings channel on the four layout write tools
+	// The settings_warnings channel on the four layout write tools
+	// (its own key: `warnings` is the governance wrapper's, Codex round-2 P1)
 	// ---------------------------------------------------------------------
 
 	private function ability_with_tree( array $tree ): \Elementor_MCP_Layout_Abilities {
@@ -153,12 +165,12 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 		$ability = $this->ability_with_tree( $this->container_tree() );
 
 		$clean = $ability->execute_add_container( array( 'post_id' => 7, 'settings' => array( 'container_type' => 'flex' ) ) );
-		$this->assertSame( array(), $clean['warnings'], 'the key is always present so a schema consumer can rely on it' );
+		$this->assertSame( array(), $clean['settings_warnings'], 'the key is always present so a schema consumer can rely on it' );
 
 		$grid = $ability->execute_add_container( array( 'post_id' => 7, 'settings' => array( 'container_type' => 'grid', 'padding' => array( 'top' => '4' ) ) ) );
-		$this->assertCount( 2, $grid['warnings'] );
-		$this->assertStringContainsString( 'padding', $grid['warnings'][0] );
-		$this->assertStringContainsString( 'grid_rows_grid', $grid['warnings'][1] );
+		$this->assertCount( 2, $grid['settings_warnings'] );
+		$this->assertStringContainsString( 'padding', $grid['settings_warnings'][0] );
+		$this->assertStringContainsString( 'grid_rows_grid', $grid['settings_warnings'][1] );
 		$this->assertArrayHasKey( 'element_id', $grid, 'the write still succeeds — a warning is not a refusal' );
 	}
 
@@ -169,14 +181,14 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 
 		$uc = $ability->execute_update_container( array( 'post_id' => 7, 'element_id' => 'c1', 'settings' => $partial ) );
 		$this->assertTrue( $uc['success'] );
-		$this->assertCount( 1, $uc['warnings'] );
+		$this->assertCount( 1, $uc['settings_warnings'] );
 
 		$ue = $ability->execute_update_element( array( 'post_id' => 7, 'element_id' => 'c1', 'settings' => $partial ) );
 		$this->assertTrue( $ue['success'] );
-		$this->assertCount( 1, $ue['warnings'] );
+		$this->assertCount( 1, $ue['settings_warnings'] );
 
 		$ok = $ability->execute_update_element( array( 'post_id' => 7, 'element_id' => 'c1', 'settings' => array( 'container_type' => 'grid' ) ) );
-		$this->assertSame( array(), $ok['warnings'], 'an update never warns about the grid default' );
+		$this->assertSame( array(), $ok['settings_warnings'], 'an update never warns about the grid default' );
 	}
 
 	/** @test */
@@ -187,12 +199,26 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 			array( 'element_id' => 'c1', 'settings' => array( 'flex_direction' => 'row' ) ),
 		) ) );
 		$this->assertTrue( $out['success'] );
-		$this->assertCount( 1, $out['warnings'] );
-		$this->assertStringStartsWith( 'c1: padding', $out['warnings'][0] );
+		$this->assertCount( 1, $out['settings_warnings'] );
+		$this->assertStringStartsWith( 'c1: padding', $out['settings_warnings'][0] );
+	}
+
+	/**
+	 * The governance wrapper attaches its OWN `warnings` ({rule, reason}
+	 * entries) to a governed outcome; the settings channel must not sit on
+	 * that key or one of the two is lost (Codex round-2 P1 on #74).
+	 * @test
+	 */
+	public function test_settings_warnings_survive_beside_the_governance_warnings_key(): void {
+		$ability = $this->ability_with_tree( $this->container_tree() );
+		$out     = $ability->execute_update_element( array( 'post_id' => 7, 'element_id' => 'c1', 'settings' => array( 'padding' => array( 'left' => '1' ) ) ) );
+		$out['warnings'] = array( array( 'rule' => 'rule/site', 'reason' => 'freeze soon' ) ); // what with_run_warnings() does on a governed run
+		$this->assertCount( 1, $out['settings_warnings'], 'still there' );
+		$this->assertSame( 'rule/site', $out['warnings'][0]['rule'], 'and so is governance\'s' );
 	}
 
 	/** @test */
-	public function test_the_four_output_schemas_declare_warnings(): void {
+	public function test_the_four_output_schemas_declare_settings_warnings(): void {
 		$ability = new \Elementor_MCP_Layout_Abilities( $this->createStub( \Elementor_MCP_Data::class ), $this->make_factory() );
 		$GLOBALS['_registered_abilities'] = array();
 		$ability->register();
@@ -200,7 +226,7 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 		foreach ( $names as $name ) {
 			$args = $GLOBALS['_registered_abilities'][ $name ] ?? null;
 			$this->assertNotNull( $args, $name . ' registered' );
-			$this->assertSame( array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), $args['output_schema']['properties']['warnings'], $name );
+			$this->assertSame( array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), $args['output_schema']['properties']['settings_warnings'], $name );
 		}
 		$this->assertStringContainsString( 'grid_rows_grid: {"unit":"fr","size":1}', $GLOBALS['_registered_abilities']['elementor-mcp/add-container']['description'] );
 		$this->assertStringContainsString( 'all four sides', $GLOBALS['_registered_abilities']['elementor-mcp/add-container']['description'] );

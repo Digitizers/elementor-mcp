@@ -109,7 +109,7 @@ class Elementor_MCP_Layout_Abilities {
 			'elementor-mcp/add-container',
 			array(
 				'label'               => __( 'Add Container', 'elementor-mcp' ),
-				'description'         => __( 'Adds a container to a page. Supports both flex (default) and grid layouts via container_type. Omit parent_id for top-level, or provide a parent container ID for nesting. Flex tips: Use flex_direction=row for side-by-side children, flex_wrap=wrap for wrapping, flex_justify_content for main-axis alignment (e.g. space-between, center), flex_align_items for cross-axis alignment. (The shorthand justify_content / align_items are also accepted and remapped to flex_justify_content / flex_align_items.) Grid tips: Set container_type=grid with grid_columns_grid, grid_rows_grid, grid_gaps. Elementor defaults to 2 rows; for a single row explicitly set grid_rows_grid: {"unit":"fr","size":1}. Background: set background_background=classic and background_color=#hex. Border: set border_border=solid, border_width, border_color. Supply all four sides for margin/padding/border dimensions: one blank side may suppress the entire CSS rule; partial dimensions are saved unchanged and reported in the response\'s warnings. Also supports min_height, overflow, html_tag, padding, margin, position, z_index, animation.', 'elementor-mcp' ),
+				'description'         => __( 'Adds a container to a page. Supports both flex (default) and grid layouts via container_type. Omit parent_id for top-level, or provide a parent container ID for nesting. Flex tips: Use flex_direction=row for side-by-side children, flex_wrap=wrap for wrapping, flex_justify_content for main-axis alignment (e.g. space-between, center), flex_align_items for cross-axis alignment. (The shorthand justify_content / align_items are also accepted and remapped to flex_justify_content / flex_align_items.) Grid tips: Set container_type=grid with grid_columns_grid, grid_rows_grid, grid_gaps. Elementor defaults to 2 rows; for a single row explicitly set grid_rows_grid: {"unit":"fr","size":1}. Background: set background_background=classic and background_color=#hex. Border: set border_border=solid, border_width, border_color. Supply all four sides for margin/padding/border dimensions: one blank side may suppress the entire CSS rule; partial dimensions are saved unchanged and reported in the response\'s settings_warnings. Also supports min_height, overflow, html_tag, padding, margin, position, z_index, animation.', 'elementor-mcp' ),
 				'category'            => 'elementor-mcp',
 				'execute_callback'    => array( $this, 'execute_add_container' ),
 				'permission_callback' => array( $this, 'check_edit_permission' ),
@@ -140,7 +140,7 @@ class Elementor_MCP_Layout_Abilities {
 					'properties' => array(
 						'element_id' => array( 'type' => 'string' ),
 						'post_id'    => array( 'type' => 'integer' ),
-						'warnings'   => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -210,7 +210,11 @@ class Elementor_MCP_Layout_Abilities {
 			'post_id'    => $post_id,
 			// A warnings channel beside success (P6.2): what persisted but
 			// will probably not do what the agent meant. Never a refusal.
-			'warnings'   => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array(), true ),
+			// Its OWN key: `warnings` belongs to the governance wrapper
+			// (Elementor_MCP_Governance::with_run_warnings() overwrites it
+			// with {rule, reason} entries on a governed run — Codex round-2
+			// P1 on #74), so the two channels never collide.
+			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array(), true ),
 		);
 	}
 
@@ -249,7 +253,7 @@ class Elementor_MCP_Layout_Abilities {
 					'type'       => 'object',
 					'properties' => array(
 						'success'  => array( 'type' => 'boolean' ),
-						'warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -310,7 +314,7 @@ class Elementor_MCP_Layout_Abilities {
 			return $result;
 		}
 
-		return array( 'success' => true, 'warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ) );
+		return array( 'success' => true, 'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ) );
 	}
 
 	// -------------------------------------------------------------------------
@@ -350,7 +354,7 @@ class Elementor_MCP_Layout_Abilities {
 						'success'     => array( 'type' => 'boolean' ),
 						'element_id'  => array( 'type' => 'string' ),
 						'element_type' => array( 'type' => 'string' ),
-						'warnings'    => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -403,7 +407,7 @@ class Elementor_MCP_Layout_Abilities {
 			'success'      => true,
 			'element_id'   => $element_id,
 			'element_type' => $element['elType'] ?? 'unknown',
-			'warnings'     => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
 		);
 	}
 
@@ -448,7 +452,7 @@ class Elementor_MCP_Layout_Abilities {
 						'success'  => array( 'type' => 'boolean' ),
 						'updated'  => array( 'type' => 'integer' ),
 						'failed'   => array( 'type' => 'array', 'items' => array( 'type' => 'object' ) ),
-						'warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+						'settings_warnings' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
 				'meta'                => array(
@@ -520,7 +524,7 @@ class Elementor_MCP_Layout_Abilities {
 			'success'  => empty( $failed ),
 			'updated'  => $updated_count,
 			'failed'   => $failed,
-			'warnings' => $warnings,
+			'settings_warnings' => $warnings,
 		);
 	}
 

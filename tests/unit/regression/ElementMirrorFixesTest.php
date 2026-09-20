@@ -106,19 +106,30 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 		$this->assertSame( array(), \Elementor_MCP_Element_Factory::settings_warnings( array( 'margin' => $full, 'border_radius' => $blank ) ) );
 	}
 
-	/** @test */
-	public function test_responsive_and_underscored_variants_are_checked_but_typed_atomic_props_are_not(): void {
+	/**
+	 * Only Elementor's own responsive suffixes count as a dimension control.
+	 * The universal update tool reaches custom widgets with arbitrary control
+	 * names, and `padding_config` with a `top` member is not a dimension —
+	 * warning about it would send the agent to "fix" a valid compound value
+	 * (Codex round-4 P2 on #74).
+	 * @test
+	 */
+	public function test_responsive_and_underscored_variants_are_checked_but_typed_props_and_lookalike_controls_are_not(): void {
 		$partial = array( 'top' => '1', 'right' => '', 'bottom' => '', 'left' => '' );
 		$w = \Elementor_MCP_Element_Factory::settings_warnings( array(
-			'padding_mobile'  => $partial,
-			'_margin_tablet'  => $partial,
-			'border_width'    => array( '$$type' => 'dimensions', 'value' => array( 'top' => '1' ) ),
-			'flex_direction'  => 'row',
-			'padding_scalar'  => '10px',
+			'padding_mobile'        => $partial,
+			'_margin_tablet'        => $partial,
+			'border_radius_tablet_extra' => $partial,
+			'border_width'          => array( '$$type' => 'dimensions', 'value' => array( 'top' => '1' ) ),
+			'padding_config'        => array( 'top' => 'x', 'mode' => 'auto' ),
+			'margin_something_else' => $partial,
+			'flex_direction'        => 'row',
+			'padding_scalar'        => '10px',
 		) );
-		$this->assertCount( 2, $w );
+		$this->assertCount( 3, $w );
 		$this->assertStringContainsString( 'padding_mobile', $w[0] );
 		$this->assertStringContainsString( '_margin_tablet', $w[1] );
+		$this->assertStringContainsString( 'border_radius_tablet_extra', $w[2] );
 	}
 
 	// ---------------------------------------------------------------------

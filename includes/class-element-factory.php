@@ -23,8 +23,13 @@ class Elementor_MCP_Element_Factory {
 	 * coercion (mirrors EMCP 3.16.x; P6.2 of the 2026-09-18 reverification).
 	 *
 	 * - Partial classic dimensions (`margin`, `padding`, `border_radius`,
-	 *   `border_width`, their responsive `_tablet`/`_mobile` and `_`-prefixed
-	 *   variants): when 1–3 of the four sides are blank or missing, Elementor
+	 *   `border_width`, their `_`-prefixed variants and Elementor's own
+	 *   responsive suffixes — `_widescreen`, `_laptop`, `_tablet_extra`,
+	 *   `_tablet`, `_mobile_extra`, `_mobile` — and NOTHING else: the universal
+	 *   update tool reaches custom widgets whose controls have arbitrary
+	 *   names, and a `padding_config` control with a `top` member is not a
+	 *   dimension, so an open suffix produced false warnings, Codex round-4
+	 *   P2 on #74): when 1–3 of the four sides are blank or missing, Elementor
 	 *   may omit the ENTIRE CSS rule. The value is left exactly as sent — a
 	 *   blank side coerced to 0 would silently destroy inheritance, which is
 	 *   worse than the rule being dropped (upstream #134). A typed atomic prop
@@ -40,7 +45,7 @@ class Elementor_MCP_Element_Factory {
 	public static function settings_warnings( array $settings, bool $creating = false ): array {
 		$warnings = array();
 		foreach ( $settings as $key => $value ) {
-			if ( ! is_string( $key ) || ! preg_match( '/^_?(?:margin|padding|border_radius|border_width)(?:_[a-z0-9_]+)?$/', $key ) ) {
+			if ( ! is_string( $key ) || ! preg_match( '/^_?(?:margin|padding|border_radius|border_width)(?:_(?:widescreen|laptop|tablet_extra|tablet|mobile_extra|mobile))?$/', $key ) ) {
 				continue;
 			}
 			if ( ! is_array( $value ) || isset( $value['$$type'] ) ) {

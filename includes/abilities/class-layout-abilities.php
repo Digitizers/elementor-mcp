@@ -484,7 +484,13 @@ class Elementor_MCP_Layout_Abilities {
 
 		$updated_count = 0;
 		$failed        = array();
-		$warnings      = array();
+		// What this batch SENT per element, later operations overriding
+		// earlier ones key by key — the warnings are judged on that merged
+		// payload after the loop, not per operation: an earlier partial
+		// dimension a later operation completes must not warn about a
+		// value that was overwritten before the single save (Codex round-7
+		// P2 on #74).
+		$sent          = array();
 
 		foreach ( $operations as $op ) {
 			$eid      = sanitize_text_field( $op['element_id'] ?? '' );
@@ -506,9 +512,7 @@ class Elementor_MCP_Layout_Abilities {
 
 			if ( $ok ) {
 				$updated_count++;
-				foreach ( Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ) as $warning ) {
-					$warnings[] = $eid . ': ' . $warning;
-				}
+				$sent[ $eid ] = array_merge( $sent[ $eid ] ?? array(), is_array( $settings ) ? $settings : array() );
 			} else {
 				$failed[] = array( 'element_id' => $eid, 'reason' => 'update failed' );
 			}
@@ -518,6 +522,13 @@ class Elementor_MCP_Layout_Abilities {
 
 		if ( is_wp_error( $result ) ) {
 			return $result;
+		}
+
+		$warnings = array();
+		foreach ( $sent as $eid => $merged ) {
+			foreach ( Elementor_MCP_Element_Factory::settings_warnings( $merged ) as $warning ) {
+				$warnings[] = $eid . ': ' . $warning;
+			}
 		}
 
 		return array(

@@ -239,6 +239,59 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 	}
 
 	/**
+	 * Later operations on the same element override earlier ones before the
+	 * single save, so the warnings are judged on the merged payload: a
+	 * partial dimension a later operation completes does not warn, and a
+	 * complete one a later operation makes partial does (Codex round-7 P2).
+	 * @test
+	 */
+	public function test_batch_warnings_are_judged_on_the_merged_per_element_payload(): void {
+		$ability  = $this->ability_with_tree( $this->container_tree() );
+		$partial  = array( 'padding' => array( 'left' => '1' ) );
+		$complete = array( 'padding' => array( 'top' => '1', 'right' => '1', 'bottom' => '1', 'left' => '1' ) );
+
+		$fixed = $ability->execute_batch_update( array( 'post_id' => 7, 'operations' => array(
+			array( 'element_id' => 'c1', 'settings' => $partial ),
+			array( 'element_id' => 'c1', 'settings' => $complete ),
+		) ) );
+		$this->assertSame( array(), $fixed['settings_warnings'], 'the later, complete value is what persists' );
+
+		$broken = $ability->execute_batch_update( array( 'post_id' => 7, 'operations' => array(
+			array( 'element_id' => 'c1', 'settings' => $complete ),
+			array( 'element_id' => 'c1', 'settings' => $partial ),
+		) ) );
+		$this->assertCount( 1, $broken['settings_warnings'], 'the later, partial value is what persists' );
+	}
+
+	/**
+	 * The dedicated widget path carries the same channel as update-element —
+	 * the same write must not warn through one tool and stay silent through
+	 * the other (Codex round-7 P2 on #74).
+	 * @test
+	 */
+	public function test_update_widget_carries_settings_warnings_too(): void {
+		$tree = array( array( 'id' => 'w1', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => array(), 'elements' => array() ) );
+		$data = $this->createStub( \Elementor_MCP_Data::class );
+		$data->method( 'get_page_data' )->willReturn( $tree );
+		$data->method( 'save_page_data' )->willReturn( true );
+		$data->method( 'find_element_by_id' )->willReturn( $tree[0] );
+		$data->method( 'update_element_settings' )->willReturn( true );
+		$schema    = $this->createStub( \Elementor_MCP_Schema_Generator::class );
+		$validator = $this->createStub( \Elementor_MCP_Settings_Validator::class );
+		$validator->method( 'validate' )->willReturn( true );
+		$this->allow_all_caps();
+		$ability = new \Elementor_MCP_Widget_Abilities( $data, $this->make_factory(), $schema, $validator );
+
+		$out = $ability->execute_update_widget( array( 'post_id' => 7, 'element_id' => 'w1', 'settings' => array( 'margin' => array( 'top' => '0' ) ) ) );
+		$this->assertTrue( $out['success'] );
+		$this->assertCount( 1, $out['settings_warnings'] );
+
+		$GLOBALS['_registered_abilities'] = array();
+		$ability->register();
+		$this->assertSame( array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ), $GLOBALS['_registered_abilities']['elementor-mcp/update-widget']['output_schema']['properties']['settings_warnings'] );
+	}
+
+	/**
 	 * The governance wrapper attaches its OWN `warnings` ({rule, reason}
 	 * entries) to a governed outcome; the settings channel must not sit on
 	 * that key or one of the two is lost (Codex round-2 P1 on #74).

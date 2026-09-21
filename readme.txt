@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.35.0
+Stable tag: 1.36.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,12 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.36.0 =
+* New: declared intent on governed page writes. `update-element`, `update-widget`, `update-container` and `remove-element` now declare the element they mean to change, and `delete-page-content`, `import-template` and `build-page` declare a whole-document write. The collateral report gains `compared_by`, `intent` and `undeclared` — elements a write changed, added, removed or moved that it never said it would touch. Until now anything the tool itself changed counted as intended, so an ability that rewrote an unrelated element was invisible.
+* `undeclared` is a warning only (`{rule: "collateral"}` in `warnings`), in every `emcp_collateral_guard_mode` except `off`; it never reverts a write, even under `refuse`. A write that mints a second copy of the id it declared gains no cover from it. Default mode is still `warn`.
+* New action `elementor_mcp_governance_undeclared( $name, $post_id, $report, $mode, $reverted )`. `elementor_mcp_governance_collateral` is unchanged. Report ids are now always strings.
+* Developers: `Elementor_MCP_Data::save_page_data()` takes a third optional parameter, `$intent`. A subclass that overrides the two-argument form must add `$intent = null`, or PHP will fatal when it loads.
 
 = 1.35.0 =
 * Fix: a Navigator label set through `editor_settings.title` on a classic layout element (container, section, column) is now saved as `settings._title`, where classic Elementor reads it; it used to be written to a dead nested key with a success response. Atomic elements are unchanged (their `editor_settings` stays at the element root), and a classic widget's `editor_settings` is left intact because it can be a control of that widget.
@@ -485,6 +491,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.36.0 =
+Safe for every site: writes behave as before, with one new warning when a tool changes elements it did not declare. If your own code extends `Elementor_MCP_Data` and overrides `save_page_data()`, add the third `$intent = null` parameter before updating.
 
 = 1.32.0 =
 Recommended for every site managed from Aura with SiteAgent installed: Elementor writes now honour the same operator rules SiteAgent enforces elsewhere. Sites without SiteAgent are unchanged.

@@ -502,6 +502,14 @@ class Elementor_MCP_Governance {
 					 * $reverted says which happened rather than leaving a listener
 					 * to assume the write stood.
 					 *
+					 * Ordering: this fires AFTER the revert has been attempted, so
+					 * on a run whose rollback failed it follows
+					 * `elementor_mcp_governance_rollback_failed`, and on a
+					 * successful revert it precedes
+					 * `elementor_mcp_governance_collateral_reverted`. The order of
+					 * the `_collateral*` actions relative to each other and to
+					 * `_rollback_failed` is exactly what it was before 1.36.0.
+					 *
 					 * @since 1.36.0
 					 * @param string $name     Ability name.
 					 * @param int    $post_id  Post id.

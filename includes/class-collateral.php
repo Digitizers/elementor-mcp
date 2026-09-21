@@ -101,12 +101,33 @@
  * DUPLICATE IDS. Coverage is decided from a node's own path as the tree is
  * walked, never by climbing an id => parent map afterwards, so a node under the
  * first of two containers sharing an id is judged by the container it is really
- * in. A duplicate therefore neither launders an unrelated subtree into the
- * declaration nor shuts a legitimate one out of it. The duplicated node ITSELF
- * is the one thing that cannot be judged — which occurrence went where is not
- * provable — so it is never reported, exactly as index() refuses to compare its
- * payload. An ambiguous id accuses nothing; everything under it is judged
- * normally.
+ * in. A duplicate therefore never launders an unrelated subtree into the
+ * declaration, and never shuts a legitimate one out of it either.
+ *
+ * What the duplicate costs depends on WHO made it, and the two cases are not
+ * alike:
+ *
+ *   - INHERITED — already ambiguous in the BEFORE tree. The page was corrupt
+ *     before this write touched it; which node is which was never knowable, so
+ *     the duplicated node ITSELF is never reported. That is the one thing here
+ *     that stays invisible, and it is invisible on purpose: index() refuses to
+ *     compare its payload for the same reason, and accusing an ordinary
+ *     remove-element of over-reach because the page it was handed already had
+ *     a repeated id would be a guard punishing the wrong party. Everything
+ *     under it is judged normally, by path.
+ *   - INTRODUCED — unique or absent in BEFORE, ambiguous in REQUESTED. THIS
+ *     write made it, so it buys nothing. A declared id that was forged this way
+ *     confers no coverage on anything beneath any of its occurrences, and earns
+ *     no exemption for itself: it is reported, once, along with whatever was
+ *     parked under it that no genuinely-declared ancestor covers. Otherwise a
+ *     write could mint a second node carrying the declared id and smuggle a
+ *     whole subtree in under it, or plant a decoy sharing an unrelated node's
+ *     id purely to buy that node an exemption while rewriting it — and nothing
+ *     else in the write path would notice either, because the save is faithful.
+ *     A declaration anyone can mint mid-write declares nothing.
+ *
+ * Under `document` intent none of this applies: there is nothing to be outside
+ * of, so `undeclared` stays empty however the ids fall.
  *
  * Declaring is optional and additive: a caller that passes nothing gets exactly
  * the report it got in 1.34.0, with `intent: 'undeclared'` and an empty list.
@@ -211,12 +232,33 @@ class Elementor_MCP_Collateral {
 		// declared the whole page, and an undeclared write declared nothing for
 		// anything to be outside of.
 		if ( 'targeted' === $declared['scope'] ) {
-			$before_tree    = self::scan( $before, $declared['ids'] );
-			$requested_tree = self::scan( $requested, $declared['ids'] );
+			$before_tree    = self::scan( $before, $declared['ids'], array() );
+			$requested_tree = self::scan( $requested, $declared['ids'], array() );
 
-			// The suspects are the derived targets PLUS the nodes that moved —
+			// Ambiguity the page ALREADY had is tolerated; ambiguity THIS WRITE
+			// created is not. See "DUPLICATE IDS" in the class docblock: without
+			// the distinction, minting a second node with the declared id buys
+			// both an exemption for the forgery and cover for everything parked
+			// under it, and a declaration that can be minted at will declares
+			// nothing. Costs a second scan of the requested tree, and only when
+			// a write actually introduced a duplicate — rare, and never on the
+			// path the declaring abilities take.
+			$forged = array();
+			foreach ( array_keys( $requested_tree['ambiguous'] ) as $id ) {
+				$id = (string) $id;
+				if ( ! isset( $before_tree['ambiguous'][ $id ] ) ) {
+					$forged[ $id ] = true;
+				}
+			}
+			if ( ! empty( $forged ) ) {
+				$requested_tree = self::scan( $requested, $declared['ids'], $forged );
+			}
+
+			// The suspects are the derived targets, PLUS the nodes that moved —
 			// see "WHAT IS JUDGED" in the class docblock for why a move has to
-			// be added here rather than folded into how targets are derived.
+			// be added here rather than folded into how targets are derived —
+			// PLUS every id this write made ambiguous, which is a finding in its
+			// own right whether or not anything else noticed it.
 			$suspects = array();
 			foreach ( array_keys( $targets ) as $id ) {
 				$suspects[ (string) $id ] = true;
@@ -233,10 +275,13 @@ class Elementor_MCP_Collateral {
 					$suspects[ $id ] = true;
 				}
 			}
+			foreach ( array_keys( $forged ) as $id ) {
+				$suspects[ (string) $id ] = true;
+			}
 
 			foreach ( array_keys( $suspects ) as $id ) {
 				$id = (string) $id;
-				if ( ! self::within_declaration( $id, $before_tree, $requested_tree ) ) {
+				if ( ! self::within_declaration( $id, $before_tree, $requested_tree, $forged ) ) {
 					$report['undeclared'][] = $id;
 				}
 			}
@@ -425,13 +470,12 @@ class Elementor_MCP_Collateral {
 	 *                   occurrence. Used only to tell a MOVE from a stay, and
 	 *                   only for ids that are not ambiguous. Presence here is
 	 *                   also what "this tree contains that id" means.
-	 *   - `ambiguous` — ids seen more than once. Such a node's own placement
-	 *                   cannot be proven, so it is never itself reported —
-	 *                   index() already refuses to compare its payload for the
-	 *                   same reason. Its descendants are unaffected: they are
-	 *                   judged by their own path, so a duplicate can neither
-	 *                   launder an unrelated subtree into the declaration nor
-	 *                   shut a legitimate one out of it.
+	 *   - `ambiguous` — ids seen more than once. Where that ambiguity came from
+	 *                   decides what it costs: see "DUPLICATE IDS" in the class
+	 *                   docblock. $forged carries the ids this write made
+	 *                   ambiguous, and a declared id among them confers NOTHING
+	 *                   — the declaration names a node, not a name anyone may
+	 *                   mint a second copy of mid-write.
 	 *
 	 * A node without an id is transparent: its children keep the nearest
 	 * ancestor that HAS one, because an id is the only thing this class matches
@@ -440,11 +484,14 @@ class Elementor_MCP_Collateral {
 	 * @since 1.36.0
 	 * @param array              $elements Tree.
 	 * @param array<string,true> $declared Declared ids.
+	 * @param array<string,true> $forged   Ids this write made ambiguous. Empty
+	 *                                     on the first scan, which is what
+	 *                                     discovers them.
 	 * @return array{covered:array<string,bool>,parents:array<string,string>,ambiguous:array<string,true>}
 	 */
-	private static function scan( array $elements, array $declared ): array {
+	private static function scan( array $elements, array $declared, array $forged ): array {
 		$out = array( 'covered' => array(), 'parents' => array(), 'ambiguous' => array() );
-		self::walk_scan( $elements, '', false, $declared, $out );
+		self::walk_scan( $elements, '', false, $declared, $forged, $out );
 		return $out;
 	}
 
@@ -453,9 +500,10 @@ class Elementor_MCP_Collateral {
 	 * @param string             $parent   Nearest ancestor id, '' at the top.
 	 * @param bool               $under    Whether an ancestor was declared.
 	 * @param array<string,true> $declared Declared ids.
+	 * @param array<string,true> $forged   Ids this write made ambiguous.
 	 * @param array              $out      Accumulator, as described by scan().
 	 */
-	private static function walk_scan( array $elements, string $parent, bool $under, array $declared, array &$out ): void {
+	private static function walk_scan( array $elements, string $parent, bool $under, array $declared, array $forged, array &$out ): void {
 		foreach ( $elements as $el ) {
 			if ( ! is_array( $el ) ) {
 				continue;
@@ -463,10 +511,14 @@ class Elementor_MCP_Collateral {
 			$id   = isset( $el['id'] ) ? (string) $el['id'] : '';
 			$here = $under;
 			if ( '' !== $id ) {
-				$here = $under || isset( $declared[ $id ] );
+				// A declared id this write duplicated proves nothing about this
+				// node; an ancestor that was genuinely declared still does, so
+				// $under keeps flowing down through it.
+				$here = $under || ( isset( $declared[ $id ] ) && ! isset( $forged[ $id ] ) );
 				if ( isset( $out['parents'][ $id ] ) ) {
-					// A repeat. Its `covered` entry is never read (an ambiguous
-					// id is not reportable), so leave the first one standing.
+					// A repeat. For an inherited duplicate the `covered` entry is
+					// never read (it is exempt); for a forged one every
+					// occurrence is uncovered anyway. Leave the first standing.
 					$out['ambiguous'][ $id ] = true;
 				} else {
 					$out['parents'][ $id ] = $parent;
@@ -474,7 +526,7 @@ class Elementor_MCP_Collateral {
 				}
 			}
 			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
-				self::walk_scan( $el['elements'], '' !== $id ? $id : $parent, $here, $declared, $out );
+				self::walk_scan( $el['elements'], '' !== $id ? $id : $parent, $here, $declared, $forged, $out );
 			}
 		}
 	}
@@ -489,11 +541,17 @@ class Elementor_MCP_Collateral {
 	 * @param string $id             Suspect node id.
 	 * @param array  $before_tree    scan() of the before tree.
 	 * @param array  $requested_tree scan() of the requested tree.
+	 * @param array<string,true> $forged Ids this write made ambiguous.
 	 * @return bool
 	 */
-	private static function within_declaration( string $id, array $before_tree, array $requested_tree ): bool {
-		if ( isset( $before_tree['ambiguous'][ $id ] ) || isset( $requested_tree['ambiguous'][ $id ] ) ) {
-			return true; // an ambiguous id cannot accuse anything — index()'s rule, applied here
+	private static function within_declaration( string $id, array $before_tree, array $requested_tree, array $forged ): bool {
+		if ( ! isset( $forged[ $id ] ) && ( isset( $before_tree['ambiguous'][ $id ] ) || isset( $requested_tree['ambiguous'][ $id ] ) ) ) {
+			// Ambiguity the page already carried: which node is which was never
+			// knowable, so this accuses nothing — index()'s rule, applied here.
+			// An id THIS write made ambiguous earns no such exemption; it falls
+			// through and is judged like anything else, and its own coverage is
+			// false wherever the forgery is not itself inside the declaration.
+			return true;
 		}
 		$in_before    = isset( $before_tree['parents'][ $id ] );
 		$in_requested = isset( $requested_tree['parents'][ $id ] );

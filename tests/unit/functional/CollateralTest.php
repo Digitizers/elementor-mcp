@@ -417,6 +417,79 @@ class CollateralTest extends TestCase {
 		$this->assertSame( array(), $report['undeclared'] );
 	}
 
+	// Ambiguity the page ALREADY had is tolerated (the three tests above, and
+	// the one below). Ambiguity THIS WRITE created is not: forging a copy of a
+	// declared id, or planting a decoy that reuses one, would otherwise buy
+	// both an exemption for the forgery and cover for whatever is parked under
+	// it. Both sides are pinned so neither can be changed silently.
+
+	public function test_a_duplicate_already_on_the_page_is_still_tolerated(): void {
+		$before = array( $this->box( 'X' ), $this->head( 'Y', 'orig' ), $this->head( 'Y', 'orig' ) );
+		$after  = array(
+			array( 'id' => 'X', 'elType' => 'container', 'settings' => array( 'gap' => 1 ), 'elements' => array() ),
+			$this->head( 'Y', 'REWRITTEN' ),
+			$this->head( 'Y', 'orig' ),
+		);
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array(), $report['undeclared'], 'Inherited corruption: which Y is which was never knowable.' );
+	}
+
+	public function test_a_forged_copy_of_the_declared_id_cannot_smuggle_content_in(): void {
+		// The write declares X, then ADDS a second node claiming id X and parks
+		// new content under it. Treating "ambiguous" as an exemption would hand
+		// the write both a free pass for the forgery and cover for everything
+		// beneath it — a declaration that can be minted at will declares nothing.
+		$before = array(
+			$this->box( 'X', array( $this->head( 'real' ) ) ),
+			$this->box( 'A', array( $this->head( 'Y', 'orig' ) ) ),
+		);
+		$after  = array(
+			$this->box( 'X', array( $this->head( 'real' ) ) ),
+			$this->box( 'A', array( $this->head( 'Y', 'orig' ) ) ),
+			$this->box( 'X', array( $this->head( 'smuggled1' ), $this->box( 'deep', array( $this->head( 'smuggled2' ) ) ) ) ),
+		);
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'X', 'smuggled1', 'deep', 'smuggled2' ), $report['undeclared'] );
+	}
+
+	public function test_a_decoy_duplicate_cannot_hide_a_rewrite(): void {
+		// Y is rewritten; a second node reusing id Y is planted in the same
+		// write purely to make Y ambiguous. The decoy must not buy the rewrite
+		// an exemption — and nothing else notices, because the save is faithful.
+		$before  = array( $this->box( 'X', array( $this->head( 'real' ) ) ), $this->head( 'Y', 'orig' ) );
+		$decoyed = array(
+			$this->box( 'X', array( $this->head( 'real', 'edited' ) ) ),
+			$this->head( 'Y', 'REWRITTEN' ),
+			$this->head( 'Y', 'decoy' ),
+		);
+		$plain   = array( $this->box( 'X', array( $this->head( 'real', 'edited' ) ) ), $this->head( 'Y', 'REWRITTEN' ) );
+
+		$with    = \Elementor_MCP_Collateral::report( $before, $decoyed, $decoyed, null, $this->targeted( 'X' ) );
+		$without = \Elementor_MCP_Collateral::report( $before, $plain, $plain, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'Y' ), $without['undeclared'] );
+		$this->assertSame( $without['undeclared'], $with['undeclared'], 'Planting a decoy changes nothing.' );
+		$this->assertSame( array(), $with['collateral'], 'And nothing else was ever going to see it.' );
+	}
+
+	public function test_cloning_the_declared_node_reports_the_forgery_and_what_it_holds(): void {
+		$before = array( $this->box( 'X', array( $this->head( 'a' ) ) ) );
+		$after  = array( $this->box( 'X', array( $this->head( 'a' ) ) ), $this->box( 'X', array( $this->head( 'a2' ) ) ) );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'X', 'a2' ), $report['undeclared'] );
+	}
+
+	public function test_a_document_declaration_is_untouched_by_a_forged_id(): void {
+		$before = array( $this->box( 'X', array( $this->head( 'a' ) ) ) );
+		$after  = array( $this->box( 'X', array( $this->head( 'a' ) ) ), $this->box( 'X', array( $this->head( 'a2' ) ) ) );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, array( 'scope' => 'document' ) );
+
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
 	public function test_a_declared_subtree_thousands_deep_is_covered(): void {
 		// Coverage is computed once per node as the tree is walked, not by
 		// climbing the ancestry per suspect — 3000 nested nodes, all removed

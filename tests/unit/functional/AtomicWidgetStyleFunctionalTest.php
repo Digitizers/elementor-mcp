@@ -48,7 +48,7 @@ class AtomicWidgetStyleFunctionalTest extends Ability_Test_Case {
 		$data = new class extends \Elementor_MCP_Data {
 			public function __construct() {}
 			public function get_page_data( int $post_id ): array { return array(); }
-			public function save_page_data( int $post_id, array $data ): bool {
+			public function save_page_data( int $post_id, array $data, $intent = null ): bool {
 				$GLOBALS['_saved_page'] = $data; // capture for assertions
 				return true;
 			}

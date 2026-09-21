@@ -65,7 +65,7 @@ class LayoutFunctionalTest extends Ability_Test_Case {
 				return []; // empty page — valid, no WP_Error
 			}
 
-			public function save_page_data( int $post_id, array $data ): bool {
+			public function save_page_data( int $post_id, array $data, $intent = null ): bool {
 				return true;
 			}
 

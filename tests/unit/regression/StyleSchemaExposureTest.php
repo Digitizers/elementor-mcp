@@ -162,7 +162,7 @@ class StyleSchemaExposureTest extends TestCase {
 			public function get_page_data( int $post_id ): array {
 				return array();
 			}
-			public function save_page_data( int $post_id, array $data ) {
+			public function save_page_data( int $post_id, array $data, $intent = null ) {
 				return true;
 			}
 		};

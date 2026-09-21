@@ -34,6 +34,41 @@ class Collateral_Aliased_Widget {
 	}
 }
 
+/**
+ * A data layer that records the intent each ability declared, and nothing
+ * else — the abilities' own `save_page_data()` call is the contract under
+ * test (P5.4).
+ */
+class Collateral_Intent_Spy_Data extends \Elementor_MCP_Data {
+
+	/** @var array<int,mixed> */
+	public $intents = array();
+
+	/** @var array */
+	private $page;
+
+	public function __construct( array $page = array() ) {
+		$this->page = $page;
+	}
+
+	public function get_page_data( int $post_id ) {
+		return $this->page;
+	}
+
+	public function save_page_data( int $post_id, array $data, $intent = null ) {
+		$this->intents[] = $intent;
+		return true;
+	}
+
+	public function save_page_settings( int $post_id, array $settings ) {
+		return true;
+	}
+
+	public function get_document( int $post_id ) {
+		return new \WP_Error( 'document_not_found', 'No document.' );
+	}
+}
+
 class SavePageDataCollateralTest extends TestCase {
 
 	protected function setUp(): void {
@@ -111,12 +146,12 @@ class SavePageDataCollateralTest extends TestCase {
 		};
 	}
 
-	private function governed_save( array $requested ) {
+	private function governed_save( array $requested, $intent = null ) {
 		return \Elementor_MCP_Governance::run_governed(
 			'elementor-mcp/update-element',
-			static function ( $input ) use ( $requested ) {
+			static function ( $input ) use ( $requested, $intent ) {
 				$data = new \Elementor_MCP_Data();
-				$r    = $data->save_page_data( (int) $input['post_id'], $requested );
+				$r    = $data->save_page_data( (int) $input['post_id'], $requested, $intent );
 				return is_wp_error( $r ) ? $r : array( 'saved' => $r );
 			},
 			array( 'post_id' => 55 )
@@ -200,5 +235,107 @@ class SavePageDataCollateralTest extends TestCase {
 
 		$this->assertSame( array( 'saved' => true ), $result );
 		$this->assertContains( '_elementor_data', array_column( $GLOBALS['_wp_meta_calls'], 'meta_key' ), 'The fallback wrote the meta.' );
+	}
+
+	// -------------------------------------------------------------------------
+	// Declared intent (P5.4, 1.36.0): the declaration save_page_data() is given
+	// reaches the report, and the abilities that declare really do.
+	// -------------------------------------------------------------------------
+
+	public function test_a_declaration_reaches_the_report_and_names_the_over_reach(): void {
+		// The tool declared h1 and also rewrote h2. The save is faithful, so the
+		// existing collateral check — whose targets ARE this diff — sees nothing.
+		$this->inject_document( true );
+		$requested = $this->page();
+		$requested[0]['settings']['title'] = 'Uno';
+		$requested[1]['settings']['title'] = 'Dos';
+
+		$result = $this->governed_save( $requested, array( 'scope' => 'targeted', 'ids' => array( 'h1' ) ) );
+
+		$this->assertTrue( $result['saved'] );
+		$this->assertSame( 'collateral', $result['warnings'][0]['rule'] );
+		$this->assertStringContainsString( 'h2', $result['warnings'][0]['reason'] );
+	}
+
+	public function test_the_same_write_declaring_the_document_says_nothing(): void {
+		$this->inject_document( true );
+		$requested = $this->page();
+		$requested[0]['settings']['title'] = 'Uno';
+		$requested[1]['settings']['title'] = 'Dos';
+
+		$result = $this->governed_save( $requested, array( 'scope' => 'document' ) );
+
+		$this->assertSame( array( 'saved' => true ), $result );
+	}
+
+	public function test_an_undeclared_write_is_exactly_what_it_was_before(): void {
+		$this->inject_document( true );
+		$requested = $this->page();
+		$requested[0]['settings']['title'] = 'Uno';
+		$requested[1]['settings']['title'] = 'Dos';
+
+		$this->assertSame( array( 'saved' => true ), $this->governed_save( $requested ) );
+	}
+
+	/** A page the targeted abilities can find their element on. */
+	private function spy_page(): array {
+		return array(
+			array(
+				'id'       => 'c1',
+				'elType'   => 'container',
+				'settings' => array(),
+				'elements' => array(
+					array( 'id' => 'h1', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => array( 'title' => 'One' ), 'elements' => array() ),
+				),
+			),
+		);
+	}
+
+	public function test_the_targeted_abilities_declare_the_element_they_were_given(): void {
+		$factory  = new \Elementor_MCP_Element_Factory();
+		$settings = array( 'title' => 'Uno' );
+		$expected = array( 'scope' => 'targeted', 'ids' => array( 'h1' ) );
+
+		$layout = new \Elementor_MCP_Layout_Abilities( $spy = new Collateral_Intent_Spy_Data( $this->spy_page() ), $factory );
+		$layout->execute_update_element( array( 'post_id' => 55, 'element_id' => 'h1', 'settings' => $settings ) );
+		$layout->execute_remove_element( array( 'post_id' => 55, 'element_id' => 'h1' ) );
+		$this->assertSame( array( $expected, $expected ), $spy->intents, 'update-element and remove-element.' );
+
+		$layout = new \Elementor_MCP_Layout_Abilities( $spy = new Collateral_Intent_Spy_Data( $this->spy_page() ), $factory );
+		$layout->execute_update_container( array( 'post_id' => 55, 'element_id' => 'c1', 'settings' => array( 'gap' => 20 ) ) );
+		$this->assertSame( array( array( 'scope' => 'targeted', 'ids' => array( 'c1' ) ) ), $spy->intents, 'update-container.' );
+
+		$widget = new \Elementor_MCP_Widget_Abilities(
+			$spy = new Collateral_Intent_Spy_Data( $this->spy_page() ),
+			$factory,
+			$this->createStub( \Elementor_MCP_Schema_Generator::class ),
+			$this->createStub( \Elementor_MCP_Settings_Validator::class )
+		);
+		$widget->execute_update_widget( array( 'post_id' => 55, 'element_id' => 'h1', 'settings' => $settings ) );
+		$this->assertSame( array( $expected ), $spy->intents, 'update-widget.' );
+	}
+
+	public function test_the_document_abilities_declare_the_whole_document(): void {
+		$factory  = new \Elementor_MCP_Element_Factory();
+		$expected = array( 'scope' => 'document' );
+
+		$page = new \Elementor_MCP_Page_Abilities( $spy = new Collateral_Intent_Spy_Data( $this->spy_page() ), $factory );
+		$page->execute_delete_page_content( array( 'post_id' => 55 ) );
+		$page->execute_import_template(
+			array(
+				'post_id'       => 55,
+				'template_json' => array( array( 'id' => 'x1', 'elType' => 'container', 'settings' => array(), 'elements' => array() ) ),
+			)
+		);
+		$this->assertSame( array( $expected, $expected ), $spy->intents, 'delete-page-content and import-template.' );
+
+		$composite = new \Elementor_MCP_Composite_Abilities( $spy = new Collateral_Intent_Spy_Data(), $factory );
+		$composite->execute_build_page(
+			array(
+				'title'     => 'A page',
+				'structure' => array( array( 'type' => 'container', 'children' => array() ) ),
+			)
+		);
+		$this->assertSame( array( $expected ), $spy->intents, 'build-page.' );
 	}
 }

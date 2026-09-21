@@ -62,7 +62,7 @@ class AtomicSaveRegressionTest extends Ability_Test_Case {
 				);
 			}
 
-			public function save_page_data( int $post_id, array $data ): bool {
+			public function save_page_data( int $post_id, array $data, $intent = null ): bool {
 				return true; // a bool arg from the ability would TypeError here
 			}
 		};

@@ -67,14 +67,14 @@ class GovernanceCollateralTest extends TestCase {
 	 * A page write as save_page_data() performs it: gate + snapshot first, then
 	 * the write, then the record of what it did — with the trees given here.
 	 */
-	private function writer( array $before, array $requested, array $persisted, int $record_post = 0 ): callable {
-		return static function ( $input ) use ( $before, $requested, $persisted, $record_post ) {
+	private function writer( array $before, array $requested, array $persisted, int $record_post = 0, $intent = null ): callable {
+		return static function ( $input ) use ( $before, $requested, $persisted, $record_post, $intent ) {
 			$post_id = (int) ( $input['post_id'] ?? 0 );
 			$gate    = \Elementor_MCP_Governance::before_page_write( $post_id );
 			if ( is_wp_error( $gate ) ) {
 				return $gate;
 			}
-			\Elementor_MCP_Governance::record_page_write( $record_post ?: $post_id, $before, $requested, $persisted );
+			\Elementor_MCP_Governance::record_page_write( $record_post ?: $post_id, $before, $requested, $persisted, null, $intent );
 			return array( 'ok' => true );
 		};
 	}
@@ -202,6 +202,170 @@ class GovernanceCollateralTest extends TestCase {
 		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $writer, array( 'post_id' => 55 ) );
 
 		$this->assertSame( array( 'ok' => true ), $result, 'Could not compare → say nothing, never accuse.' );
+	}
+
+	// -------------------------------------------------------------------------
+	// Declared intent (P5.4, 1.36.0). A write that changed nodes its ability
+	// never declared is reported on the same warnings channel — and, in this
+	// release, ONLY warned about: in every mode but `off`, never a revert.
+	// -------------------------------------------------------------------------
+
+	/** Declares h1, changes h1 AND h2. The save itself is faithful. */
+	private function over_reaching_writer(): callable {
+		$before                            = $this->page();
+		$requested                         = $before;
+		$requested[0]['settings']['title'] = 'Uno';
+		$requested[1]['settings']['title'] = 'Dos';
+		return $this->writer( $before, $requested, $requested, 0, array( 'scope' => 'targeted', 'ids' => array( 'h1' ) ) );
+	}
+
+	/** Declares h1, changes h1 AND h2 — and the save also empties h3 (real collateral). */
+	private function over_reaching_and_damaging_writer(): callable {
+		$before      = $this->page();
+		$before[]    = array( 'id' => 'h3', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => array( 'title' => 'Three' ), 'elements' => array() );
+		$requested   = $before;
+		$requested[0]['settings']['title'] = 'Uno';
+		$requested[1]['settings']['title'] = 'Dos';
+		$persisted   = $requested;
+		$persisted[2]['settings']['title'] = '';
+		return $this->writer( $before, $requested, $persisted, 0, array( 'scope' => 'targeted', 'ids' => array( 'h1' ) ) );
+	}
+
+	public function test_an_undeclared_change_warns_and_the_write_stands(): void {
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertIsArray( $result );
+		$this->assertTrue( $result['ok'] );
+		$this->assertCount( 1, $result['warnings'] );
+		$this->assertSame( 'collateral', $result['warnings'][0]['rule'], 'The existing channel, not a new one.' );
+		$this->assertStringContainsString( 'h2', $result['warnings'][0]['reason'] );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	/** Every firing of $tag this run, as its argument list. */
+	private function fired( string $tag ): array {
+		$out = array();
+		foreach ( $GLOBALS['_actions_fired'] as $fired ) {
+			if ( $tag === $fired['tag'] ) {
+				$out[] = $fired['args'];
+			}
+		}
+		return $out;
+	}
+
+	public function test_an_undeclared_change_fires_its_own_action_and_not_the_collateral_one(): void {
+		// `elementor_mcp_governance_collateral` means what it meant in 1.34.0 —
+		// the SAVE changed something. Over-reach is a different claim about a
+		// different actor, so it gets its own tag rather than widening one a
+		// consumer already handles.
+		\Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_collateral' ) );
+		$undeclared = $this->fired( 'elementor_mcp_governance_undeclared' );
+		$this->assertCount( 1, $undeclared );
+		$this->assertSame( array( 'elementor-mcp/update-element', 55 ), array_slice( $undeclared[0], 0, 2 ) );
+		$this->assertSame( array( 'h2' ), $undeclared[0][2]['undeclared'] );
+		$this->assertSame( 'targeted', $undeclared[0][2]['intent'] );
+		$this->assertSame( 'id', $undeclared[0][2]['compared_by'] );
+		$this->assertSame( 'warn', $undeclared[0][3] );
+		$this->assertFalse( $undeclared[0][4], 'Nothing reverted this run.' );
+	}
+
+	public function test_the_undeclared_action_says_so_when_the_run_was_reverted(): void {
+		// Over-reach never reverts, but a run carrying real collateral under
+		// `refuse` does — and this action fires on that run too. It is told
+		// which happened rather than left to imply the write stood.
+		$this->set_mode( 'refuse' );
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_and_damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$undeclared = $this->fired( 'elementor_mcp_governance_undeclared' );
+		$this->assertCount( 1, $undeclared );
+		$this->assertSame( 'refuse', $undeclared[0][3] );
+		$this->assertTrue( $undeclared[0][4], 'The write did not stand.' );
+		$this->assertCount( 1, $this->fired( 'elementor_mcp_governance_collateral_reverted' ) );
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_collateral' ), 'Unchanged since 1.34.0: never on a refusal.' );
+	}
+
+	public function test_the_undeclared_action_reports_a_failed_rollback_as_not_reverted(): void {
+		$this->set_mode( 'refuse' );
+		$GLOBALS['_aura_snap']['fail_restore'] = true;
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_and_damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
+		$undeclared = $this->fired( 'elementor_mcp_governance_undeclared' );
+		$this->assertCount( 1, $undeclared );
+		$this->assertFalse( $undeclared[0][4], 'The revert failed, so the write still stands.' );
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_collateral_reverted' ) );
+	}
+
+	public function test_real_collateral_alone_never_fires_the_undeclared_action(): void {
+		\Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertCount( 1, $this->fired( 'elementor_mcp_governance_collateral' ) );
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_undeclared' ) );
+	}
+
+	public function test_warn_with_both_reports_both_once_and_fires_both_actions(): void {
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_and_damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertCount( 2, $result['warnings'] );
+		$this->assertSame( array( 'collateral', 'collateral' ), array_column( $result['warnings'], 'rule' ) );
+		$this->assertNotSame( $result['warnings'][0]['reason'], $result['warnings'][1]['reason'] );
+		$this->assertStringContainsString( 'heading h3 (changed)', $result['warnings'][0]['reason'], 'What the save did.' );
+		$this->assertStringContainsString( 'h2', $result['warnings'][1]['reason'], 'What the tool did.' );
+		$this->assertCount( 1, $this->fired( 'elementor_mcp_governance_collateral' ) );
+		$this->assertCount( 1, $this->fired( 'elementor_mcp_governance_undeclared' ) );
+	}
+
+	public function test_an_undeclared_change_alone_never_reverts_under_refuse(): void {
+		$this->set_mode( 'refuse' );
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertIsArray( $result, 'Warn-only in this release: refuse does not act on it.' );
+		$this->assertTrue( $result['ok'] );
+		$this->assertSame( 'collateral', $result['warnings'][0]['rule'], '…but it is still reported, in every mode but off.' );
+		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
+	}
+
+	public function test_off_says_nothing_about_an_undeclared_change(): void {
+		$this->set_mode( 'off' );
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertSame( array( 'ok' => true ), $result );
+		$this->assertSame( array(), $this->collateral_actions(), 'off announces nothing…' );
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_undeclared' ), '…over-reach included.' );
+	}
+
+	public function test_real_collateral_under_refuse_still_refuses_and_carries_the_declaration(): void {
+		$this->set_mode( 'refuse' );
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_and_damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'governance_collateral_refused', $result->get_error_code() );
+		$this->assertSame( array( 'snap_stub_1' ), $GLOBALS['_aura_snap']['restore_calls'] );
+		$data = $result->get_error_data();
+		$this->assertSame( 'id', $data['compared_by'] );
+		$this->assertSame( 'targeted', $data['intent'] );
+		$this->assertSame( array( 'h2' ), $data['undeclared'] );
+		$this->assertSame( 'collateral', $data['warnings'][0]['rule'], 'The undeclared warning rides the refusal too.' );
+	}
+
+	public function test_an_undeclared_write_that_declared_the_document_is_never_reported(): void {
+		$before                            = $this->page();
+		$requested                         = $before;
+		$requested[0]['settings']['title'] = 'Uno';
+		$requested[1]['settings']['title'] = 'Dos';
+		$writer                            = $this->writer( $before, $requested, $requested, 0, array( 'scope' => 'document' ) );
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/delete-page-content', $writer, array( 'post_id' => 55 ) );
+
+		$this->assertSame( array( 'ok' => true ), $result );
 	}
 
 	public function test_collateral_warning_and_a_rule_warning_travel_together(): void {

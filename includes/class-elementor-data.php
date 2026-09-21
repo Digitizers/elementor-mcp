@@ -188,12 +188,21 @@ class Elementor_MCP_Data {
 	 * meta update and manual CSS cache invalidation.
 	 *
 	 * @since 1.0.0
+	 * @since 1.36.0 $intent — an optional declaration of what this write set out
+	 *               to touch, so the collateral report can name what the TOOL
+	 *               changed beyond it (P5.4). See Elementor_MCP_Collateral.
 	 *
 	 * @param int   $post_id The post ID.
 	 * @param array $data    The elements data array.
+	 * @param mixed $intent  What this write declares it will touch:
+	 *                       `array( 'scope' => 'targeted', 'ids' => array( '<element id>', … ) )`,
+	 *                       `array( 'scope' => 'document' )`, or null (default)
+	 *                       for undeclared. Never validated here and never able
+	 *                       to fail a write — a malformed declaration reads as
+	 *                       undeclared, exactly as passing nothing does.
 	 * @return bool|\WP_Error True on success, WP_Error on failure.
 	 */
-	public function save_page_data( int $post_id, array $data ) {
+	public function save_page_data( int $post_id, array $data, $intent = null ) {
 		// What the tool asked for, BEFORE coercion: the collateral diff derives
 		// the write's targets from this tree against the stored one, so a prop
 		// coerce_tree() repairs on a node the tool never touched is reported as
@@ -384,13 +393,16 @@ class Elementor_MCP_Data {
 		// Elementor. Both requested forms travel because they answer different
 		// questions (see Elementor_MCP_Collateral): pre-coercion derives the
 		// write's targets, post-coercion decides whether a target's settings
-		// landed. After BOTH save paths, so the fallback write is judged like
-		// the native one. A no-op unless a governed run is in flight for this
-		// post.
+		// landed. $intent travels with them: what the ability SAID it would
+		// touch, so the report can name what the tool changed outside that —
+		// the one class of damage the three trees cannot show, because a
+		// faithful save of a bad tree looks perfect from here (P5.4). After
+		// BOTH save paths, so the fallback write is judged like the native one.
+		// A no-op unless a governed run is in flight for this post.
 		if ( class_exists( 'Elementor_MCP_Governance' ) ) {
 			$final_raw  = get_post_meta( $post_id, '_elementor_data', true );
 			$final_tree = ( is_string( $final_raw ) && '' !== $final_raw ) ? json_decode( $final_raw, true ) : null;
-			Elementor_MCP_Governance::record_page_write( $post_id, $pre_tree, $requested, is_array( $final_tree ) ? $final_tree : null, $data );
+			Elementor_MCP_Governance::record_page_write( $post_id, $pre_tree, $requested, is_array( $final_tree ) ? $final_tree : null, $data, $intent );
 		}
 
 		return true;

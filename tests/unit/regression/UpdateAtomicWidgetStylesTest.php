@@ -50,7 +50,7 @@ class UpdateAtomicWidgetStylesTest extends Ability_Test_Case {
 				return array( $this->element );
 			}
 
-			public function save_page_data( int $post_id, array $data ) {
+			public function save_page_data( int $post_id, array $data, $intent = null ) {
 				$this->saved = $data;
 				return true;
 			}

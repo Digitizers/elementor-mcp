@@ -308,7 +308,11 @@ class Elementor_MCP_Layout_Abilities {
 			return new \WP_Error( 'update_failed', __( 'Failed to update container settings.', 'elementor-mcp' ) );
 		}
 
-		$result = $this->data->save_page_data( $post_id, $page_data );
+		// Declared intent (P5.4): this write is about one element and says so,
+		// so the collateral report can name anything else the tool changed on
+		// the way — over-reach the derived targets can never show, because
+		// whatever the tool changed IS a target.
+		$result = $this->data->save_page_data( $post_id, $page_data, array( 'scope' => 'targeted', 'ids' => array( $element_id ) ) );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;
@@ -397,7 +401,8 @@ class Elementor_MCP_Layout_Abilities {
 			return new \WP_Error( 'update_failed', __( 'Failed to update element settings.', 'elementor-mcp' ) );
 		}
 
-		$result = $this->data->save_page_data( $post_id, $page_data );
+		// Declared intent (P5.4) — see execute_update_container().
+		$result = $this->data->save_page_data( $post_id, $page_data, array( 'scope' => 'targeted', 'ids' => array( $element_id ) ) );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;
@@ -873,7 +878,10 @@ class Elementor_MCP_Layout_Abilities {
 			return new \WP_Error( 'element_not_found', __( 'Element not found.', 'elementor-mcp' ) );
 		}
 
-		$result = $this->data->save_page_data( $post_id, $page_data );
+		// Declared intent (P5.4): the element alone. Its children go with it,
+		// and the differ covers a descendant of a declared id, so they need no
+		// declaration of their own — see Elementor_MCP_Collateral.
+		$result = $this->data->save_page_data( $post_id, $page_data, array( 'scope' => 'targeted', 'ids' => array( $element_id ) ) );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;

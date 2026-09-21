@@ -435,6 +435,51 @@ class CollateralTest extends TestCase {
 		$this->assertSame( array(), $report['undeclared'], 'Inherited corruption: which Y is which was never knowable.' );
 	}
 
+	/**
+	 * KNOWN LIMITATION, pinned so that tightening it is a deliberate act and
+	 * not a silent one. When the DECLARED id is itself already duplicated in
+	 * the before tree, every occurrence still confers coverage — including one
+	 * this write adds — so content parked under a further copy goes unreported.
+	 *
+	 * It stands because the only way to close it is to stop an inherited
+	 * duplicate conferring coverage at all, which re-opens the false positive
+	 * the inherited/introduced split exists to prevent: an ordinary
+	 * remove-element of an inherited-duplicated container would accuse itself.
+	 * The precondition is narrow — the page must ALREADY carry two nodes with
+	 * the exact id being edited — and the next test shows it does not extend to
+	 * ids the write never declared.
+	 */
+	public function test_known_limitation_an_inherited_duplicate_of_the_declared_id_still_covers(): void {
+		$before = array(
+			$this->box( 'X', array( $this->head( 'r1' ) ) ),
+			$this->box( 'X', array( $this->head( 'r2' ) ) ),
+			$this->box( 'A' ),
+		);
+		$after   = $before;
+		$after[] = $this->box( 'X', array( $this->head( 'smuggled' ) ) );
+		$report  = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'smuggled' ), $report['targets'] );
+		$this->assertSame( array(), $report['undeclared'], 'Known limitation — see this test\'s docblock before changing it.' );
+	}
+
+	public function test_an_inherited_duplicate_the_write_never_declared_covers_nothing(): void {
+		// The control for the limitation above: `D` is ambiguous in before too,
+		// but nobody declared it, so it confers no coverage and a third copy
+		// carrying new content is reported like any other unnamed work.
+		$before = array(
+			$this->box( 'X' ),
+			$this->box( 'D', array( $this->head( 'p' ) ) ),
+			$this->box( 'D', array( $this->head( 'q' ) ) ),
+		);
+		$after     = $before;
+		$after[0]  = array( 'id' => 'X', 'elType' => 'container', 'settings' => array( 'gap' => 1 ), 'elements' => array() );
+		$after[]   = $this->box( 'D', array( $this->head( 'smuggled2' ) ) );
+		$report    = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'smuggled2' ), $report['undeclared'] );
+	}
+
 	public function test_a_forged_copy_of_the_declared_id_cannot_smuggle_content_in(): void {
 		// The write declares X, then ADDS a second node claiming id X and parks
 		// new content under it. Treating "ambiguous" as an exemption would hand

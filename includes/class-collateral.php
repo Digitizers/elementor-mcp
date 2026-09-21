@@ -115,6 +115,20 @@
  *     remove-element of over-reach because the page it was handed already had
  *     a repeated id would be a guard punishing the wrong party. Everything
  *     under it is judged normally, by path.
+ *
+ *     KNOWN RESIDUAL, stated rather than left to be found: when the DECLARED
+ *     id is the one already duplicated in BEFORE, every occurrence of it still
+ *     confers coverage — including an occurrence this write ADDS. So a write
+ *     declaring X, on a page that already carries two nodes with id X, can
+ *     append a third X and park new content under it unreported. It is not
+ *     closed because the only way to close it is to stop an inherited
+ *     duplicate from conferring coverage at all, which re-opens the false
+ *     positive this whole rule exists to prevent: an ordinary remove-element
+ *     of an inherited-duplicated container would accuse itself of over-reach.
+ *     The precondition is narrow — the page must ALREADY carry two nodes
+ *     bearing the exact id being edited — and it is specific to the declared
+ *     id: a non-declared inherited-ambiguous id confers nothing, so content
+ *     added under a further copy of one IS reported.
  *   - INTRODUCED — unique or absent in BEFORE, ambiguous in REQUESTED. THIS
  *     write made it, so it buys nothing. A declared id that was forged this way
  *     confers no coverage on anything beneath any of its occurrences, and earns
@@ -516,9 +530,14 @@ class Elementor_MCP_Collateral {
 				// $under keeps flowing down through it.
 				$here = $under || ( isset( $declared[ $id ] ) && ! isset( $forged[ $id ] ) );
 				if ( isset( $out['parents'][ $id ] ) ) {
-					// A repeat. For an inherited duplicate the `covered` entry is
-					// never read (it is exempt); for a forged one every
-					// occurrence is uncovered anyway. Leave the first standing.
+					// A repeat: first occurrence wins, as it does in index(). For
+					// an inherited duplicate the `covered` entry is never read —
+					// it is exempt. For a forged one the entry can differ between
+					// occurrences (one inside a genuinely declared ancestor, one
+					// outside), so whether the forged WRAPPER id is itself named
+					// follows document order. What it wraps does not: every node
+					// under it is judged by its own path either way, so the
+					// smuggled content is reported regardless of the order.
 					$out['ambiguous'][ $id ] = true;
 				} else {
 					$out['parents'][ $id ] = $parent;

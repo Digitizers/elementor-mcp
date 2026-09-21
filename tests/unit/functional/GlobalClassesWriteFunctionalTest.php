@@ -39,7 +39,7 @@ class GlobalClassesWriteFunctionalTest extends Ability_Test_Case {
 			public function get_page_data( int $post_id ) {
 				return $this->page;
 			}
-			public function save_page_data( int $post_id, array $data ) {
+			public function save_page_data( int $post_id, array $data, $intent = null ) {
 				$GLOBALS['_saved_page'] = $data;
 				return true;
 			}

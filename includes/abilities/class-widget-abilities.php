@@ -424,7 +424,10 @@ class Elementor_MCP_Widget_Abilities {
 			return new \WP_Error( 'update_failed', __( 'Failed to update widget settings.', 'elementor-mcp' ) );
 		}
 
-		$result = $this->data->save_page_data( $post_id, $page_data );
+		// Declared intent (P5.4): one widget, named — so the collateral report
+		// can say if this write changed anything else. See
+		// Elementor_MCP_Collateral and Elementor_MCP_Data::save_page_data().
+		$result = $this->data->save_page_data( $post_id, $page_data, array( 'scope' => 'targeted', 'ids' => array( $element_id ) ) );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;

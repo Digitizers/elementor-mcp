@@ -211,6 +211,161 @@ class CollateralTest extends TestCase {
 		$this->assertFalse( \Elementor_MCP_Collateral::has_findings( $report ) );
 	}
 
+	// -------------------------------------------------------------------------
+	// Declared intent (P5.4, 1.36.0): what the ability SAID it would touch,
+	// against what the tool actually changed before→requested.
+	// -------------------------------------------------------------------------
+
+	/** A targeted declaration for the given ids. */
+	private function targeted( string ...$ids ): array {
+		return array( 'scope' => 'targeted', 'ids' => $ids );
+	}
+
+	public function test_the_declaration_keys_are_always_present(): void {
+		$before = $this->page();
+		$report = \Elementor_MCP_Collateral::report( $before, $before, $before );
+
+		$this->assertSame( 'id', $report['compared_by'], 'Nodes are only ever matched by id; silence must not read as more.' );
+		$this->assertSame( 'undeclared', $report['intent'] );
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
+	public function test_a_not_comparable_report_still_carries_them(): void {
+		$report = \Elementor_MCP_Collateral::report( null, $this->page(), $this->page(), null, $this->targeted( 'h1' ) );
+
+		$this->assertFalse( $report['comparable'] );
+		$this->assertSame( 'id', $report['compared_by'] );
+		$this->assertSame( 'targeted', $report['intent'], 'What was declared is reported even when nothing could be checked.' );
+		$this->assertSame( array(), $report['undeclared'], 'Nothing was compared, so nothing is accused.' );
+	}
+
+	public function test_a_targeted_write_that_stays_inside_its_declaration_is_clean(): void {
+		$before    = $this->page();
+		$requested = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['title'] = 'Uno'; return $el; } );
+		$report    = \Elementor_MCP_Collateral::report( $before, $requested, $requested, null, $this->targeted( 'h1' ) );
+
+		$this->assertSame( 'targeted', $report['intent'] );
+		$this->assertSame( array( 'h1' ), $report['targets'] );
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
+	public function test_a_sibling_the_tool_changed_outside_its_declaration_is_undeclared(): void {
+		// The ability said "h1"; it also rewrote h2. Elementor never saw h2 as
+		// anything but a faithful save, so the existing collateral check — which
+		// derives its targets from this same diff — cannot see this at all.
+		$before    = $this->page();
+		$requested = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['title'] = 'Uno'; return $el; } );
+		$requested = $this->with( $requested, 'h2', static function ( $el ) { $el['settings']['title'] = 'Dos'; return $el; } );
+		$report    = \Elementor_MCP_Collateral::report( $before, $requested, $requested, null, $this->targeted( 'h1' ) );
+
+		$this->assertSame( array( 'h2' ), $report['undeclared'] );
+		$this->assertSame( array(), $report['collateral'], 'The save did exactly as asked — the over-reach is the TOOL\'s.' );
+		$this->assertFalse( \Elementor_MCP_Collateral::has_findings( $report ), 'Warn-only in this release: never a refusal on its own.' );
+	}
+
+	public function test_removing_a_declared_container_covers_its_children(): void {
+		$before    = $this->page();
+		$requested = array(); // the whole container went, children and all
+		$report    = \Elementor_MCP_Collateral::report( $before, $requested, $requested, null, $this->targeted( 'c1' ) );
+
+		$this->assertSame( array( 'c1', 'h1', 'h2' ), $report['targets'] );
+		$this->assertSame( array(), $report['undeclared'], 'A descendant in the BEFORE tree is covered by its declared ancestor.' );
+	}
+
+	public function test_a_changed_child_of_a_declared_parent_is_covered(): void {
+		$before    = $this->page();
+		$requested = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['title'] = 'Uno'; return $el; } );
+		$report    = \Elementor_MCP_Collateral::report( $before, $requested, $requested, null, $this->targeted( 'c1' ) );
+
+		$this->assertSame( array( 'h1' ), $report['targets'] );
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
+	public function test_a_node_added_under_a_declared_parent_is_covered_and_one_added_elsewhere_is_not(): void {
+		$before                     = $this->page();
+		$requested                  = $before;
+		$requested[0]['elements'][] = array( 'id' => 'h3', 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => array( 'title' => 'Three' ), 'elements' => array() );
+		$requested[]                = array( 'id' => 'c2', 'elType' => 'container', 'settings' => array(), 'elements' => array() );
+		$report                     = \Elementor_MCP_Collateral::report( $before, $requested, $requested, null, $this->targeted( 'c1' ) );
+
+		$this->assertSame( array( 'h3', 'c2' ), $report['targets'] );
+		$this->assertSame( array( 'c2' ), $report['undeclared'], 'h3 is a descendant of c1 in the REQUESTED tree; c2 is nobody\'s.' );
+	}
+
+	public function test_a_document_declaration_never_yields_undeclared(): void {
+		$before    = $this->page();
+		$requested = $this->with( $before, 'h2', static function ( $el ) { $el['settings']['title'] = 'Dos'; return $el; } );
+		$requested = $this->with( $requested, 'c1', static function ( $el ) { $el['settings']['gap'] = 40; return $el; } );
+		$report    = \Elementor_MCP_Collateral::report( $before, $requested, $requested, null, array( 'scope' => 'document' ) );
+
+		$this->assertSame( 'document', $report['intent'] );
+		$this->assertSame( array(), $report['undeclared'], 'The whole document was declared; nothing can be outside it.' );
+	}
+
+	/**
+	 * Malformed intent is treated as undeclared — exactly today's behaviour. It
+	 * never throws and never blocks a write: a declaration this class cannot
+	 * read is a bug in the caller, not a reason to refuse the caller's write.
+	 *
+	 * @dataProvider malformed_intents
+	 * @param mixed $intent Declaration to reject.
+	 */
+	public function test_a_malformed_declaration_is_treated_as_undeclared( $intent ): void {
+		$before    = $this->page();
+		$requested = $this->with( $before, 'h2', static function ( $el ) { $el['settings']['title'] = 'Dos'; return $el; } );
+		$report    = \Elementor_MCP_Collateral::report( $before, $requested, $requested, null, $intent );
+
+		$this->assertSame( 'undeclared', $report['intent'] );
+		$this->assertSame( array(), $report['undeclared'] );
+		$this->assertSame( array( 'h2' ), $report['targets'], 'Everything else is unchanged.' );
+	}
+
+	public static function malformed_intents(): array {
+		return array(
+			'unknown scope'              => array( array( 'scope' => 'partial', 'ids' => array( 'h1' ) ) ),
+			'no scope'                   => array( array( 'ids' => array( 'h1' ) ) ),
+			'targeted with no ids'       => array( array( 'scope' => 'targeted' ) ),
+			'targeted with an empty list' => array( array( 'scope' => 'targeted', 'ids' => array() ) ),
+			'targeted with a non-string' => array( array( 'scope' => 'targeted', 'ids' => array( 'h1', 17 ) ) ),
+			'targeted with an empty id'  => array( array( 'scope' => 'targeted', 'ids' => array( '' ) ) ),
+			'targeted with a map'        => array( array( 'scope' => 'targeted', 'ids' => array( 'a' => 'h1' ) ) ),
+			'ids that are not a list'    => array( array( 'scope' => 'targeted', 'ids' => 'h1' ) ),
+			'not an array'               => array( 'h1' ),
+			'null'                       => array( null ),
+		);
+	}
+
+	public function test_the_undeclared_summary_names_the_ids_and_caps_the_list(): void {
+		$before = array(
+			array( 'id' => 'c1', 'elType' => 'container', 'settings' => array(), 'elements' => array() ),
+		);
+		for ( $i = 1; $i <= 7; $i++ ) {
+			$before[] = array( 'id' => 'h' . $i, 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => array( 'title' => 'N' ), 'elements' => array() );
+		}
+		$requested = $before;
+		foreach ( $requested as $k => $node ) {
+			if ( 'c1' !== $node['id'] ) {
+				$requested[ $k ]['settings']['title'] = 'changed';
+			}
+		}
+		$report  = \Elementor_MCP_Collateral::report( $before, $requested, $requested, null, $this->targeted( 'h1' ) );
+		$summary = \Elementor_MCP_Collateral::summarize_undeclared( $report );
+
+		$this->assertSame( array( 'h2', 'h3', 'h4', 'h5', 'h6', 'h7' ), $report['undeclared'] );
+		$this->assertStringContainsString( '6 elements', $summary );
+		$this->assertStringContainsString( 'h2', $summary );
+		$this->assertStringContainsString( 'h6', $summary );
+		$this->assertStringNotContainsString( 'h7', $summary, 'Capped at five, like summarize().' );
+		$this->assertStringContainsString( 'declare', $summary, 'The reason says the write never declared them.' );
+	}
+
+	public function test_the_undeclared_summary_is_empty_when_there_is_nothing_to_say(): void {
+		$before = $this->page();
+		$report = \Elementor_MCP_Collateral::report( $before, $before, $before, null, $this->targeted( 'h1' ) );
+
+		$this->assertSame( '', \Elementor_MCP_Collateral::summarize_undeclared( $report ) );
+	}
+
 	public function test_summary_names_the_nodes(): void {
 		$before    = $this->page();
 		$requested = $this->with( $before, 'h1', static function ( $el ) { $el['settings']['title'] = 'Uno'; $el['settings']['nope'] = 1; return $el; } );

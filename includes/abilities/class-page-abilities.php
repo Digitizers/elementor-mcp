@@ -373,7 +373,9 @@ class Elementor_MCP_Page_Abilities {
 			return new \WP_Error( 'missing_post_id', __( 'The post_id parameter is required.', 'elementor-mcp' ) );
 		}
 
-		$result = $this->data->save_page_data( $post_id, array() );
+		// Declared intent (P5.4): the whole document is the subject here, so
+		// nothing this write touches can be outside what it declared.
+		$result = $this->data->save_page_data( $post_id, array(), array( 'scope' => 'document' ) );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;
@@ -466,7 +468,9 @@ class Elementor_MCP_Page_Abilities {
 			array_splice( $data, $position, 0, $template_json );
 		}
 
-		$result = $this->data->save_page_data( $post_id, $data );
+		// Declared intent (P5.4): an import reassigns every imported id and can
+		// splice anywhere in the tree — the document is the honest scope.
+		$result = $this->data->save_page_data( $post_id, $data, array( 'scope' => 'document' ) );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;

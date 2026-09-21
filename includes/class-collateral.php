@@ -57,10 +57,43 @@
  * the mirror-image reason: a prop coerce_tree() repaired on a node the tool
  * never touched must read as collateral, not be absorbed into the targets.
  *
+ * DECLARED intent (P5.4). Derived targets answer "what did the tool change?".
+ * They cannot answer "was the tool SUPPOSED to change that?" — anything the
+ * tool itself touched becomes a target by construction, so an ability that
+ * quietly rewrites an unrelated node is invisible to every check above: the
+ * save was faithful, so there is no collateral, and the node is a target, so
+ * it is not checked. That is tool-side over-reach, and the only way to see it
+ * is for the write to say up front what it meant to touch. So save_page_data()
+ * may carry a DECLARATION, and the report names the derived targets that fall
+ * outside it (`undeclared`). Two scopes:
+ *
+ *   - `array( 'scope' => 'targeted', 'ids' => array( '<id>', … ) )` — a derived
+ *     target is covered when its id was declared, or when it is a DESCENDANT of
+ *     a declared id in the BEFORE tree or in the REQUESTED one. Either tree,
+ *     because both directions are legitimate: removing a declared container
+ *     covers the children that went with it (before), and a node added under a
+ *     declared parent is covered by the parent it was added to (requested).
+ *   - `array( 'scope' => 'document' )` — the whole page was the subject
+ *     (build-page, import-template, delete-page-content). Nothing can be
+ *     outside it, so `undeclared` is always empty.
+ *
+ * Declaring is optional and additive: a caller that passes nothing gets exactly
+ * the report it got in 1.34.0, with `intent: 'undeclared'` and an empty list.
+ * A declaration this class cannot read — an unknown scope, `targeted` without a
+ * non-empty list of string ids — is treated as undeclared. It never throws and
+ * never blocks a write: a malformed declaration is a bug in the caller, and
+ * refusing the caller's write over it would be the guard failing the thing it
+ * guards. Over-reach is reported, never refused (see Elementor_MCP_Governance).
+ *
+ * `compared_by` rides every report for the reason `comparable` does: nodes are
+ * matched by id and ONLY by id — there is no path fallback — and no reader
+ * should be able to infer a stronger method from silence.
+ *
  * Pure: no WordPress, no I/O, no state. The verdict (warn / refuse / off) is
  * Elementor_MCP_Governance's, which is also where the report is recorded.
  *
  * @since 1.34.0
+ * @since 1.36.0 Declared intent: `compared_by`, `intent` and `undeclared`.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -81,23 +114,34 @@ class Elementor_MCP_Collateral {
 	 *                         handed to Elementor. Null (or not a list) falls
 	 *                         back to $requested, which is correct wherever no
 	 *                         coercion ran.
+	 * @param mixed $intent    What the write DECLARED it would touch:
+	 *                         `array( 'scope' => 'targeted', 'ids' => [ … ] )`,
+	 *                         `array( 'scope' => 'document' )`, or null /
+	 *                         malformed for undeclared. See the class docblock.
 	 * @return array{
 	 *   comparable: bool,
+	 *   compared_by: string,
+	 *   intent: string,
 	 *   targets: list<string>,
+	 *   undeclared: list<string>,
 	 *   checked: int,
 	 *   collateral: list<array{id:string,kind:string,type:string,path:string}>,
 	 *   gained: list<array{id:string,type:string,path:string}>,
 	 *   not_landed: list<array{id:string,missing:list<string>}>
 	 * }
 	 */
-	public static function report( $before, $requested, $persisted, $coerced = null ): array {
-		$report = array(
-			'comparable' => false,
-			'targets'    => array(),
-			'checked'    => 0,
-			'collateral' => array(),
-			'gained'     => array(),
-			'not_landed' => array(),
+	public static function report( $before, $requested, $persisted, $coerced = null, $intent = null ): array {
+		$declared = self::declaration( $intent );
+		$report   = array(
+			'comparable'  => false,
+			'compared_by' => 'id',
+			'intent'      => $declared['scope'],
+			'targets'     => array(),
+			'undeclared'  => array(),
+			'checked'     => 0,
+			'collateral'  => array(),
+			'gained'      => array(),
+			'not_landed'  => array(),
 		);
 		if ( ! is_array( $before ) || ! is_array( $requested ) || ! is_array( $persisted ) ) {
 			return $report;
@@ -123,6 +167,25 @@ class Elementor_MCP_Collateral {
 			}
 		}
 		$report['targets'] = array_keys( $targets );
+
+		// Undeclared: derived targets the write never said it would touch —
+		// tool-side over-reach, which nothing below can see because the save
+		// itself was faithful. Only `targeted` can produce any: `document`
+		// declared the whole page, and an undeclared write declared nothing for
+		// a target to be outside of.
+		if ( 'targeted' === $declared['scope'] ) {
+			$before_parents    = array();
+			$requested_parents = array();
+			self::parents( $before, '', $before_parents );
+			self::parents( $requested, '', $requested_parents );
+			foreach ( array_keys( $targets ) as $id ) {
+				$id = (string) $id;
+				if ( self::covered( $id, $declared['ids'], $before_parents ) || self::covered( $id, $declared['ids'], $requested_parents ) ) {
+					continue;
+				}
+				$report['undeclared'][] = $id;
+			}
+		}
 
 		// Collateral: untargeted nodes that the pipeline changed or dropped.
 		foreach ( $b as $id => $node ) {
@@ -177,11 +240,42 @@ class Elementor_MCP_Collateral {
 	/**
 	 * Whether the report carries anything a warn or refuse should act on.
 	 *
+	 * `undeclared` is deliberately NOT one of them: tool-side over-reach is
+	 * warn-only in this release, so it must never be what reverts a write.
+	 * Governance asks for it separately (see run_governed()).
+	 *
 	 * @param array $report Output of report().
 	 * @return bool
 	 */
 	public static function has_findings( array $report ): bool {
 		return ! empty( $report['collateral'] ) || ! empty( $report['not_landed'] );
+	}
+
+	/**
+	 * One line for the warning a non-empty `undeclared` raises: names the ids,
+	 * capped as summarize() caps its examples, and says what makes them worth
+	 * reading — the TOOL changed them, not the save.
+	 *
+	 * @since 1.36.0
+	 * @param array $report Output of report().
+	 * @return string Empty when there is nothing to say.
+	 */
+	public static function summarize_undeclared( array $report ): string {
+		if ( empty( $report['undeclared'] ) ) {
+			return '';
+		}
+		$count = count( $report['undeclared'] );
+		return sprintf(
+			/* translators: 1: count of nodes changed outside the declaration, 2: element ids */
+			_n(
+				'%1$d element this write never declared it would touch was changed before the save: %2$s',
+				'%1$d elements this write never declared they would touch were changed before the save: %2$s',
+				$count,
+				'elementor-mcp'
+			),
+			$count,
+			implode( ', ', array_slice( $report['undeclared'], 0, 5 ) )
+		);
 	}
 
 	/**
@@ -218,6 +312,93 @@ class Elementor_MCP_Collateral {
 			);
 		}
 		return implode( ' — ', $parts );
+	}
+
+	/**
+	 * Read a declaration, or decide there isn't one. Anything this cannot read
+	 * whole — an unknown scope, `targeted` without a non-empty LIST of non-empty
+	 * string ids — is undeclared rather than partially honoured: a declaration
+	 * half-read would silently narrow what counts as over-reach, which is the
+	 * one way this check could lie. Never throws (see the class docblock).
+	 *
+	 * @since 1.36.0
+	 * @param mixed $intent Declaration as given to report().
+	 * @return array{scope:string,ids:array<string,true>} scope is targeted|document|undeclared.
+	 */
+	private static function declaration( $intent ): array {
+		$none = array( 'scope' => 'undeclared', 'ids' => array() );
+		if ( ! is_array( $intent ) || ! isset( $intent['scope'] ) || ! is_string( $intent['scope'] ) ) {
+			return $none;
+		}
+		if ( 'document' === $intent['scope'] ) {
+			return array( 'scope' => 'document', 'ids' => array() );
+		}
+		if ( 'targeted' !== $intent['scope'] ) {
+			return $none;
+		}
+		$ids = isset( $intent['ids'] ) ? $intent['ids'] : null;
+		if ( ! is_array( $ids ) || empty( $ids ) || array_keys( $ids ) !== range( 0, count( $ids ) - 1 ) ) {
+			return $none;
+		}
+		$out = array();
+		foreach ( $ids as $id ) {
+			if ( ! is_string( $id ) || '' === $id ) {
+				return $none;
+			}
+			$out[ $id ] = true;
+		}
+		return array( 'scope' => 'targeted', 'ids' => $out );
+	}
+
+	/**
+	 * Flatten a tree into id => nearest ancestor id ('' at the top). A node
+	 * without an id is transparent: its children take the nearest ancestor that
+	 * HAS one, because an id is the only thing this class can match on. First
+	 * occurrence wins, so a duplicated id keeps the ancestry of the node that
+	 * appeared first — it is already dropped from the payload comparison by
+	 * index(), and covering its children is the lenient direction for a
+	 * warn-only check.
+	 *
+	 * @since 1.36.0
+	 * @param array               $elements Tree.
+	 * @param string              $parent   Nearest ancestor id, '' at the top.
+	 * @param array<string,string> $out     Accumulator.
+	 */
+	private static function parents( array $elements, string $parent, array &$out ): void {
+		foreach ( $elements as $el ) {
+			if ( ! is_array( $el ) ) {
+				continue;
+			}
+			$id = isset( $el['id'] ) ? (string) $el['id'] : '';
+			if ( '' !== $id && ! isset( $out[ $id ] ) ) {
+				$out[ $id ] = $parent;
+			}
+			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+				self::parents( $el['elements'], '' !== $id ? $id : $parent, $out );
+			}
+		}
+	}
+
+	/**
+	 * Whether $id was declared, or descends from something that was, in the one
+	 * tree $parents describes.
+	 *
+	 * @since 1.36.0
+	 * @param string               $id       Derived target.
+	 * @param array<string,true>   $declared Declared ids.
+	 * @param array<string,string> $parents  Ancestry from parents().
+	 * @return bool
+	 */
+	private static function covered( string $id, array $declared, array $parents ): bool {
+		$seen = array();
+		while ( '' !== $id && ! isset( $seen[ $id ] ) ) {
+			if ( isset( $declared[ $id ] ) ) {
+				return true;
+			}
+			$seen[ $id ] = true;
+			$id          = isset( $parents[ $id ] ) ? $parents[ $id ] : '';
+		}
+		return false;
 	}
 
 	/**

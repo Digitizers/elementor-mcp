@@ -444,10 +444,32 @@ class Elementor_MCP_Governance {
 			// never targeted, or drop a setting it asked for? Judged from the
 			// report save_page_data() recorded — before the render check, because
 			// it is deterministic and cheap, and a refused write needs no probe.
+			// Declared intent (1.36.0, P5.4) rides the same report and the same
+			// channel, and is the one thing here that is WARN-ONLY: over-reach
+			// is judged before→requested, i.e. against the tool's own code, and
+			// this release reports it in every mode but `off` without ever
+			// reverting on it. Only real collateral / not_landed still do that.
 			$collateral = self::$run['collateral'];
-			if ( is_array( $collateral ) && class_exists( 'Elementor_MCP_Collateral' ) && Elementor_MCP_Collateral::has_findings( $collateral ) ) {
+			$undeclared = is_array( $collateral ) && ! empty( $collateral['undeclared'] );
+			$findings   = is_array( $collateral ) && class_exists( 'Elementor_MCP_Collateral' ) && Elementor_MCP_Collateral::has_findings( $collateral );
+			if ( is_array( $collateral ) && class_exists( 'Elementor_MCP_Collateral' ) && ( $findings || $undeclared ) ) {
 				$mode = self::collateral_mode( $name, $post_id, $collateral );
-				if ( 'refuse' === $mode ) {
+				if ( $findings && 'warn' === $mode ) {
+					self::$run_warnings[] = array(
+						'rule'   => 'collateral',
+						'reason' => Elementor_MCP_Collateral::summarize( $collateral ),
+					);
+				}
+				if ( $undeclared && 'off' !== $mode ) {
+					// Added BEFORE the refuse branch below so it also rides the
+					// refusal: a run that is reverted for real collateral must
+					// still report what its tool touched off its own bat.
+					self::$run_warnings[] = array(
+						'rule'   => 'collateral',
+						'reason' => Elementor_MCP_Collateral::summarize_undeclared( $collateral ),
+					);
+				}
+				if ( $findings && 'refuse' === $mode ) {
 					$restore   = self::snapshots()->restore( $snapshot_id );
 					self::$run = null;
 					if ( empty( $restore['success'] ) ) {
@@ -466,17 +488,14 @@ class Elementor_MCP_Governance {
 					do_action( 'elementor_mcp_governance_collateral_reverted', $name, $post_id, $snapshot_id, $collateral );
 					return self::with_run_warnings( self::collateral_refused_error( $name, $post_id, $snapshot_id, $collateral ) );
 				}
-				if ( 'warn' === $mode ) {
-					self::$run_warnings[] = array(
-						'rule'   => 'collateral',
-						'reason' => Elementor_MCP_Collateral::summarize( $collateral ),
-					);
-				}
 				if ( 'off' !== $mode ) {
 					/**
-					 * Fires when a governed write changed elements it never targeted
-					 * or dropped a requested setting, and the write was allowed to
-					 * stand (mode `warn`). The gateway records it on the action.
+					 * Fires when a governed write changed elements it never targeted,
+					 * dropped a requested setting, or changed a node its ability never
+					 * declared — and the write was allowed to stand. That is mode
+					 * `warn`, and also `refuse` where the only thing found was the
+					 * undeclared change, which this release never reverts on. The
+					 * gateway records it on the action.
 					 *
 					 * @since 1.34.0
 					 * @param string $name    Ability name.
@@ -553,16 +572,21 @@ class Elementor_MCP_Governance {
 	 * @param mixed $persisted Tree stored after the save (decoded), or null.
 	 * @param mixed $coerced   The requested tree after coercion — what was handed
 	 *                         to Elementor. Null falls back to $requested.
+	 * @since 1.36.0 $intent — what the write DECLARED it would touch.
+	 * @param mixed $intent    Declaration, passed straight to the differ:
+	 *                         `array( 'scope' => 'targeted', 'ids' => [ … ] )`,
+	 *                         `array( 'scope' => 'document' )`, or null for the
+	 *                         1.34.0 behaviour. Malformed reads as null.
 	 * @return void
 	 */
-	public static function record_page_write( int $post_id, $before, $requested, $persisted, $coerced = null ): void {
+	public static function record_page_write( int $post_id, $before, $requested, $persisted, $coerced = null, $intent = null ): void {
 		if ( null === self::$run || ! self::is_active() || ! class_exists( 'Elementor_MCP_Collateral' ) ) {
 			return;
 		}
 		if ( null === self::$run['snapshot_id'] || absint( $post_id ) !== (int) self::$run['post_id'] ) {
 			return;
 		}
-		self::$run['collateral'] = Elementor_MCP_Collateral::report( $before, $requested, $persisted, $coerced );
+		self::$run['collateral'] = Elementor_MCP_Collateral::report( $before, $requested, $persisted, $coerced, $intent );
 	}
 
 	/**
@@ -576,7 +600,17 @@ class Elementor_MCP_Governance {
 	 * here on untouched nodes, and refusing on those would be the failure that
 	 * makes people disable guards; `refuse` is for after field data bounds it.
 	 *
+	 * The report's `undeclared` list — nodes the TOOL changed outside what its
+	 * ability declared it would touch (1.36.0, P5.4) — is the one finding this
+	 * mode does not gate the same way: it is reported in `warn` AND in
+	 * `refuse`, and reverts under neither. `off` still silences it with
+	 * everything else. Over-reach is a bug in an ability, and the first release
+	 * that can see it should report what it finds, not start reverting on a
+	 * signal nobody has field data for yet.
+	 *
 	 * @since 1.34.0
+	 * @since 1.36.0 Also consulted when the only finding is an undeclared change
+	 *               (warn-only; `off` silences it).
 	 * @param string $name    Ability name.
 	 * @param int    $post_id Post id.
 	 * @param array  $report  Elementor_MCP_Collateral report.
@@ -587,7 +621,9 @@ class Elementor_MCP_Governance {
 		 * Filters how a collateral finding on a governed page write is treated.
 		 *
 		 * @since 1.34.0
-		 * @param string $mode    refuse|warn|off. Default 'warn'.
+		 * @param string $mode    refuse|warn|off. Default 'warn'. An undeclared
+		 *                        change never reverts whatever this returns;
+		 *                        only `off` silences it.
 		 * @param string $name    Ability name.
 		 * @param int    $post_id Post id.
 		 * @param array  $report  Elementor_MCP_Collateral report.
@@ -624,7 +660,10 @@ class Elementor_MCP_Governance {
 				'post_id'              => $post_id,
 				'snapshot_id'          => $snapshot_id,
 				'rolled_back'          => true,
+				'compared_by'          => isset( $report['compared_by'] ) ? $report['compared_by'] : 'id',
+				'intent'               => isset( $report['intent'] ) ? $report['intent'] : 'undeclared',
 				'targets'              => $report['targets'],
+				'undeclared'           => array_slice( isset( $report['undeclared'] ) ? $report['undeclared'] : array(), 0, 10 ),
 				'collateral'           => array_slice( $report['collateral'], 0, 10 ),
 				'not_landed'           => array_slice( $report['not_landed'], 0, 10 ),
 				'gained'               => array_slice( $report['gained'], 0, 10 ),

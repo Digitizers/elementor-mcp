@@ -226,8 +226,10 @@ class Elementor_MCP_Composite_Abilities {
 		$this->pending_alt_writes = array();
 		$elements                = $this->build_elements( $structure );
 
-		// 3. Save the element data.
-		$result = $this->data->save_page_data( $post_id, $elements );
+		// 3. Save the element data. Declared intent (P5.4): build-page authors
+		// the entire document from the given structure, so the document is what
+		// it declares — there is no narrower truthful answer.
+		$result = $this->data->save_page_data( $post_id, $elements, array( 'scope' => 'document' ) );
 
 		if ( is_wp_error( $result ) ) {
 			return $result;

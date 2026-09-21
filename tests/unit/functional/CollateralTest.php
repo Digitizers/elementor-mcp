@@ -292,6 +292,125 @@ class CollateralTest extends TestCase {
 		$this->assertSame( array( 'c2' ), $report['undeclared'], 'h3 is a descendant of c1 in the REQUESTED tree; c2 is nobody\'s.' );
 	}
 
+	/** A container with the given id and children. */
+	private function box( string $id, array $children = array() ): array {
+		return array( 'id' => $id, 'elType' => 'container', 'settings' => array(), 'elements' => $children );
+	}
+
+	/** A heading with the given id and title. */
+	private function head( string $id, string $title = 'One' ): array {
+		return array( 'id' => $id, 'elType' => 'widget', 'widgetType' => 'heading', 'settings' => array( 'title' => $title ), 'elements' => array() );
+	}
+
+	public function test_a_node_stolen_into_a_declared_container_and_rewritten_is_undeclared(): void {
+		// Y lived under an undeclared A. The write declared only X, then moved Y
+		// into X and rewrote it. Judged on the requested tree alone, X's
+		// declaration would cover it — the relocation would launder the
+		// coverage, and the one check that exists to catch this would say
+		// nothing.
+		$before = array( $this->box( 'A', array( $this->head( 'Y', 'orig' ) ) ), $this->box( 'X' ) );
+		$after  = array( $this->box( 'A' ), $this->box( 'X', array( $this->head( 'Y', 'HIJACKED' ) ) ) );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'Y' ), $report['undeclared'] );
+	}
+
+	public function test_a_node_evicted_from_a_declared_container_and_rewritten_is_undeclared(): void {
+		// The mirror: judged on the BEFORE tree alone, X's declaration covers a
+		// node the write threw out of X and rewrote at the top level.
+		$before = array( $this->box( 'X', array( $this->head( 'Y', 'orig' ) ) ), $this->box( 'A' ) );
+		$after  = array( $this->box( 'X' ), $this->box( 'A' ), $this->head( 'Y', 'EVICTED' ) );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'Y' ), $report['undeclared'] );
+	}
+
+	public function test_a_pure_move_out_of_an_undeclared_parent_is_undeclared(): void {
+		// Nothing's payload changed, so there is no derived target at all — a
+		// move is invisible to the diff that finds targets. It is still the
+		// write taking a node out of a container it never named.
+		$before = array( $this->box( 'A', array( $this->head( 'Y' ) ) ), $this->box( 'B' ) );
+		$after  = array( $this->box( 'A' ), $this->box( 'B', array( $this->head( 'Y' ) ) ) );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'B' ) );
+
+		$this->assertSame( array(), $report['targets'], 'How targets are derived does not change.' );
+		$this->assertSame( array( 'Y' ), $report['undeclared'] );
+		$this->assertFalse( \Elementor_MCP_Collateral::has_findings( $report ), 'Still warn-only.' );
+	}
+
+	public function test_a_move_inside_the_declared_subtree_is_not_undeclared(): void {
+		// Both ancestries place Y inside c1, so the write stayed where it said.
+		$before = array( $this->box( 'c1', array( $this->box( 'c2', array( $this->head( 'Y' ) ) ) ) ) );
+		$after  = array( $this->box( 'c1', array( $this->box( 'c2' ), $this->head( 'Y' ) ) ) );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'c1' ) );
+
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
+	public function test_a_sibling_reorder_under_one_parent_is_not_seen(): void {
+		// Honest limitation, documented in the class docblock: a reorder changes
+		// no payload and no ancestry, so nothing here can see it.
+		$before = array( $this->box( 'A', array( $this->head( 'Y1' ), $this->head( 'Y2' ) ) ), $this->head( 'Z' ) );
+		$after  = array( $this->box( 'A', array( $this->head( 'Y2' ), $this->head( 'Y1' ) ) ), $this->head( 'Z', 'changed' ) );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'Z' ) );
+
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
+	public function test_a_duplicated_id_vouches_for_no_descendant(): void {
+		// X (declared) and an undeclared Y each hold a node with id D. Resolving
+		// D to its first occurrence would put Y's whole subtree under X, so a
+		// rewrite deep inside Y reads as declared work. An ambiguous id proves
+		// nothing about ancestry, so it is trusted for nothing.
+		$before = array(
+			$this->box( 'X', array( $this->box( 'D', array( $this->head( 'W1' ) ) ) ) ),
+			$this->box( 'Y', array( $this->box( 'D', array( $this->head( 'W2', 'orig' ) ) ) ) ),
+		);
+		$after  = $before;
+		$after[1]['elements'][0]['elements'][0]['settings']['title'] = 'REWRITTEN';
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'W2' ), $report['undeclared'] );
+	}
+
+	public function test_a_unique_ancestor_still_covers_its_descendant(): void {
+		// The control for the case above: with distinct ids nothing changes.
+		$before = array(
+			$this->box( 'X', array( $this->box( 'D1', array( $this->head( 'W1' ) ) ) ) ),
+			$this->box( 'Y', array( $this->box( 'D2', array( $this->head( 'W2', 'orig' ) ) ) ) ),
+		);
+		$after  = $before;
+		$after[0]['elements'][0]['elements'][0]['settings']['title'] = 'REWRITTEN';
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array( 'W1' ), $report['targets'] );
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
+	public function test_every_id_the_report_names_is_a_string(): void {
+		// Element ids are strings, but PHP turns an all-digit array key into an
+		// int — so a list built from array keys silently changes type for a page
+		// whose ids happen to be numeric, and a consumer comparing with === is
+		// wrong on exactly those pages.
+		$before    = array( $this->head( '123' ), $this->head( '456' ), $this->head( '789' ) );
+		$requested = $before;
+		$requested[0]['settings']['title']      = 'changed';
+		$requested[0]['settings']['custom_css'] = 'a{}';
+		$requested[1]['settings']['title']      = 'changed';
+		$persisted = $requested;
+		unset( $persisted[0]['settings']['custom_css'] ); // not landed
+		$persisted[2]['settings']['title'] = '';          // collateral
+		$persisted[]                       = $this->head( '999' ); // gained
+
+		$report = \Elementor_MCP_Collateral::report( $before, $requested, $persisted, null, $this->targeted( '123' ) );
+
+		$this->assertSame( array( '123', '456' ), $report['targets'] );
+		$this->assertSame( array( '456' ), $report['undeclared'] );
+		$this->assertSame( '789', $report['collateral'][0]['id'] );
+		$this->assertSame( '999', $report['gained'][0]['id'] );
+		$this->assertSame( '123', $report['not_landed'][0]['id'] );
+	}
+
 	public function test_a_document_declaration_never_yields_undeclared(): void {
 		$before    = $this->page();
 		$requested = $this->with( $before, 'h2', static function ( $el ) { $el['settings']['title'] = 'Dos'; return $el; } );

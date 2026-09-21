@@ -67,15 +67,40 @@
  * may carry a DECLARATION, and the report names the derived targets that fall
  * outside it (`undeclared`). Two scopes:
  *
- *   - `array( 'scope' => 'targeted', 'ids' => array( '<id>', … ) )` — a derived
- *     target is covered when its id was declared, or when it is a DESCENDANT of
- *     a declared id in the BEFORE tree or in the REQUESTED one. Either tree,
- *     because both directions are legitimate: removing a declared container
- *     covers the children that went with it (before), and a node added under a
- *     declared parent is covered by the parent it was added to (requested).
+ *   - `array( 'scope' => 'targeted', 'ids' => array( '<id>', … ) )` — see the
+ *     coverage rule below.
  *   - `array( 'scope' => 'document' )` — the whole page was the subject
  *     (build-page, import-template, delete-page-content). Nothing can be
  *     outside it, so `undeclared` is always empty.
+ *
+ * COVERAGE, for `targeted`. A node is covered when its own id was declared, or
+ * when a declared id is one of its ancestors — and WHICH tree's ancestors count
+ * depends on where the node lives:
+ *
+ *   - present in BOTH trees — both ancestries must place it inside the
+ *     declaration. Either one alone lets a relocation launder the coverage: a
+ *     write that declares X and then STEALS an unrelated node into X, or EVICTS
+ *     one out of X, is covered on exactly one side of the move, and "either
+ *     side" would report nothing. That is the shape a hijack takes.
+ *   - present only in BEFORE (removed) — the before ancestry, the only tree
+ *     that still places it. So removing a declared container covers the
+ *     children that went with it.
+ *   - present only in REQUESTED (added) — the requested ancestry, likewise. So
+ *     a node added under a declared parent is covered by that parent.
+ *
+ * WHAT IS JUDGED, and what is not. The derived targets are judged, plus nodes
+ * that merely MOVED — present in both trees under a different parent id. A move
+ * changes no payload, so it is never a derived target and no amount of diffing
+ * will make it one; but taking a node out of a container the write never named
+ * is precisely the over-reach this check exists for. So `undeclared` sees
+ * payload edits, additions, removals and re-parenting. It does NOT see a
+ * REORDER among siblings under one parent: that changes no payload and no
+ * ancestry, so nothing here can distinguish it from the page standing still.
+ * Said plainly rather than left for someone to discover. An id that appears
+ * more than once in a tree vouches for nothing there — neither its own place
+ * nor any descendant's — so a duplicate can never be the ancestor that makes
+ * an unrelated subtree look declared; such a descendant is covered only by
+ * being declared itself.
  *
  * Declaring is optional and additive: a caller that passes nothing gets exactly
  * the report it got in 1.34.0, with `intent: 'undeclared'` and an empty list.
@@ -166,24 +191,48 @@ class Elementor_MCP_Collateral {
 				$targets[ $id ] = true;
 			}
 		}
-		$report['targets'] = array_keys( $targets );
+		// (string) on every id: PHP turns an all-digit array key into an int, so
+		// a list built from keys would silently change type on a page whose ids
+		// happen to be numeric — and a consumer comparing with === would be
+		// wrong on exactly those pages. Every id this report names is a string.
+		foreach ( array_keys( $targets ) as $id ) {
+			$report['targets'][] = (string) $id;
+		}
 
-		// Undeclared: derived targets the write never said it would touch —
+		// Undeclared: what the write touched but never said it would touch —
 		// tool-side over-reach, which nothing below can see because the save
 		// itself was faithful. Only `targeted` can produce any: `document`
 		// declared the whole page, and an undeclared write declared nothing for
-		// a target to be outside of.
+		// anything to be outside of.
 		if ( 'targeted' === $declared['scope'] ) {
-			$before_parents    = array();
-			$requested_parents = array();
-			self::parents( $before, '', $before_parents );
-			self::parents( $requested, '', $requested_parents );
+			$before_tree    = self::ancestry( $before );
+			$requested_tree = self::ancestry( $requested );
+
+			// The suspects are the derived targets PLUS the nodes that moved —
+			// see "WHAT IS JUDGED" in the class docblock for why a move has to
+			// be added here rather than folded into how targets are derived.
+			$suspects = array();
 			foreach ( array_keys( $targets ) as $id ) {
+				$suspects[ (string) $id ] = true;
+			}
+			foreach ( $before_tree['parents'] as $id => $was ) {
 				$id = (string) $id;
-				if ( self::covered( $id, $declared['ids'], $before_parents ) || self::covered( $id, $declared['ids'], $requested_parents ) ) {
-					continue;
+				if ( isset( $suspects[ $id ] ) || ! isset( $requested_tree['parents'][ $id ] ) ) {
+					continue; // already judged, or not present either side — not a move
 				}
-				$report['undeclared'][] = $id;
+				if ( isset( $before_tree['ambiguous'][ $id ] ) || isset( $requested_tree['ambiguous'][ $id ] ) ) {
+					continue; // an ambiguous id cannot prove it moved any more than it can prove it stayed
+				}
+				if ( $requested_tree['parents'][ $id ] !== $was ) {
+					$suspects[ $id ] = true;
+				}
+			}
+
+			foreach ( array_keys( $suspects ) as $id ) {
+				$id = (string) $id;
+				if ( ! self::within_declaration( $id, $declared['ids'], $before_tree, $requested_tree ) ) {
+					$report['undeclared'][] = $id;
+				}
 			}
 		}
 
@@ -269,7 +318,7 @@ class Elementor_MCP_Collateral {
 			/* translators: 1: count of nodes changed outside the declaration, 2: element ids */
 			_n(
 				'%1$d element this write never declared it would touch was changed before the save: %2$s',
-				'%1$d elements this write never declared they would touch were changed before the save: %2$s',
+				'%1$d elements this write never declared it would touch were changed before the save: %2$s',
 				$count,
 				'elementor-mcp'
 			),
@@ -351,52 +400,115 @@ class Elementor_MCP_Collateral {
 	}
 
 	/**
-	 * Flatten a tree into id => nearest ancestor id ('' at the top). A node
-	 * without an id is transparent: its children take the nearest ancestor that
-	 * HAS one, because an id is the only thing this class can match on. First
-	 * occurrence wins, so a duplicated id keeps the ancestry of the node that
-	 * appeared first — it is already dropped from the payload comparison by
-	 * index(), and covering its children is the lenient direction for a
-	 * warn-only check.
+	 * Map one tree to `parents` (id => nearest ancestor id, '' at the top) plus
+	 * `ambiguous` (ids seen more than once). A node without an id is
+	 * transparent: its children take the nearest ancestor that HAS one, because
+	 * an id is the only thing this class can match on. Presence in `parents` is
+	 * also what "this tree contains that id" means to the caller.
+	 *
+	 * A duplicated id is recorded in `ambiguous` and trusted for NOTHING — see
+	 * covered(). Resolving it to whichever occurrence came first would let a
+	 * declared subtree adopt an unrelated one that happens to reuse an id, and
+	 * the whole subtree under the second occurrence would read as declared work.
+	 * index() already refuses to compare a duplicated node's payload for the
+	 * same reason; this is that rule applied to ancestry.
 	 *
 	 * @since 1.36.0
-	 * @param array               $elements Tree.
-	 * @param string              $parent   Nearest ancestor id, '' at the top.
-	 * @param array<string,string> $out     Accumulator.
+	 * @param array $elements Tree.
+	 * @return array{parents:array<string,string>,ambiguous:array<string,true>}
 	 */
-	private static function parents( array $elements, string $parent, array &$out ): void {
+	private static function ancestry( array $elements ): array {
+		$out = array( 'parents' => array(), 'ambiguous' => array() );
+		self::walk_ancestry( $elements, '', $out );
+		return $out;
+	}
+
+	/**
+	 * @param array  $elements Tree.
+	 * @param string $parent   Nearest ancestor id, '' at the top.
+	 * @param array  $out      Accumulator, as described by ancestry().
+	 */
+	private static function walk_ancestry( array $elements, string $parent, array &$out ): void {
 		foreach ( $elements as $el ) {
 			if ( ! is_array( $el ) ) {
 				continue;
 			}
 			$id = isset( $el['id'] ) ? (string) $el['id'] : '';
-			if ( '' !== $id && ! isset( $out[ $id ] ) ) {
-				$out[ $id ] = $parent;
+			if ( '' !== $id ) {
+				if ( isset( $out['parents'][ $id ] ) ) {
+					$out['ambiguous'][ $id ] = true;
+				} else {
+					$out['parents'][ $id ] = $parent;
+				}
 			}
 			if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
-				self::parents( $el['elements'], '' !== $id ? $id : $parent, $out );
+				self::walk_ancestry( $el['elements'], '' !== $id ? $id : $parent, $out );
 			}
 		}
 	}
 
 	/**
-	 * Whether $id was declared, or descends from something that was, in the one
-	 * tree $parents describes.
+	 * Whether the declaration reaches $id, given where it lives in each tree.
+	 * The whole point of taking both trees is that a node present in both must
+	 * satisfy BOTH — see "COVERAGE" in the class docblock: either side alone
+	 * lets a relocation launder the coverage.
 	 *
 	 * @since 1.36.0
-	 * @param string               $id       Derived target.
-	 * @param array<string,true>   $declared Declared ids.
-	 * @param array<string,string> $parents  Ancestry from parents().
+	 * @param string $id             Suspect node id.
+	 * @param array<string,true> $declared        Declared ids.
+	 * @param array  $before_tree    ancestry() of the before tree.
+	 * @param array  $requested_tree ancestry() of the requested tree.
 	 * @return bool
 	 */
-	private static function covered( string $id, array $declared, array $parents ): bool {
+	private static function within_declaration( string $id, array $declared, array $before_tree, array $requested_tree ): bool {
+		if ( isset( $declared[ $id ] ) ) {
+			return true; // named outright; where it sits is then beside the point
+		}
+		$in_before    = isset( $before_tree['parents'][ $id ] );
+		$in_requested = isset( $requested_tree['parents'][ $id ] );
+		if ( $in_before && $in_requested ) {
+			return self::covered( $id, $declared, $before_tree ) && self::covered( $id, $declared, $requested_tree );
+		}
+		if ( $in_before ) {
+			return self::covered( $id, $declared, $before_tree ); // removed: only this tree still places it
+		}
+		if ( $in_requested ) {
+			return self::covered( $id, $declared, $requested_tree ); // added: only this tree places it yet
+		}
+		return false; // in neither tree — nothing places it anywhere
+	}
+
+	/**
+	 * Whether a declared id is $id itself or one of its ancestors, in the one
+	 * tree $tree describes. An ambiguous id — the node's own, or any ancestor's
+	 * — ends the walk unconvinced: a duplicate proves nothing about ancestry,
+	 * and being declared does not make it provable.
+	 *
+	 * @since 1.36.0
+	 * @param string             $id       Suspect node id.
+	 * @param array<string,true> $declared Declared ids.
+	 * @param array              $tree     ancestry() of one tree.
+	 * @return bool
+	 */
+	private static function covered( string $id, array $declared, array $tree ): bool {
+		if ( isset( $declared[ $id ] ) ) {
+			return true;
+		}
 		$seen = array();
-		while ( '' !== $id && ! isset( $seen[ $id ] ) ) {
-			if ( isset( $declared[ $id ] ) ) {
+		$cur  = $id;
+		while ( '' !== $cur && ! isset( $seen[ $cur ] ) ) {
+			$seen[ $cur ] = true;
+			if ( isset( $tree['ambiguous'][ $cur ] ) ) {
+				return false;
+			}
+			$parent = isset( $tree['parents'][ $cur ] ) ? $tree['parents'][ $cur ] : '';
+			if ( '' === $parent || isset( $tree['ambiguous'][ $parent ] ) ) {
+				return false;
+			}
+			if ( isset( $declared[ $parent ] ) ) {
 				return true;
 			}
-			$seen[ $id ] = true;
-			$id          = isset( $parents[ $id ] ) ? $parents[ $id ] : '';
+			$cur = $parent;
 		}
 		return false;
 	}

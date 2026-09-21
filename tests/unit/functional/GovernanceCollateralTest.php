@@ -242,19 +242,51 @@ class GovernanceCollateralTest extends TestCase {
 		$this->assertCount( 0, $GLOBALS['_aura_snap']['restore_calls'] );
 	}
 
-	public function test_an_undeclared_change_fires_the_collateral_action_with_the_report(): void {
-		\Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
-
-		$reports = array();
+	/** Every firing of $tag this run, as its argument list. */
+	private function fired( string $tag ): array {
+		$out = array();
 		foreach ( $GLOBALS['_actions_fired'] as $fired ) {
-			if ( 'elementor_mcp_governance_collateral' === $fired['tag'] ) {
-				$reports[] = $fired['args'][2];
+			if ( $tag === $fired['tag'] ) {
+				$out[] = $fired['args'];
 			}
 		}
-		$this->assertCount( 1, $reports );
-		$this->assertSame( array( 'h2' ), $reports[0]['undeclared'] );
-		$this->assertSame( 'targeted', $reports[0]['intent'] );
-		$this->assertSame( 'id', $reports[0]['compared_by'] );
+		return $out;
+	}
+
+	public function test_an_undeclared_change_fires_its_own_action_and_not_the_collateral_one(): void {
+		// `elementor_mcp_governance_collateral` means what it meant in 1.34.0 —
+		// the SAVE changed something. Over-reach is a different claim about a
+		// different actor, so it gets its own tag rather than widening one a
+		// consumer already handles.
+		\Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_collateral' ) );
+		$undeclared = $this->fired( 'elementor_mcp_governance_undeclared' );
+		$this->assertCount( 1, $undeclared );
+		$this->assertSame( array( 'elementor-mcp/update-element', 55 ), array_slice( $undeclared[0], 0, 2 ) );
+		$this->assertSame( array( 'h2' ), $undeclared[0][2]['undeclared'] );
+		$this->assertSame( 'targeted', $undeclared[0][2]['intent'] );
+		$this->assertSame( 'id', $undeclared[0][2]['compared_by'] );
+		$this->assertSame( 'warn', $undeclared[0][3] );
+	}
+
+	public function test_real_collateral_alone_never_fires_the_undeclared_action(): void {
+		\Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertCount( 1, $this->fired( 'elementor_mcp_governance_collateral' ) );
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_undeclared' ) );
+	}
+
+	public function test_warn_with_both_reports_both_once_and_fires_both_actions(): void {
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_and_damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertCount( 2, $result['warnings'] );
+		$this->assertSame( array( 'collateral', 'collateral' ), array_column( $result['warnings'], 'rule' ) );
+		$this->assertNotSame( $result['warnings'][0]['reason'], $result['warnings'][1]['reason'] );
+		$this->assertStringContainsString( 'heading h3 (changed)', $result['warnings'][0]['reason'], 'What the save did.' );
+		$this->assertStringContainsString( 'h2', $result['warnings'][1]['reason'], 'What the tool did.' );
+		$this->assertCount( 1, $this->fired( 'elementor_mcp_governance_collateral' ) );
+		$this->assertCount( 1, $this->fired( 'elementor_mcp_governance_undeclared' ) );
 	}
 
 	public function test_an_undeclared_change_alone_never_reverts_under_refuse(): void {
@@ -274,7 +306,8 @@ class GovernanceCollateralTest extends TestCase {
 		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
 
 		$this->assertSame( array( 'ok' => true ), $result );
-		$this->assertSame( array(), $this->collateral_actions(), 'off announces nothing, over-reach included.' );
+		$this->assertSame( array(), $this->collateral_actions(), 'off announces nothing…' );
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_undeclared' ), '…over-reach included.' );
 	}
 
 	public function test_real_collateral_under_refuse_still_refuses_and_carries_the_declaration(): void {

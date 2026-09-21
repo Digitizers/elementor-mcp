@@ -468,6 +468,25 @@ class Elementor_MCP_Governance {
 						'rule'   => 'collateral',
 						'reason' => Elementor_MCP_Collateral::summarize_undeclared( $collateral ),
 					);
+					/**
+					 * Fires when a governed write changed a node its ability never
+					 * declared it would touch — tool-side over-reach, judged before
+					 * the save from the write's own declaration (1.36.0, P5.4).
+					 *
+					 * Its OWN tag, not elementor_mcp_governance_collateral: that one
+					 * has meant "the SAVE changed something the write never
+					 * targeted" since 1.34.0, and a consumer already handling it
+					 * must not silently start receiving a different claim about a
+					 * different actor. Both fire when both are true. This one fires
+					 * in every mode but `off`, and the write always stands.
+					 *
+					 * @since 1.36.0
+					 * @param string $name    Ability name.
+					 * @param int    $post_id Post id.
+					 * @param array  $report  Elementor_MCP_Collateral report.
+					 * @param string $mode    The mode that decided it.
+					 */
+					do_action( 'elementor_mcp_governance_undeclared', $name, $post_id, $collateral, $mode );
 				}
 				if ( $findings && 'refuse' === $mode ) {
 					$restore   = self::snapshots()->restore( $snapshot_id );
@@ -488,14 +507,15 @@ class Elementor_MCP_Governance {
 					do_action( 'elementor_mcp_governance_collateral_reverted', $name, $post_id, $snapshot_id, $collateral );
 					return self::with_run_warnings( self::collateral_refused_error( $name, $post_id, $snapshot_id, $collateral ) );
 				}
-				if ( 'off' !== $mode ) {
+				if ( $findings && 'off' !== $mode ) {
 					/**
-					 * Fires when a governed write changed elements it never targeted,
-					 * dropped a requested setting, or changed a node its ability never
-					 * declared — and the write was allowed to stand. That is mode
-					 * `warn`, and also `refuse` where the only thing found was the
-					 * undeclared change, which this release never reverts on. The
-					 * gateway records it on the action.
+					 * Fires when a governed write changed elements it never targeted
+					 * or dropped a requested setting, and the write was allowed to
+					 * stand (mode `warn`). The gateway records it on the action.
+					 *
+					 * Unchanged by 1.36.0: it still fires only for what the SAVE
+					 * did. Over-reach by the tool has its own tag,
+					 * elementor_mcp_governance_undeclared.
 					 *
 					 * @since 1.34.0
 					 * @param string $name    Ability name.
@@ -566,13 +586,13 @@ class Elementor_MCP_Governance {
 	 * hidden. The last save of the protected post within a run wins.
 	 *
 	 * @since 1.34.0
+	 * @since 1.36.0 $intent — what the write DECLARED it would touch.
 	 * @param int   $post_id   The post that was written.
 	 * @param mixed $before    Tree stored before the save (decoded), or null.
 	 * @param mixed $requested Tree the tool asked to save (pre-coercion).
 	 * @param mixed $persisted Tree stored after the save (decoded), or null.
 	 * @param mixed $coerced   The requested tree after coercion — what was handed
 	 *                         to Elementor. Null falls back to $requested.
-	 * @since 1.36.0 $intent — what the write DECLARED it would touch.
 	 * @param mixed $intent    Declaration, passed straight to the differ:
 	 *                         `array( 'scope' => 'targeted', 'ids' => [ … ] )`,
 	 *                         `array( 'scope' => 'document' )`, or null for the

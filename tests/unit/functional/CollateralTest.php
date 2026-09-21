@@ -373,6 +373,65 @@ class CollateralTest extends TestCase {
 		$this->assertSame( array( 'W2' ), $report['undeclared'] );
 	}
 
+	public function test_removing_a_declared_container_whose_subtree_holds_a_duplicated_id_is_clean(): void {
+		// A page that already carries a duplicate id — Elementor pages do — and
+		// an ordinary remove-element on it. W really was inside the declared X;
+		// resolving coverage through the id `D` rather than through W's own
+		// position accused a legitimate call of over-reach on a page it did not
+		// corrupt. `D` itself is not accused either: which D moved where cannot
+		// be proven, and an ambiguous id accuses nothing (index()'s rule).
+		$before = array(
+			$this->box( 'X', array( $this->box( 'D', array( $this->head( 'W' ) ) ) ) ),
+			$this->box( 'Y', array( $this->box( 'D', array( $this->head( 'V' ) ) ) ) ),
+		);
+		$after  = array( $before[1] );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
+	public function test_removing_a_declared_container_whose_own_id_is_duplicated_is_clean(): void {
+		$before = array(
+			$this->box( 'X', array( $this->head( 'a' ), $this->head( 'b' ) ) ),
+			$this->box( 'X', array( $this->head( 'q' ) ) ),
+		);
+		$after  = array( $before[1] );
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'X' ) );
+
+		$this->assertSame( array(), $report['undeclared'], 'Every X on the page is declared, so everything under one is too.' );
+	}
+
+	public function test_a_node_is_judged_by_the_occurrence_it_actually_sits_under(): void {
+		// h1 sits under the M that is inside the declared c1. A second, unrelated
+		// M at the root makes the id ambiguous but changes nothing about where
+		// h1 is — coverage follows h1's own path, not a lookup by ancestor id.
+		$before = array(
+			$this->box( 'c1', array( $this->box( 'M', array( $this->head( 'h1', 'One' ) ) ) ) ),
+			$this->box( 'M', array( $this->head( 'z' ) ) ),
+		);
+		$after  = $before;
+		$after[0]['elements'][0]['elements'][0]['settings']['title'] = 'Uno';
+		$report = \Elementor_MCP_Collateral::report( $before, $after, $after, null, $this->targeted( 'c1' ) );
+
+		$this->assertSame( array( 'h1' ), $report['targets'] );
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
+	public function test_a_declared_subtree_thousands_deep_is_covered(): void {
+		// Coverage is computed once per node as the tree is walked, not by
+		// climbing the ancestry per suspect — 3000 nested nodes, all removed
+		// under one declared root, must come back clean rather than quadratic.
+		$node = $this->head( 'd2999' );
+		for ( $i = 2998; $i >= 0; $i-- ) {
+			$node = $this->box( 'd' . $i, array( $node ) );
+		}
+		$before = array( $node );
+		$report = \Elementor_MCP_Collateral::report( $before, array(), array(), null, $this->targeted( 'd0' ) );
+
+		$this->assertCount( 3000, $report['targets'], 'The whole chain was removed, so all of it is a target.' );
+		$this->assertSame( array(), $report['undeclared'] );
+	}
+
 	public function test_a_unique_ancestor_still_covers_its_descendant(): void {
 		// The control for the case above: with distinct ids nothing changes.
 		$before = array(

@@ -468,6 +468,23 @@ class Elementor_MCP_Governance {
 						'rule'   => 'collateral',
 						'reason' => Elementor_MCP_Collateral::summarize_undeclared( $collateral ),
 					);
+				}
+
+				// Refuse, if real collateral calls for it — over-reach never does.
+				// Done BEFORE announcing the over-reach, because that announcement
+				// has to say whether the write survived, and only the restore can
+				// answer: a rollback that failed leaves the write standing.
+				$reverted = false;
+				$refusal  = null;
+				if ( $findings && 'refuse' === $mode ) {
+					$restore   = self::snapshots()->restore( $snapshot_id );
+					self::$run = null;
+					$reverted  = ! empty( $restore['success'] );
+					$refusal   = $reverted
+						? self::collateral_refused_error( $name, $post_id, $snapshot_id, $collateral )
+						: self::rollback_failed_error( $name, $post_id, $snapshot_id, 'the write changed elements it never targeted', $restore );
+				}
+				if ( $undeclared && 'off' !== $mode ) {
 					/**
 					 * Fires when a governed write changed a node its ability never
 					 * declared it would touch — tool-side over-reach, judged before
@@ -477,35 +494,40 @@ class Elementor_MCP_Governance {
 					 * has meant "the SAVE changed something the write never
 					 * targeted" since 1.34.0, and a consumer already handling it
 					 * must not silently start receiving a different claim about a
-					 * different actor. Both fire when both are true. This one fires
-					 * in every mode but `off`, and the write always stands.
+					 * different actor. Both fire when both are true.
+					 *
+					 * Over-reach alone never reverts anything, in any mode but
+					 * `off` — but this run may ALSO have carried real collateral
+					 * under `refuse`, in which case it has just been rolled back.
+					 * $reverted says which happened rather than leaving a listener
+					 * to assume the write stood.
 					 *
 					 * @since 1.36.0
-					 * @param string $name    Ability name.
-					 * @param int    $post_id Post id.
-					 * @param array  $report  Elementor_MCP_Collateral report.
-					 * @param string $mode    The mode that decided it.
+					 * @param string $name     Ability name.
+					 * @param int    $post_id  Post id.
+					 * @param array  $report   Elementor_MCP_Collateral report.
+					 * @param string $mode     The mode that decided it.
+					 * @param bool   $reverted Whether this run was rolled back — for
+					 *                         real collateral, never for the
+					 *                         over-reach this action announces.
 					 */
-					do_action( 'elementor_mcp_governance_undeclared', $name, $post_id, $collateral, $mode );
+					do_action( 'elementor_mcp_governance_undeclared', $name, $post_id, $collateral, $mode, $reverted );
 				}
-				if ( $findings && 'refuse' === $mode ) {
-					$restore   = self::snapshots()->restore( $snapshot_id );
-					self::$run = null;
-					if ( empty( $restore['success'] ) ) {
-						return self::with_run_warnings( self::rollback_failed_error( $name, $post_id, $snapshot_id, 'the write changed elements it never targeted', $restore ) );
+				if ( null !== $refusal ) {
+					if ( $reverted ) {
+						/**
+						 * Fires after a governed write was reverted because it changed
+						 * elements it never targeted (or dropped a requested setting).
+						 *
+						 * @since 1.34.0
+						 * @param string $name        Ability name.
+						 * @param int    $post_id     Reverted post id.
+						 * @param string $snapshot_id Snapshot restored.
+						 * @param array  $report      Elementor_MCP_Collateral report.
+						 */
+						do_action( 'elementor_mcp_governance_collateral_reverted', $name, $post_id, $snapshot_id, $collateral );
 					}
-					/**
-					 * Fires after a governed write was reverted because it changed
-					 * elements it never targeted (or dropped a requested setting).
-					 *
-					 * @since 1.34.0
-					 * @param string $name        Ability name.
-					 * @param int    $post_id     Reverted post id.
-					 * @param string $snapshot_id Snapshot restored.
-					 * @param array  $report      Elementor_MCP_Collateral report.
-					 */
-					do_action( 'elementor_mcp_governance_collateral_reverted', $name, $post_id, $snapshot_id, $collateral );
-					return self::with_run_warnings( self::collateral_refused_error( $name, $post_id, $snapshot_id, $collateral ) );
+					return self::with_run_warnings( $refusal );
 				}
 				if ( $findings && 'off' !== $mode ) {
 					/**
@@ -627,6 +649,13 @@ class Elementor_MCP_Governance {
 	 * everything else. Over-reach is a bug in an ability, and the first release
 	 * that can see it should report what it finds, not start reverting on a
 	 * signal nobody has field data for yet.
+	 *
+	 * Note for filter authors: since 1.36.0 this filter is also consulted on
+	 * runs whose ONLY finding is an undeclared change — runs that before 1.36.0
+	 * would not have asked it at all, because `has_findings()` was false. A
+	 * filter with side effects, or one that counts how often it is called, will
+	 * see more calls than it used to on the same traffic. The verdict it returns
+	 * still cannot revert such a run; only `off` silences it.
 	 *
 	 * @since 1.34.0
 	 * @since 1.36.0 Also consulted when the only finding is an undeclared change

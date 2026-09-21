@@ -268,6 +268,37 @@ class GovernanceCollateralTest extends TestCase {
 		$this->assertSame( 'targeted', $undeclared[0][2]['intent'] );
 		$this->assertSame( 'id', $undeclared[0][2]['compared_by'] );
 		$this->assertSame( 'warn', $undeclared[0][3] );
+		$this->assertFalse( $undeclared[0][4], 'Nothing reverted this run.' );
+	}
+
+	public function test_the_undeclared_action_says_so_when_the_run_was_reverted(): void {
+		// Over-reach never reverts, but a run carrying real collateral under
+		// `refuse` does — and this action fires on that run too. It is told
+		// which happened rather than left to imply the write stood.
+		$this->set_mode( 'refuse' );
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_and_damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$undeclared = $this->fired( 'elementor_mcp_governance_undeclared' );
+		$this->assertCount( 1, $undeclared );
+		$this->assertSame( 'refuse', $undeclared[0][3] );
+		$this->assertTrue( $undeclared[0][4], 'The write did not stand.' );
+		$this->assertCount( 1, $this->fired( 'elementor_mcp_governance_collateral_reverted' ) );
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_collateral' ), 'Unchanged since 1.34.0: never on a refusal.' );
+	}
+
+	public function test_the_undeclared_action_reports_a_failed_rollback_as_not_reverted(): void {
+		$this->set_mode( 'refuse' );
+		$GLOBALS['_aura_snap']['fail_restore'] = true;
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_and_damaging_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
+		$undeclared = $this->fired( 'elementor_mcp_governance_undeclared' );
+		$this->assertCount( 1, $undeclared );
+		$this->assertFalse( $undeclared[0][4], 'The revert failed, so the write still stands.' );
+		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_collateral_reverted' ) );
 	}
 
 	public function test_real_collateral_alone_never_fires_the_undeclared_action(): void {

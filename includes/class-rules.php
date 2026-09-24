@@ -475,21 +475,22 @@ class Elementor_MCP_Rules {
 	 *
 	 *  - `template_id`: the Loop Grid / Loop Carousel loop-item template
 	 *    (this plugin's add-loop-grid / add-loop-carousel settings,
-	 *    class-widget-abilities.php:2183,2210; the same setting in the
-	 *    references emcp-pro catalog-pro.php:702,728). Elementor Pro's
-	 *    Template widget stores its embedded template under the same
-	 *    `template_id` setting (reviewer's finding; no Pro source is checked
-	 *    out here to cite).
-	 *  - `templateID`: Elementor Pro Global Widgets carry it at the element
-	 *    root, pointing at the global-widget template (references
-	 *    respira class-builder-elementor.php:3896-3902).
+	 *    class-widget-abilities.php:2183,2210) and Elementor Pro's Template
+	 *    widget (Pro 4.1.0 library/widgets/template.php:63,87; V4 template
+	 *    styles, atomic-widgets/template-styles.php:67-80).
+	 *  - `templateID`: Elementor Pro Global Widgets, at the element root
+	 *    (Pro 4.1.0 global-widget.php:35,95).
+	 *  - `component_id`: a V4 component instance renders its component's
+	 *    styles into the page (core 4.1.3
+	 *    components/widgets/component-instance.php:125-132).
 	 *
 	 * Not included: `_skin` — a skin enum (post|post_taxonomy), not a
-	 * template reference (catalog-pro.php:701).
+	 * template reference. Popup references are OUT OF SCOPE by ruling: they
+	 * link another document, governed under its own id — do not add them.
 	 *
 	 * @since 1.37.0
 	 */
-	const EMBED_KEYS = array( 'template_id', 'templateID' );
+	const EMBED_KEYS = array( 'template_id', 'templateID', 'component_id' );
 
 	/**
 	 * Abilities whose effect copies or activates EXISTING custom CSS into a

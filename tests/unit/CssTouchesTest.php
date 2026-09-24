@@ -121,6 +121,12 @@ class CssTouchesTest extends TestCase {
 		);
 	}
 
+	public function test_a_v4_component_instance_embeds_its_components_css(): void {
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/update-element', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( 'component_id' => 31 ) ) ) );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/batch-update', array( 'post_id' => 42, 'operations' => array( array( 'element_id' => 'w', 'settings' => array( 'component_id' => '31' ) ) ) ) ) );
+		$this->assertSame( array(), $this->t( 'elementor-mcp/update-element', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( 'component_id' => '' ) ) ), 'empty component_id is no embed' );
+	}
+
 	public function test_an_empty_template_ref_is_no_embed(): void {
 		foreach ( array( 0, '0', '', '  ', null, array() ) as $none ) {
 			$this->assertSame( array(), $this->t( 'elementor-mcp/add-widget', array( 'post_id' => 42, 'parent_id' => 'c', 'widget_type' => 'loop-grid', 'settings' => array( 'template_id' => $none ) ) ), var_export( $none, true ) );

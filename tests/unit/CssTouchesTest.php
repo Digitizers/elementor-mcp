@@ -132,6 +132,13 @@ class CssTouchesTest extends TestCase {
 		$this->assertSame( array(), $this->t( 'elementor-mcp/add-text-editor', array( 'post_id' => 42, 'parent_id' => 'c', 'editor' => '<p>Plain text about elementor templates.</p>' ) ) );
 	}
 
+	public function test_a_url_encoded_template_shortcode_in_a_dynamic_tag_is_an_embed(): void {
+		$tag = '[elementor-tag id="a1" name="shortcode" settings="' . rawurlencode( wp_json_encode( array( 'shortcode' => '[elementor-template id="5"]' ) ) ) . '"]';
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/update-widget', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( '__dynamic__' => array( 'editor' => $tag ) ) ) ) );
+		$twice = rawurlencode( rawurlencode( '[elementor-template id="5"]' ) );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/update-widget', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( 'x' => $twice ) ) ), 'double-encoded' );
+	}
+
 	public function test_a_v4_component_instance_embeds_its_components_css(): void {
 		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/update-element', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( 'component_id' => 31 ) ) ) );
 		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/batch-update', array( 'post_id' => 42, 'operations' => array( array( 'element_id' => 'w', 'settings' => array( 'component_id' => '31' ) ) ) ) ) );

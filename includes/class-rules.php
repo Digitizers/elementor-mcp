@@ -748,7 +748,7 @@ class Elementor_MCP_Rules {
 				// A saved template embedded by id brings whatever CSS it
 				// carries; the input cannot show it (Task 3 review, I-1).
 				$found = 'unknown';
-			} elseif ( is_string( $v ) && false !== stripos( $v, self::TEMPLATE_SHORTCODE_NEEDLE ) ) {
+			} elseif ( is_string( $v ) && self::has_template_shortcode( $v ) ) {
 				// The same embed, as a shortcode in a string (final review M-1).
 				$found = 'unknown';
 			} elseif ( is_array( $v ) ) {
@@ -756,6 +756,29 @@ class Elementor_MCP_Rules {
 			}
 		}
 		return $found;
+	}
+
+	/**
+	 * Whether a string embeds a saved template by shortcode — also when it is
+	 * URL-encoded, as a `__dynamic__` shortcode tag stores it (final re-review
+	 * N-1). Decodes at most three times, stopping once a pass changes nothing.
+	 *
+	 * @since 1.37.0
+	 * @param string $v String value.
+	 * @return bool
+	 */
+	private static function has_template_shortcode( string $v ): bool {
+		for ( $i = 0; $i < 4; $i++ ) {
+			if ( false !== stripos( $v, self::TEMPLATE_SHORTCODE_NEEDLE ) ) {
+				return true;
+			}
+			$decoded = rawurldecode( $v );
+			if ( $decoded === $v ) {
+				return false;
+			}
+			$v = $decoded;
+		}
+		return false;
 	}
 
 	/**

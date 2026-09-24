@@ -177,8 +177,32 @@ class Elementor_MCP_Rules {
 		'elementor-mcp/batch-update',
 	);
 
-	/** Keys that identify a target rather than change it (css_only ignores them). @since 1.37.0 */
-	const ID_KEYS = array( 'post_id', 'element_id', 'replace', 'position', 'id' );
+	/**
+	 * Per-ability input shape that qualifies as `css_only` (spec §3: "the
+	 * call's only effect is that CSS"; review r1 I-1). A generic recursive
+	 * walk cannot tell a nested `settings` key — a setting being replaced —
+	 * from padding: an input like `settings:{title:{custom_css:'a{}'}}`
+	 * walked as "only custom_css / element_id keys at any depth" and wrongly
+	 * qualified, even though it overwrites `title` with an array. Each
+	 * writer's exact allowed top-level keys are listed here instead, with
+	 * `settings` (or each batch op's `settings`) required to be precisely
+	 * `{custom_css: <string>}` — nothing left to interpret.
+	 *
+	 * `add-custom-css` writes its `css` field directly (no settings merge),
+	 * so it only needs its own allowed keys — this also covers its atomic
+	 * (V4) path: the fork stores an element's custom CSS in a generated
+	 * style class there too, so the ability's only effect is still CSS.
+	 *
+	 * @since 1.37.0
+	 */
+	const CSS_ONLY_SHAPES = array(
+		'elementor-mcp/update-element'       => array( 'post_id', 'element_id', 'settings' ),
+		'elementor-mcp/update-widget'        => array( 'post_id', 'element_id', 'settings' ),
+		'elementor-mcp/update-container'     => array( 'post_id', 'element_id', 'settings' ),
+		'elementor-mcp/update-page-settings' => array( 'post_id', 'settings' ),
+		'elementor-mcp/batch-update'         => array( 'post_id', 'operations' ),
+		'elementor-mcp/add-custom-css'       => array( 'post_id', 'element_id', 'css', 'replace' ),
+	);
 
 	/**
 	 * The custom_css touch a write declares, in addition to its page/site
@@ -212,7 +236,7 @@ class Elementor_MCP_Rules {
 		$touch = array( 'type' => 'custom_css', 'id' => $id );
 		if ( 'css' === $found && ctype_digit( $id ) && in_array( $name, self::CSS_PRECISE_ABILITIES, true ) ) {
 			$touch['precise'] = true;
-			if ( self::only_css( $input, $name, true ) ) {
+			if ( self::only_css( $input, $name ) ) {
 				$touch['css_only'] = true;
 			}
 		}
@@ -237,7 +261,14 @@ class Elementor_MCP_Rules {
 		return ( 'css' === $a || 'css' === $b ) ? 'css' : 'none';
 	}
 
-	/** Every `custom_css` key at any depth. @return string none|css|unknown */
+	/**
+	 * Every `custom_css` key at any depth. Arrays only — MCP input is decoded
+	 * to associative arrays, and the write handlers this class defers to
+	 * (`update_element_settings( array $settings )` etc.) fatal on anything
+	 * else, so a `stdClass` here is not a value this class needs to handle.
+	 *
+	 * @return string none|css|unknown
+	 */
 	private static function walk_custom_css( $node ): string {
 		if ( ! is_array( $node ) ) {
 			return 'none';
@@ -254,32 +285,57 @@ class Elementor_MCP_Rules {
 	}
 
 	/**
-	 * Is everything this input changes CSS? Identifier keys are ignored at the
-	 * top level; a raw-CSS field of this ability counts as CSS; everything
-	 * else must be a `custom_css` key or a container holding only those.
+	 * Is $name's write of $input shaped so its only effect is CSS (review r1
+	 * I-1)? Looked up in CSS_ONLY_SHAPES: the input's top-level keys must be a
+	 * subset of that ability's allowed set, and — for every shape but
+	 * `add-custom-css` — the `settings` it carries (each batch op's, for
+	 * `batch-update`) must be exactly `{custom_css: <string>}`. An ability not
+	 * listed there is never css_only.
 	 */
-	private static function only_css( $node, string $name, bool $top ): bool {
-		if ( ! is_array( $node ) ) {
+	private static function only_css( array $input, string $name ): bool {
+		$allowed = self::CSS_ONLY_SHAPES[ $name ] ?? null;
+		if ( null === $allowed || ! self::keys_subset( $input, $allowed ) ) {
 			return false;
 		}
-		foreach ( $node as $k => $v ) {
-			if ( $top && in_array( (string) $k, self::ID_KEYS, true ) ) {
-				continue;
+		if ( 'elementor-mcp/add-custom-css' === $name ) {
+			return true;
+		}
+		if ( 'elementor-mcp/batch-update' === $name ) {
+			return self::batch_ops_only_custom_css( $input['operations'] ?? null );
+		}
+		return self::settings_is_only_custom_css( $input['settings'] ?? null );
+	}
+
+	/** Are $input's keys all in $allowed? */
+	private static function keys_subset( array $input, array $allowed ): bool {
+		foreach ( array_keys( $input ) as $k ) {
+			if ( ! in_array( (string) $k, $allowed, true ) ) {
+				return false;
 			}
-			if ( 'custom_css' === $k ) {
-				continue;
-			}
-			if ( $top && in_array( (string) $k, self::RAW_CSS_FIELDS[ $name ] ?? array(), true ) ) {
-				continue;
-			}
-			if ( is_array( $v ) && array() !== $v && self::only_css( $v, $name, false ) ) {
-				continue;
-			}
-			// `element_id` inside a batch operation identifies, it does not change.
-			if ( ! $top && 'element_id' === $k ) {
-				continue;
-			}
+		}
+		return true;
+	}
+
+	/** Is $settings exactly one key, `custom_css`, holding a string? */
+	private static function settings_is_only_custom_css( $settings ): bool {
+		return is_array( $settings )
+			&& 1 === count( $settings )
+			&& array_key_exists( 'custom_css', $settings )
+			&& is_string( $settings['custom_css'] );
+	}
+
+	/** Is $operations a non-empty list of ops, each `{element_id?, settings: {custom_css: <string>}}`? */
+	private static function batch_ops_only_custom_css( $operations ): bool {
+		if ( ! is_array( $operations ) || array() === $operations ) {
 			return false;
+		}
+		foreach ( $operations as $op ) {
+			if ( ! is_array( $op )
+				|| ! self::keys_subset( $op, array( 'element_id', 'settings' ) )
+				|| ! self::settings_is_only_custom_css( $op['settings'] ?? null )
+			) {
+				return false;
+			}
 		}
 		return true;
 	}

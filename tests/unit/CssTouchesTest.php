@@ -96,4 +96,46 @@ class CssTouchesTest extends TestCase {
 	public function test_a_non_array_input_declares_nothing(): void {
 		$this->assertSame( array(), $this->t( 'elementor-mcp/update-element', 'garbage' ) );
 	}
+
+	/**
+	 * Review r1 I-1: css_only must be an explicit input shape per writer, not
+	 * a generic "only custom_css / element_id keys at any depth" walk — that
+	 * walk let a nested non-CSS setting (a real `title`, `link`, `html_tag`,
+	 * or a V4 `styles` change) qualify as css_only, which an id-less
+	 * `allow custom_css` rule would then auto-run.
+	 */
+	public function test_a_nested_non_css_setting_is_precise_but_never_css_only(): void {
+		$this->assertSame(
+			self::MIXED,
+			$this->t( 'elementor-mcp/update-element', array( 'post_id' => 42, 'element_id' => 'a1', 'settings' => array( 'title' => array( 'custom_css' => 'a{}' ) ) ) ),
+			'settings.title is a real setting being overwritten, not CSS'
+		);
+		$this->assertSame(
+			self::MIXED,
+			$this->t( 'elementor-mcp/update-widget', array( 'post_id' => 42, 'settings' => array( 'custom_css' => 'a{}', 'link' => array( 'element_id' => 'x' ) ) ) ),
+			'link is overwritten alongside custom_css'
+		);
+		$this->assertSame(
+			self::MIXED,
+			$this->t( 'elementor-mcp/update-page-settings', array( 'post_id' => 42, 'settings' => array( 'custom_css' => 'a{}', 'background_image' => array( 'custom_css' => '' ) ) ) ),
+			'background_image is a page setting, not CSS, even though it nests a custom_css key'
+		);
+		$mixed_batch = array( 'post_id' => 42, 'operations' => array(
+			array( 'element_id' => 'a', 'settings' => array( 'custom_css' => 'x', 'html_tag' => array( 'element_id' => 'h1' ) ) ),
+		) );
+		$this->assertSame( self::MIXED, $this->t( 'elementor-mcp/batch-update', $mixed_batch ), 'html_tag is overwritten alongside custom_css' );
+		$atomic = array( 'post_id' => 42, 'element_id' => 'a', 'settings' => array( 'styles' => array( 's1' => array( 'variants' => array( array( 'custom_css' => 'x' ) ) ) ) ) );
+		$this->assertSame( self::MIXED, $this->t( 'elementor-mcp/update-element', $atomic ), 'a V4 styles change is a structural change, not only CSS' );
+	}
+
+	public function test_settings_that_is_only_custom_css_is_still_exact(): void {
+		$this->assertSame(
+			self::EXACT,
+			$this->t( 'elementor-mcp/update-element', array( 'post_id' => 42, 'element_id' => 'a1', 'settings' => array( 'custom_css' => 'a{}' ) ) )
+		);
+	}
+
+	public function test_batch_update_with_no_operations_declares_nothing(): void {
+		$this->assertSame( array(), $this->t( 'elementor-mcp/batch-update', array( 'post_id' => 42, 'operations' => array() ) ) );
+	}
 }

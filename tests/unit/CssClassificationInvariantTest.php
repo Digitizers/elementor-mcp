@@ -130,15 +130,10 @@ class CssClassificationInvariantTest extends TestCase {
 	}
 
 	/**
-	 * The field maps hold TOP-LEVEL input keys only — css_touches() reads
-	 * `$input[ $field ]` directly (Codex r2). A nested raw-CSS path found by
-	 * the drift guard cannot be satisfied by a map entry; it needs a change
-	 * to css_touches() (and is reported by the classification test until then).
-	 */
-	/**
 	 * A `walk` producer proves it forwards no OPAQUE content (Codex r3): a
 	 * string-typed property that carries markup/templates cannot be walked for
-	 * a `custom_css` key, so it must be in CONSERVATIVE_CSS_FIELDS. Open
+	 * a `custom_css` key, so it must be classified: RAW / CONSERVATIVE (an
+	 * object-key path css_touches() reads) or NOT_CSS with a reason. Open
 	 * objects and element arrays are walked, so they are fine.
 	 */
 	public function test_a_walk_producer_forwards_no_unclassified_opaque_string(): void {
@@ -148,10 +143,10 @@ class CssClassificationInvariantTest extends TestCase {
 				continue;
 			}
 			foreach ( $this->opaque_string_paths( $writes[ $name ] ) as $path ) {
-				// Top-level paths can be satisfied by a field-map entry; a nested
-				// one cannot (maps hold top-level keys) — it needs css_touches()
-				// to read it, so it always fails here until the handler does
-				// and the path is listed below (Codex r4).
+				// Object-key paths (`spec.html_template`) can be satisfied by a
+				// field-map entry, which css_touches() is proven to read; a path
+				// through a list (`[]`) cannot — it needs handler code, or a
+				// NOT_CSS reason (Codex r4).
 				// A descriptive string (`html_tag`, `template_type`) may be
 				// classified not-CSS with a reason (Codex r5) — the point is
 				// that someone looked, not that every match is conservative.

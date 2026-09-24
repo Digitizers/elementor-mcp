@@ -125,13 +125,19 @@ class Elementor_MCP_Rules {
 	 * @since 1.37.0
 	 */
 	const CONSERVATIVE_CSS_FIELDS = array(
+		// The custom widget's `spec.sections[].controls[].selectors` are raw
+		// CSS too (widget-generator) and no map lists them: they are covered
+		// only because `spec.html_template` is REQUIRED non-empty on every
+		// valid create/update, so every such call already declares
+		// custom_css:* here. If html_template ever becomes optional, the
+		// selectors need their own handler code (a `[]` path).
 		'elementor-mcp/create-custom-widget' => array( 'spec.html_template' ),
 		'elementor-mcp/update-custom-widget' => array( 'spec.html_template' ),
 		'elementor-mcp/add-code-snippet'     => array( 'code' ),
 	);
 
-	/** NOT_CSS_FIELDS reason: V4 `border_style` shortcut → one `border-style` prop (class-atomic-styles.php:306,586). @since 1.37.0 */
-	const NOT_CSS_BORDER_STYLE = 'descriptive: V4 border-style keyword, stored as one typed style prop (class-atomic-styles.php:306)';
+	/** NOT_CSS_FIELDS reason: V4 `border_style` shortcut → one `border-style` prop value; the schema does not enforce a keyword (class-atomic-styles.php:306,586). @since 1.37.0 */
+	const NOT_CSS_BORDER_STYLE = 'descriptive: free-text value of the one V4 `border-style` style prop (stored as-is, class-atomic-styles.php:306) — a prop value like `color`, not custom CSS text';
 
 	/** NOT_CSS_FIELDS reason: V4 `css_position` enum → one `position` prop. @since 1.37.0 */
 	const NOT_CSS_POSITION = 'descriptive: V4 position enum static|relative|absolute|fixed|sticky (class-atomic-styles.php:617,714)';
@@ -140,7 +146,7 @@ class Elementor_MCP_Rules {
 	const NOT_CSS_ID = 'descriptive: element HTML id → _cssid, sanitize_text_field (class-atomic-widget-map.php:123, class-atomic-layout-abilities.php:152)';
 
 	/** NOT_CSS_FIELDS reason: kit typography `font_style`. @since 1.37.0 */
-	const NOT_CSS_FONT_STYLE = 'descriptive: kit typography font-style value (normal/italic) (class-system-kit-abilities.php:137)';
+	const NOT_CSS_FONT_STYLE = 'descriptive: free-text value of the kit typography font_style prop (plain string, class-system-kit-abilities.php:137) — a prop value, not custom CSS text';
 
 	/**
 	 * Raw-CSS-NAMED input fields that are not custom CSS, each with its reason
@@ -176,7 +182,7 @@ class Elementor_MCP_Rules {
 		),
 		'elementor-mcp/add-slides' => array(
 			'slides[].custom_css_class'  => 'descriptive: a CSS class NAME on the slide, not CSS text (class-widget-abilities.php:1605)',
-			'slides[].content_animation' => 'descriptive: entrance-animation name, e.g. fadeInUp (class-widget-abilities.php:1604)',
+			'slides[].content_animation' => 'descriptive: free-text entrance-animation name stored as a setting, e.g. fadeInUp (class-widget-abilities.php:1604) — a name, not CSS text',
 		),
 		'elementor-mcp/add-loop-grid' => array(
 			'template_id' => 'descriptive: loop-template post id (class-widget-abilities.php:2183)',
@@ -411,7 +417,7 @@ class Elementor_MCP_Rules {
 		'elementor-mcp/build-page'              => 'walk',
 		'elementor-mcp/sideload-image'          => 'none: media-library attachment only (media_handle_sideload, class-stock-image-abilities.php:393) — no Elementor page/element/kit/template data',
 		'elementor-mcp/add-stock-image'         => 'walk',
-		'elementor-mcp/upload-svg-icon'         => 'none: media-library SVG attachment only (class-svg-icon-abilities.php:163) — no Elementor page/element/kit/template data',
+		'elementor-mcp/upload-svg-icon'         => 'none: media-library SVG attachment only (class-svg-icon-abilities.php:163) — no Elementor page/element/kit/template data; svg_content is SVG markup where a <style> survives sanitize_svg_content, but the upload places nothing — it reaches a page only when add-icon places the icon, which is content (R5)',
 		'elementor-mcp/add-custom-js'           => 'walk',
 		'elementor-mcp/add-custom-css'          => 'walk+fields',
 		'elementor-mcp/add-code-snippet'        => 'walk+fields',
@@ -456,6 +462,34 @@ class Elementor_MCP_Rules {
 		'elementor-mcp/set-widget-status'       => 'always',
 		'elementor-mcp/delete-custom-widget'    => 'none: deletes a custom widget record + file (Widget_Store::delete, class-widget-builder-abilities.php:693) — input is an id only',
 	);
+
+	/**
+	 * Element-data keys that embed a SAVED template (and so its custom CSS)
+	 * by reference (Task 3 review, I-1). A non-empty one at any depth of the
+	 * input makes the walk 'unknown': the call declares a conservative
+	 * custom_css touch, never precise — the input shows an id, not the CSS.
+	 * This covers the generic writes (add-widget / update-widget /
+	 * update-element / batch-update) and tree writes (create-page,
+	 * build-page, import-template) that reach the same effect as the
+	 * ALWAYS_CONSERVATIVE_CSS tools.
+	 *
+	 *  - `template_id`: the Loop Grid / Loop Carousel loop-item template
+	 *    (this plugin's add-loop-grid / add-loop-carousel settings,
+	 *    class-widget-abilities.php:2183,2210; the same setting in the
+	 *    references emcp-pro catalog-pro.php:702,728). Elementor Pro's
+	 *    Template widget stores its embedded template under the same
+	 *    `template_id` setting (reviewer's finding; no Pro source is checked
+	 *    out here to cite).
+	 *  - `templateID`: Elementor Pro Global Widgets carry it at the element
+	 *    root, pointing at the global-widget template (references
+	 *    respira class-builder-elementor.php:3896-3902).
+	 *
+	 * Not included: `_skin` — a skin enum (post|post_taxonomy), not a
+	 * template reference (catalog-pro.php:701).
+	 *
+	 * @since 1.37.0
+	 */
+	const EMBED_KEYS = array( 'template_id', 'templateID' );
 
 	/**
 	 * Abilities whose effect copies or activates EXISTING custom CSS into a
@@ -626,7 +660,24 @@ class Elementor_MCP_Rules {
 	}
 
 	/**
-	 * Every `custom_css` key at any depth. Arrays only — MCP input is decoded
+	 * Does an EMBED_KEYS value name a template? Empty, null, false, 0 and '0'
+	 * (and an empty array) mean "no embed"; anything else counts, scalar or
+	 * array — a malformed ref is not proof of no CSS.
+	 */
+	private static function is_embed( $v ): bool {
+		if ( null === $v || false === $v || 0 === $v || array() === $v ) {
+			return false;
+		}
+		if ( is_string( $v ) ) {
+			$t = trim( $v );
+			return '' !== $t && '0' !== $t;
+		}
+		return true;
+	}
+
+	/**
+	 * Every `custom_css` key at any depth — plus any EMBED_KEYS reference,
+	 * which makes the walk 'unknown' (conservative, never precise). Arrays only — MCP input is decoded
 	 * to associative arrays, and the write handlers this class defers to
 	 * (`update_element_settings( array $settings )` etc.) fatal on anything
 	 * else, so a `stdClass` here is not a value this class needs to handle.
@@ -641,6 +692,10 @@ class Elementor_MCP_Rules {
 		foreach ( $node as $k => $v ) {
 			if ( 'custom_css' === $k ) {
 				$found = self::worse( $found, self::css_value( $v ) );
+			} elseif ( in_array( $k, self::EMBED_KEYS, true ) && self::is_embed( $v ) ) {
+				// A saved template embedded by id brings whatever CSS it
+				// carries; the input cannot show it (Task 3 review, I-1).
+				$found = 'unknown';
 			} elseif ( is_array( $v ) ) {
 				$found = self::worse( $found, self::walk_custom_css( $v ) );
 			}

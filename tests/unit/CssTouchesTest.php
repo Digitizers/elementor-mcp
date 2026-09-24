@@ -107,6 +107,26 @@ class CssTouchesTest extends TestCase {
 		$this->assertSame( $wild, $this->t( 'elementor-mcp/save-as-template', array( 'post_id' => 42, 'element_id' => 'a', 'title' => 't' ) ) );
 	}
 
+	public function test_embedding_a_saved_template_is_css_of_unknown_shape(): void {
+		// Task 3 review I-1: the generic writes reach the same effect as
+		// add-loop-grid / apply-template, so an embed key is conservative.
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/add-widget', array( 'post_id' => 42, 'parent_id' => 'c', 'widget_type' => 'loop-grid', 'settings' => array( 'template_id' => '7' ) ) ) );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/update-widget', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( 'template_id' => 8 ) ) ), 'swapping the template' );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/batch-update', array( 'post_id' => 42, 'operations' => array( array( 'element_id' => 'w', 'settings' => array( 'template_id' => '9' ) ) ) ) ) );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/update-element', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( 'custom_css' => 'a{}', 'template_id' => '9' ) ) ), 'CSS beside an embed is never precise' );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/import-template', array( 'post_id' => 42, 'template_json' => array( array( 'elType' => 'widget', 'widgetType' => 'global', 'templateID' => 12 ) ) ) ), 'a global widget' );
+		$this->assertSame(
+			array( array( 'type' => 'custom_css', 'id' => '*' ) ),
+			$this->t( 'elementor-mcp/build-page', array( 'title' => 'p', 'structure' => array( array( 'type' => 'container', 'children' => array( array( 'type' => 'widget', 'widget_type' => 'template', 'settings' => array( 'template_id' => '5' ) ) ) ) ) ), '*' )
+		);
+	}
+
+	public function test_an_empty_template_ref_is_no_embed(): void {
+		foreach ( array( 0, '0', '', '  ', null, array() ) as $none ) {
+			$this->assertSame( array(), $this->t( 'elementor-mcp/add-widget', array( 'post_id' => 42, 'parent_id' => 'c', 'widget_type' => 'loop-grid', 'settings' => array( 'template_id' => $none ) ) ), var_export( $none, true ) );
+		}
+	}
+
 	public function test_design_system_css_is_not_custom_css(): void {
 		$this->assertSame( array(), $this->t( 'elementor-mcp/create-global-class', array( 'label' => 'x', 'styles' => array( 'color' => 'red' ) ), '*' ) );
 	}

@@ -452,6 +452,10 @@ class Elementor_MCP_Governance {
 			$collateral = self::$run['collateral'];
 			$undeclared = is_array( $collateral ) && ! empty( $collateral['undeclared'] );
 			$findings   = is_array( $collateral ) && class_exists( 'Elementor_MCP_Collateral' ) && Elementor_MCP_Collateral::has_findings( $collateral );
+			// The undeclared action carries the run's FINAL rollback state, so on
+			// a run the collateral step lets stand it waits for the render
+			// verdict below (Codex r1 on #75) — see announce_undeclared().
+			$undeclared_pending = null;
 			if ( is_array( $collateral ) && class_exists( 'Elementor_MCP_Collateral' ) && ( $findings || $undeclared ) ) {
 				$mode = self::collateral_mode( $name, $post_id, $collateral );
 				if ( $findings && 'warn' === $mode ) {
@@ -484,7 +488,10 @@ class Elementor_MCP_Governance {
 						? self::collateral_refused_error( $name, $post_id, $snapshot_id, $collateral )
 						: self::rollback_failed_error( $name, $post_id, $snapshot_id, 'the write changed elements it never targeted', $restore );
 				}
-				if ( $undeclared && 'off' !== $mode ) {
+				if ( $undeclared && 'off' !== $mode && null === $refusal ) {
+					$undeclared_pending = array( $name, $post_id, $collateral, $mode );
+				}
+				if ( $undeclared && 'off' !== $mode && null !== $refusal ) {
 					/**
 					 * Fires when a governed write changed a node its ability never
 					 * declared it would touch — tool-side over-reach, judged before
@@ -502,13 +509,18 @@ class Elementor_MCP_Governance {
 					 * $reverted says which happened rather than leaving a listener
 					 * to assume the write stood.
 					 *
-					 * Ordering: this fires AFTER the revert has been attempted, so
-					 * on a run whose rollback failed it follows
-					 * `elementor_mcp_governance_rollback_failed`, and on a
-					 * successful revert it precedes
-					 * `elementor_mcp_governance_collateral_reverted`. The order of
-					 * the `_collateral*` actions relative to each other and to
-					 * `_rollback_failed` is exactly what it was before 1.36.0.
+					 * Ordering: this fires once per run, AFTER every revert that
+					 * run can make has been attempted. On a run refused for real
+					 * collateral it fires here — after a failed rollback's
+					 * `elementor_mcp_governance_rollback_failed`, before a
+					 * successful one's `elementor_mcp_governance_collateral_reverted`.
+					 * On any other run it waits for the render check (1.36.1,
+					 * Codex r1): after `elementor_mcp_governance_render_reverted`
+					 * when that check rolls the run back ($reverted true), and
+					 * before `elementor_mcp_governance_write` when the write
+					 * stands. The order of the `_collateral*` actions relative to
+					 * each other and to `_rollback_failed` is exactly what it was
+					 * before 1.36.0.
 					 *
 					 * @since 1.36.0
 					 * @param string $name     Ability name.
@@ -516,8 +528,9 @@ class Elementor_MCP_Governance {
 					 * @param array  $report   Elementor_MCP_Collateral report.
 					 * @param string $mode     The mode that decided it.
 					 * @param bool   $reverted Whether this run was rolled back — for
-					 *                         real collateral, never for the
-					 *                         over-reach this action announces.
+					 *                         real collateral or by the render
+					 *                         check, never for the over-reach
+					 *                         this action announces.
 					 */
 					do_action( 'elementor_mcp_governance_undeclared', $name, $post_id, $collateral, $mode, $reverted );
 				}
@@ -566,6 +579,7 @@ class Elementor_MCP_Governance {
 				$restore   = self::snapshots()->restore( $snapshot_id );
 				self::$run = null;
 				if ( empty( $restore['success'] ) ) {
+					self::announce_undeclared( $undeclared_pending, false );
 					// This is still an outcome of a governed run — a warn decided
 					// earlier must be reported here too (global constraint: warn
 					// proceeds and is reported once, on EVERY outcome), even though
@@ -584,6 +598,7 @@ class Elementor_MCP_Governance {
 				 * @param array  $restore     Restore result.
 				 */
 				do_action( 'elementor_mcp_governance_render_reverted', $name, $post_id, $snapshot_id, $restore );
+				self::announce_undeclared( $undeclared_pending, true );
 				return self::with_run_warnings(
 					new \WP_Error(
 						'governance_render_failed',
@@ -597,11 +612,28 @@ class Elementor_MCP_Governance {
 				);
 			}
 
+			self::announce_undeclared( $undeclared_pending, false );
 			// Expose the rollback point so the gateway can offer an undo.
 			do_action( 'elementor_mcp_governance_write', $name, $post_id, $snapshot_id, $result );
 		}
 		self::$run = null;
 		return self::with_run_warnings( $result );
+	}
+
+	/**
+	 * Fire a deferred `elementor_mcp_governance_undeclared` with the run's final
+	 * rollback state (documented at its refusal-path call site in
+	 * run_governed()). No-op when nothing is pending.
+	 *
+	 * @since 1.36.1
+	 * @param array|null $pending  array( $name, $post_id, $report, $mode ) or null.
+	 * @param bool       $reverted Whether this run was rolled back.
+	 */
+	private static function announce_undeclared( $pending, bool $reverted ): void {
+		if ( null === $pending ) {
+			return;
+		}
+		do_action( 'elementor_mcp_governance_undeclared', $pending[0], $pending[1], $pending[2], $pending[3], $reverted );
 	}
 
 	/**

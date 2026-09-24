@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.36.1 — 2026-09-24
+
+- Fix: **`elementor_mcp_governance_undeclared` reports the run's final rollback state** (elementor-mcp#77, Codex review of #75). On a run the collateral step let stand, the action fired with `$reverted = false` *before* the post-write render check — which can still restore the snapshot and return `governance_render_failed`. It now waits for that verdict: `true` after `elementor_mcp_governance_render_reverted`, `false` when the write stands (then before `elementor_mcp_governance_write`) or the render revert failed. Runs refused for real collateral are unchanged. Tests +2; suite 1336 green.
+
 ## 1.36.0 — 2026-09-21
 
 - New: **declared intent on governed page writes** (references P5.4, elementor-mcp#75). `Elementor_MCP_Collateral` derives a write's targets by diffing before→requested, so anything the tool itself changed was a "target" and could never be collateral — an ability that rewrote an unrelated node was invisible; only damage Elementor did on save was caught. A write can now say what it means to touch: `save_page_data( $post_id, $data, $intent = null )` with `{scope:'targeted', ids:[…]}` or `{scope:'document'}`. Malformed intent degrades to undeclared — it never throws and never blocks a write.

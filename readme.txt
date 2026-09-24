@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.36.0
+Stable tag: 1.36.1
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.36.1 =
+* Fix: `elementor_mcp_governance_undeclared` now says whether the run was really rolled back. When the post-write render check reverted a broken page, the action had already fired saying the write stood; it now fires after that check, with `$reverted` true.
 
 = 1.36.0 =
 * New: declared intent on governed page writes. `update-element`, `update-widget`, `update-container` and `remove-element` now declare the element they mean to change, and `delete-page-content`, `import-template` and `build-page` declare a whole-document write. The collateral report gains `compared_by`, `intent` and `undeclared` — elements a write changed, added, removed or moved that it never said it would touch. Until now anything the tool itself changed counted as intended, so an ability that rewrote an unrelated element was invisible.
@@ -491,6 +494,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.36.1 =
+Safe for every site: a bug fix in a developer action. Writes behave exactly as in 1.36.0.
 
 = 1.36.0 =
 Safe for every site: writes behave as before, with one new warning when a tool changes elements it did not declare. If your own code extends `Elementor_MCP_Data` and overrides `save_page_data()`, add the third `$intent = null` parameter before updating.

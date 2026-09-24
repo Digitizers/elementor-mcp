@@ -288,6 +288,42 @@ class GovernanceCollateralTest extends TestCase {
 		$this->assertSame( array(), $this->fired( 'elementor_mcp_governance_collateral' ), 'Unchanged since 1.34.0: never on a refusal.' );
 	}
 
+	public function test_the_undeclared_action_reports_a_render_check_revert(): void {
+		// Codex r1 on #75: over-reach under `warn` stands the collateral step,
+		// but the render check can still roll the same run back. The action
+		// must carry the run's FINAL state, so it waits for that verdict.
+		$GLOBALS['_posts'][55]                 = (object) array( 'ID' => 55, 'post_status' => 'publish' );
+		$GLOBALS['_emcp_render_check']         = true;
+		$GLOBALS['_http_response_queue']       = array(
+			array( 'response' => array( 'code' => 200 ), 'body' => 'ok' ),
+			array( 'response' => array( 'code' => 500 ), 'body' => 'Internal Server Error' ),
+		);
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertSame( 'governance_render_failed', $result->get_error_code() );
+		$undeclared = $this->fired( 'elementor_mcp_governance_undeclared' );
+		$this->assertCount( 1, $undeclared );
+		$this->assertTrue( $undeclared[0][4], 'The render check reverted this run, so the write did not stand.' );
+	}
+
+	public function test_the_undeclared_action_reports_a_failed_render_revert_as_not_reverted(): void {
+		$GLOBALS['_posts'][55]                 = (object) array( 'ID' => 55, 'post_status' => 'publish' );
+		$GLOBALS['_emcp_render_check']         = true;
+		$GLOBALS['_aura_snap']['fail_restore'] = true;
+		$GLOBALS['_http_response_queue']       = array(
+			array( 'response' => array( 'code' => 200 ), 'body' => 'ok' ),
+			array( 'response' => array( 'code' => 500 ), 'body' => 'Internal Server Error' ),
+		);
+
+		$result = \Elementor_MCP_Governance::run_governed( 'elementor-mcp/update-element', $this->over_reaching_writer(), array( 'post_id' => 55 ) );
+
+		$this->assertSame( 'governance_rollback_failed', $result->get_error_code() );
+		$undeclared = $this->fired( 'elementor_mcp_governance_undeclared' );
+		$this->assertCount( 1, $undeclared );
+		$this->assertFalse( $undeclared[0][4], 'The render revert failed, so the write still stands.' );
+	}
+
 	public function test_the_undeclared_action_reports_a_failed_rollback_as_not_reverted(): void {
 		$this->set_mode( 'refuse' );
 		$GLOBALS['_aura_snap']['fail_restore'] = true;

@@ -483,6 +483,13 @@ class Elementor_MCP_Rules {
 	 *  - `component_id`: a V4 component instance renders its component's
 	 *    styles into the page (core 4.1.3
 	 *    components/widgets/component-instance.php:125-132).
+	 *  - `additional_template_select`: WooCommerce Cart widget, empty-cart
+	 *    template, rendered via `[elementor-template]` (Pro 4.2.2
+	 *    modules/woocommerce/widgets/cart.php:2651; control at :526-532).
+	 *  - `customize_dashboard_select`: WooCommerce My Account widget, custom
+	 *    dashboard template, rendered the same way (Pro 4.2.2
+	 *    modules/woocommerce/widgets/my-account.php:2141,2158; control at
+	 *    :303-309).
 	 *
 	 * Not included: `_skin` — a skin enum (post|post_taxonomy), not a
 	 * template reference. Popup references are OUT OF SCOPE by ruling: they
@@ -490,7 +497,20 @@ class Elementor_MCP_Rules {
 	 *
 	 * @since 1.37.0
 	 */
-	const EMBED_KEYS = array( 'template_id', 'templateID', 'component_id' );
+	const EMBED_KEYS = array( 'template_id', 'templateID', 'component_id', 'additional_template_select', 'customize_dashboard_select' );
+
+	/**
+	 * A string value (any key, any depth) containing this shortcode embeds a
+	 * saved template — and its custom CSS, rendered with `$include_css`
+	 * (Pro modules/library/classes/shortcode.php:64) — so the walk is
+	 * 'unknown' (final review M-1). Matched case-insensitively.
+	 *
+	 * OUT OF SCOPE by ruling: custom JS that injects CSS at runtime
+	 * (add-custom-js `js`, custom-widget `spec.scripts`) is not detected.
+	 *
+	 * @since 1.37.0
+	 */
+	const TEMPLATE_SHORTCODE_NEEDLE = '[elementor-template';
 
 	/**
 	 * Abilities whose effect copies or activates EXISTING custom CSS into a
@@ -696,6 +716,9 @@ class Elementor_MCP_Rules {
 			} elseif ( in_array( $k, self::EMBED_KEYS, true ) && self::is_embed( $v ) ) {
 				// A saved template embedded by id brings whatever CSS it
 				// carries; the input cannot show it (Task 3 review, I-1).
+				$found = 'unknown';
+			} elseif ( is_string( $v ) && false !== stripos( $v, self::TEMPLATE_SHORTCODE_NEEDLE ) ) {
+				// The same embed, as a shortcode in a string (final review M-1).
 				$found = 'unknown';
 			} elseif ( is_array( $v ) ) {
 				$found = self::worse( $found, self::walk_custom_css( $v ) );

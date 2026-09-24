@@ -121,6 +121,17 @@ class CssTouchesTest extends TestCase {
 		);
 	}
 
+	public function test_woo_widget_template_selects_are_embeds(): void {
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/add-widget', array( 'post_id' => 42, 'parent_id' => 'c', 'widget_type' => 'woocommerce-cart', 'settings' => array( 'additional_template_select' => '77' ) ) ) );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/add-widget', array( 'post_id' => 42, 'parent_id' => 'c', 'widget_type' => 'woocommerce-my-account', 'settings' => array( 'customize_dashboard_select' => '78' ) ) ) );
+	}
+
+	public function test_an_elementor_template_shortcode_in_a_string_is_an_embed(): void {
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/add-text-editor', array( 'post_id' => 42, 'parent_id' => 'c', 'editor' => '<p>Hi</p>[elementor-template id="5"]' ) ) );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/update-widget', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( 'shortcode' => '[Elementor-Template id="5"]' ) ) ), 'case-insensitive, any depth' );
+		$this->assertSame( array(), $this->t( 'elementor-mcp/add-text-editor', array( 'post_id' => 42, 'parent_id' => 'c', 'editor' => '<p>Plain text about elementor templates.</p>' ) ) );
+	}
+
 	public function test_a_v4_component_instance_embeds_its_components_css(): void {
 		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/update-element', array( 'post_id' => 42, 'element_id' => 'w', 'settings' => array( 'component_id' => 31 ) ) ) );
 		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/batch-update', array( 'post_id' => 42, 'operations' => array( array( 'element_id' => 'w', 'settings' => array( 'component_id' => '31' ) ) ) ) ) );

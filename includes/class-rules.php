@@ -461,17 +461,24 @@ class Elementor_MCP_Rules {
 	 * Abilities whose effect copies or activates EXISTING custom CSS into a
 	 * target while nothing in their input shows it (Task 3 review, C4): the
 	 * CSS rides on a template, element or widget named by id, so the walker
-	 * sees only the id. Each call declares a conservative custom_css touch on
-	 * whatever id governance resolved — never precise, never css_only,
-	 * whatever the input — so an operator's `block custom_css` still applies
-	 * and an `allow custom_css` can never admit one. Cost: every call is
-	 * declared, CSS or not (an over-block, by design).
+	 * sees only the id. Each call declares a conservative custom_css touch —
+	 * never precise, never css_only, whatever the input — so an operator's
+	 * `block custom_css` still applies and an `allow custom_css` can never
+	 * admit one. Cost: every call is declared, CSS or not (an over-block, by
+	 * design).
+	 *
+	 * The value is where that CSS lands: 'target' = only the page governance
+	 * resolved (the touch carries its id); '*' = beyond it, so the touch is
+	 * the wildcard even when governance passes a digit id — SiteAgent matches
+	 * a page-specific `block custom_css:<id>` against `custom_css:*`, and the
+	 * template's own id would slip past it (Task 3 review, C4 follow-up).
 	 *
 	 *  - apply-template / duplicate-element: copy a template's or element's
 	 *    tree (with any custom_css) into the page.
-	 *  - save-as-template: copies an element's tree into a new template.
+	 *  - save-as-template: copies an element's tree into a new template that
+	 *    can then be applied or displayed anywhere ('*').
 	 *  - add-loop-grid / add-loop-carousel: render a loop template (and its
-	 *    custom CSS) inside the page, by template_id.
+	 *    custom CSS) inside the one page being edited, by template_id.
 	 *  - set-template-conditions / set-popup-settings: make a theme template
 	 *    or popup — and its CSS — live on the pages its conditions name.
 	 *  - set-widget-status: activating a custom widget serves its stored
@@ -480,14 +487,14 @@ class Elementor_MCP_Rules {
 	 * @since 1.37.0
 	 */
 	const ALWAYS_CONSERVATIVE_CSS = array(
-		'elementor-mcp/apply-template',
-		'elementor-mcp/duplicate-element',
-		'elementor-mcp/save-as-template',
-		'elementor-mcp/add-loop-grid',
-		'elementor-mcp/add-loop-carousel',
-		'elementor-mcp/set-template-conditions',
-		'elementor-mcp/set-popup-settings',
-		'elementor-mcp/set-widget-status',
+		'elementor-mcp/apply-template'          => 'target',
+		'elementor-mcp/duplicate-element'       => 'target',
+		'elementor-mcp/add-loop-grid'           => 'target',
+		'elementor-mcp/add-loop-carousel'       => 'target',
+		'elementor-mcp/save-as-template'        => '*',
+		'elementor-mcp/set-template-conditions' => '*',
+		'elementor-mcp/set-popup-settings'      => '*',
+		'elementor-mcp/set-widget-status'       => '*',
 	);
 
 	/**
@@ -547,8 +554,9 @@ class Elementor_MCP_Rules {
 	 * @return array
 	 */
 	public static function css_touches( string $id, string $name, $input ): array {
-		if ( in_array( $name, self::ALWAYS_CONSERVATIVE_CSS, true ) ) {
-			return array( array( 'type' => 'custom_css', 'id' => $id ) );
+		if ( isset( self::ALWAYS_CONSERVATIVE_CSS[ $name ] ) ) {
+			$lands = self::ALWAYS_CONSERVATIVE_CSS[ $name ];
+			return array( array( 'type' => 'custom_css', 'id' => '*' === $lands ? '*' : $id ) );
 		}
 		if ( ! is_array( $input ) ) {
 			return array();

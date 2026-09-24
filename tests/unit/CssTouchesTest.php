@@ -95,6 +95,16 @@ class CssTouchesTest extends TestCase {
 		// A create-style call is declared on the wildcard governance passes.
 		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/set-widget-status', array( 'widget_id' => 7, 'status' => 'active' ), '*' ) );
 		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/set-widget-status', 'garbage', '*' ), 'whatever the input' );
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/add-loop-grid', array( 'post_id' => 42, 'parent_id' => 'c', 'template_id' => '7' ) ), 'a loop renders inside the one page' );
+	}
+
+	public function test_a_copy_that_reaches_other_pages_is_the_wildcard_even_on_a_digit_id(): void {
+		$wild = array( array( 'type' => 'custom_css', 'id' => '*' ) );
+		// Governance passes the template's own post id; its CSS lands on every
+		// page the conditions name, so only '*' lets a page-specific block match.
+		$this->assertSame( $wild, $this->t( 'elementor-mcp/set-template-conditions', array( 'post_id' => 42, 'conditions' => array( 'include/general' ) ) ) );
+		$this->assertSame( $wild, $this->t( 'elementor-mcp/set-popup-settings', array( 'post_id' => 42, 'triggers' => array( 'page_load' => 'yes' ) ) ) );
+		$this->assertSame( $wild, $this->t( 'elementor-mcp/save-as-template', array( 'post_id' => 42, 'element_id' => 'a', 'title' => 't' ) ) );
 	}
 
 	public function test_design_system_css_is_not_custom_css(): void {

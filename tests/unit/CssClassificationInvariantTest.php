@@ -80,7 +80,10 @@ class CssClassificationInvariantTest extends TestCase {
 		$this->assertSame( array(), array_values( array_diff( $reviewed, $writes ) ), 'CSS_REVIEWED names an ability that is not a registered write' );
 		foreach ( \Elementor_MCP_Rules::CSS_REVIEWED as $name => $how ) {
 			$this->assertMatchesRegularExpression( '/^(walk|walk\+fields|always|none: .+)$/', $how, $name );
-			$this->assertSame( in_array( $name, \Elementor_MCP_Rules::ALWAYS_CONSERVATIVE_CSS, true ), 'always' === $how, "{$name}: always iff listed in ALWAYS_CONSERVATIVE_CSS" );
+			$this->assertSame( array_key_exists( $name, \Elementor_MCP_Rules::ALWAYS_CONSERVATIVE_CSS ), 'always' === $how, "{$name}: always iff listed in ALWAYS_CONSERVATIVE_CSS" );
+			if ( array_key_exists( $name, \Elementor_MCP_Rules::ALWAYS_CONSERVATIVE_CSS ) ) {
+				$this->assertContains( \Elementor_MCP_Rules::ALWAYS_CONSERVATIVE_CSS[ $name ], array( 'target', '*' ), $name );
+			}
 			$has_fields = isset( \Elementor_MCP_Rules::RAW_CSS_FIELDS[ $name ] ) || isset( \Elementor_MCP_Rules::CONSERVATIVE_CSS_FIELDS[ $name ] );
 			$this->assertSame( $has_fields, 'walk+fields' === $how, "{$name}: walk+fields iff it has field-map entries" );
 		}

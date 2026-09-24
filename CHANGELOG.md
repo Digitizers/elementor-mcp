@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.37.0 — 2026-09-25
+
+- Feature: **governed writes declare `custom_css`** (elementor-mcp#79, Digitizers/Aura#576 Plan B). `Elementor_MCP_Rules::css_touches()` appends a `custom_css` touch to the page/site touches `run_governed()` sends SiteAgent: the `custom_css` key at any depth, raw CSS fields under other names (`add-custom-css` `css`, custom-widget `spec.styles`), code surfaces conservatively (`spec.html_template`, snippet `code`), template/component embeds (`template_id`, `templateID`, `component_id`, Woo template selects, `[elementor-template]` shortcodes incl. URL-encoded) and abilities that copy existing CSS (`ALWAYS_CONSERVATIVE_CSS`) as CSS of unknown shape. An edit names its post, a kit write the active kit, anything else `*`. `precise` only on a digit id for an ability that writes the CSS it is given; `css_only` only for an explicit per-ability input shape. SiteAgent 2.20.0 treats a fork as precise only when it is ≥ 1.37.0 and has `css_touches()`. A drift invariant classifies all 120 write abilities and every raw-CSS-named input field; a new one fails the build. Writes without CSS declare exactly as in 1.36.1. Known limits: linked popups, `<style>` in HTML content (R5), CSS injected by custom JS. Tests +40; suite 1376 green.
+
 ## 1.36.1 — 2026-09-24
 
 - Fix: **`elementor_mcp_governance_undeclared` reports the run's final rollback state** (elementor-mcp#77, Codex review of #75). On a run the collateral step let stand, the action fired with `$reverted = false` *before* the post-write render check — which can still restore the snapshot and return `governance_render_failed`. It now waits for that verdict: `true` after `elementor_mcp_governance_render_reverted`, `false` when the write stands (then before `elementor_mcp_governance_write`) or the render revert failed. Runs refused for real collateral are unchanged. Tests +2; suite 1336 green.

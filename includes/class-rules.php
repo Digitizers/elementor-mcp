@@ -103,6 +103,188 @@ class Elementor_MCP_Rules {
 	}
 
 	/**
+	 * Fields whose value IS raw CSS under a name other than Elementor's
+	 * `custom_css` key (plan B R3/R4). ability => field names.
+	 *
+	 * @since 1.37.0
+	 */
+	const RAW_CSS_FIELDS = array(
+		'elementor-mcp/add-custom-css'       => array( 'css' ),
+		'elementor-mcp/create-custom-widget' => array( 'styles' ),
+		'elementor-mcp/update-custom-widget' => array( 'styles' ),
+	);
+
+	/**
+	 * Fields that may carry CSS inside content this class does not parse —
+	 * a non-empty value declares a conservative touch (plan B R4).
+	 *
+	 * @since 1.37.0
+	 */
+	const CONSERVATIVE_CSS_FIELDS = array(
+		'elementor-mcp/create-custom-widget' => array( 'html_template' ),
+		'elementor-mcp/update-custom-widget' => array( 'html_template' ),
+		'elementor-mcp/add-code-snippet'     => array( 'code' ),
+	);
+
+	/**
+	 * Raw-CSS-NAMED input fields that are not custom CSS, each with its reason
+	 * (plan B R5/R6). The invariant test requires every raw-CSS-named property
+	 * of every write ability to be in exactly one of the three maps.
+	 *
+	 * @since 1.37.0
+	 */
+	const NOT_CSS_FIELDS = array(
+		// Filled in Task 3 from the invariant's own report — one entry per
+		// flagged property, e.g.
+		// 'elementor-mcp/create-global-class' => array( 'styles' => 'global-class styles — design_system (R6)' ),
+	);
+
+	/** Input property names that can hold raw CSS text (the drift guard's net). @since 1.37.0 */
+	const RAW_CSS_NAMES = array( 'css', 'styles', 'style', 'stylesheet', 'code', 'html_template' );
+
+	/** Any property name matching this is also in the net — a new `extra_css`, `inline_style`, `template_code`. @since 1.37.0 */
+	const RAW_CSS_NAME_PATTERN = '/css|style|code|template/i';
+
+	/**
+	 * Every registered write ability, reviewed for CSS (spec §4.1: "every
+	 * registered ability whose writes are not read-only must appear in exactly
+	 * one list"). The value says how its CSS is judged: 'walk' (custom_css
+	 * keys only), 'walk+fields' (also RAW_CSS_FIELDS / CONSERVATIVE_CSS_FIELDS),
+	 * or 'none: <reason>' (cannot carry CSS). A write ability missing here
+	 * fails the build — a human looks at every new one. Filled in Task 3 from
+	 * the invariant's report.
+	 *
+	 * @since 1.37.0
+	 */
+	const CSS_REVIEWED = array();
+
+	/**
+	 * Abilities whose execution path WRITES the CSS it is given (Codex r3 on
+	 * Plan B). Only these may issue `precise` / `css_only`: an ability that
+	 * merely tolerates an extra key (an open schema) would otherwise let a
+	 * caller add `custom_css` to, say, a delete — declared "CSS-only", and
+	 * auto-run by an `allow custom_css`. CSS found anywhere else is declared
+	 * conservatively (no evidence fields).
+	 *
+	 * @since 1.37.0
+	 */
+	const CSS_PRECISE_ABILITIES = array(
+		'elementor-mcp/add-custom-css',
+		'elementor-mcp/update-page-settings',
+		'elementor-mcp/update-element',
+		'elementor-mcp/update-widget',
+		'elementor-mcp/update-container',
+		'elementor-mcp/batch-update',
+	);
+
+	/** Keys that identify a target rather than change it (css_only ignores them). @since 1.37.0 */
+	const ID_KEYS = array( 'post_id', 'element_id', 'replace', 'position', 'id' );
+
+	/**
+	 * The custom_css touch a write declares, in addition to its page/site
+	 * touches (spec 2026-09-24 §3/§4.1). Pure.
+	 *
+	 * @since 1.37.0
+	 * @param string $id    Target post id (digits) or '*' (create / no id).
+	 * @param string $name  Ability name.
+	 * @param mixed  $input Ability input.
+	 * @return array
+	 */
+	public static function css_touches( string $id, string $name, $input ): array {
+		if ( ! is_array( $input ) ) {
+			return array();
+		}
+		$found = 'none'; // none | css | unknown
+		foreach ( self::RAW_CSS_FIELDS[ $name ] ?? array() as $field ) {
+			if ( array_key_exists( $field, $input ) ) {
+				$found = self::worse( $found, self::css_value( $input[ $field ] ) );
+			}
+		}
+		foreach ( self::CONSERVATIVE_CSS_FIELDS[ $name ] ?? array() as $field ) {
+			if ( array_key_exists( $field, $input ) && 'none' !== self::css_value( $input[ $field ] ) ) {
+				$found = 'unknown';
+			}
+		}
+		$found = self::worse( $found, self::walk_custom_css( $input ) );
+		if ( 'none' === $found ) {
+			return array();
+		}
+		$touch = array( 'type' => 'custom_css', 'id' => $id );
+		if ( 'css' === $found && ctype_digit( $id ) && in_array( $name, self::CSS_PRECISE_ABILITIES, true ) ) {
+			$touch['precise'] = true;
+			if ( self::only_css( $input, $name, true ) ) {
+				$touch['css_only'] = true;
+			}
+		}
+		return array( $touch );
+	}
+
+	/** @return string none|css|unknown */
+	private static function css_value( $v ): string {
+		if ( null === $v ) {
+			return 'none';
+		}
+		if ( is_string( $v ) ) {
+			return '' === trim( $v ) ? 'none' : 'css';
+		}
+		return ( is_array( $v ) && array() === $v ) ? 'none' : 'unknown';
+	}
+
+	private static function worse( string $a, string $b ): string {
+		if ( 'unknown' === $a || 'unknown' === $b ) {
+			return 'unknown';
+		}
+		return ( 'css' === $a || 'css' === $b ) ? 'css' : 'none';
+	}
+
+	/** Every `custom_css` key at any depth. @return string none|css|unknown */
+	private static function walk_custom_css( $node ): string {
+		if ( ! is_array( $node ) ) {
+			return 'none';
+		}
+		$found = 'none';
+		foreach ( $node as $k => $v ) {
+			if ( 'custom_css' === $k ) {
+				$found = self::worse( $found, self::css_value( $v ) );
+			} elseif ( is_array( $v ) ) {
+				$found = self::worse( $found, self::walk_custom_css( $v ) );
+			}
+		}
+		return $found;
+	}
+
+	/**
+	 * Is everything this input changes CSS? Identifier keys are ignored at the
+	 * top level; a raw-CSS field of this ability counts as CSS; everything
+	 * else must be a `custom_css` key or a container holding only those.
+	 */
+	private static function only_css( $node, string $name, bool $top ): bool {
+		if ( ! is_array( $node ) ) {
+			return false;
+		}
+		foreach ( $node as $k => $v ) {
+			if ( $top && in_array( (string) $k, self::ID_KEYS, true ) ) {
+				continue;
+			}
+			if ( 'custom_css' === $k ) {
+				continue;
+			}
+			if ( $top && in_array( (string) $k, self::RAW_CSS_FIELDS[ $name ] ?? array(), true ) ) {
+				continue;
+			}
+			if ( is_array( $v ) && array() !== $v && self::only_css( $v, $name, false ) ) {
+				continue;
+			}
+			// `element_id` inside a batch operation identifies, it does not change.
+			if ( ! $top && 'element_id' === $k ) {
+				continue;
+			}
+			return false;
+		}
+		return true;
+	}
+
+	/**
 	 * Ask SiteAgent whether a rule decides this write.
 	 *
 	 * Requires BOTH `enforce()` and `current()` to exist (controller ruling —

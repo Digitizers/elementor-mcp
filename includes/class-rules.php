@@ -163,91 +163,91 @@ class Elementor_MCP_Rules {
 	 */
 	const NOT_CSS_FIELDS = array(
 		// Descriptive strings the name net matches by name only.
-		'elementor-mcp/create-page' => array(
+		'elementor-mcp/create-page'               => array(
 			'template' => 'descriptive: WordPress page-template slug → _wp_page_template (class-page-abilities.php:234)',
 		),
 		// Array-typed element tree: walked by walk_custom_css() (R3) — the field
 		// itself is not raw CSS, and a conservative entry would over-declare every import.
-		'elementor-mcp/import-template' => array(
+		'elementor-mcp/import-template'           => array(
 			'template_json' => 'walked (R3): array element tree — its custom_css keys are read by walk_custom_css(); no json_decode of a string (class-page-abilities.php:443-468)',
 		),
-		'elementor-mcp/add-divider' => array(
+		'elementor-mcp/add-divider'               => array(
 			'style' => 'descriptive: border-style enum solid|dashed|dotted|double (class-widget-abilities.php:874)',
 		),
-		'elementor-mcp/add-star-rating' => array(
+		'elementor-mcp/add-star-rating'           => array(
 			'star_style' => 'descriptive: icon-set enum star_fontawesome|star_unicode (class-widget-abilities.php:1168)',
 		),
-		'elementor-mcp/add-animated-headline' => array(
+		'elementor-mcp/add-animated-headline'     => array(
 			'headline_style' => 'descriptive: animation enum highlight|rotate (class-widget-abilities.php:1545)',
 		),
-		'elementor-mcp/add-slides' => array(
+		'elementor-mcp/add-slides'                => array(
 			'slides[].custom_css_class'  => 'descriptive: a CSS class NAME on the slide, not CSS text (class-widget-abilities.php:1605)',
 			'slides[].content_animation' => 'descriptive: free-text entrance-animation name stored as a setting, e.g. fadeInUp (class-widget-abilities.php:1604) — a name, not CSS text',
 		),
-		'elementor-mcp/add-loop-grid' => array(
+		'elementor-mcp/add-loop-grid'             => array(
 			'template_id' => 'descriptive: loop-template post id (class-widget-abilities.php:2183)',
 		),
-		'elementor-mcp/add-loop-carousel' => array(
+		'elementor-mcp/add-loop-carousel'         => array(
 			'template_id' => 'descriptive: loop-template post id (class-widget-abilities.php:2210)',
 		),
-		'elementor-mcp/apply-template' => array(
+		'elementor-mcp/apply-template'            => array(
 			'template_id' => 'descriptive: saved-template post id, absint (class-template-abilities.php:300)',
 		),
-		'elementor-mcp/save-as-template' => array(
+		'elementor-mcp/save-as-template'          => array(
 			'template_type' => 'descriptive: enum page|section|container, sanitize_key (class-template-abilities.php:140,178)',
 		),
-		'elementor-mcp/create-theme-template' => array(
+		'elementor-mcp/create-theme-template'     => array(
 			'template_type' => 'descriptive: theme-template type enum, sanitize_key (class-template-abilities.php:389,414)',
 		),
-		'elementor-mcp/add-accordion' => array(
+		'elementor-mcp/add-accordion'             => array(
 			'title_html_tag'     => 'descriptive: HTML tag enum h1-h6|div (class-widget-abilities.php:954)',
 			'tabs[].tab_content' => 'content (R5): accordion item body text — page content the builder shows, not walked for CSS (class-widget-abilities.php:948)',
 		),
-		'elementor-mcp/add-toggle' => array(
+		'elementor-mcp/add-toggle'                => array(
 			'title_html_tag'     => 'descriptive: HTML tag enum h1-h6|div (class-widget-abilities.php:1239)',
 			'tabs[].tab_content' => 'content (R5): toggle item body text — page content the builder shows, not walked for CSS (class-widget-abilities.php:1233)',
 		),
-		'elementor-mcp/add-atomic-paragraph' => array(
+		'elementor-mcp/add-atomic-paragraph'      => array(
 			'content'      => 'descriptive: plain text — sanitize_text_field strips tags before it is stored (class-atomic-widget-map.php:151)',
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
 		),
 		// Text/HTML content settings (plan B R5: CSS embedded in content is out of scope).
-		'elementor-mcp/add-tabs' => array(
+		'elementor-mcp/add-tabs'                  => array(
 			'tabs[].tab_content' => 'content (R5): tab body text — page content the builder shows, not walked for CSS (class-widget-abilities.php:1190)',
 		),
-		'elementor-mcp/add-testimonial' => array(
+		'elementor-mcp/add-testimonial'           => array(
 			'testimonial_content' => 'content (R5): testimonial text — page content the builder shows, not walked for CSS (class-widget-abilities.php:1208)',
 		),
-		'elementor-mcp/add-html' => array(
+		'elementor-mcp/add-html'                  => array(
 			'html' => 'content (R5): HTML widget markup — R5 names this widget — page content the builder shows, not walked for CSS (class-widget-abilities.php:1279)',
 		),
-		'elementor-mcp/add-shortcode' => array(
+		'elementor-mcp/add-shortcode'             => array(
 			'shortcode' => 'content (R5): shortcode tag rendered in the page — page content the builder shows, not walked for CSS (class-widget-abilities.php:2033)',
 		),
-		'elementor-mcp/add-form' => array(
+		'elementor-mcp/add-form'                  => array(
 			'form_fields[].field_html' => 'content (R5): HTML-type form field markup — page content the builder shows, not walked for CSS (class-widget-abilities.php:1310)',
 		),
-		'elementor-mcp/add-testimonial-carousel' => array(
+		'elementor-mcp/add-testimonial-carousel'  => array(
 			'slides[].content' => 'content (R5): testimonial slide text — page content the builder shows, not walked for CSS (class-widget-abilities.php:1675)',
 		),
-		'elementor-mcp/add-blockquote' => array(
+		'elementor-mcp/add-blockquote'            => array(
 			'blockquote_content' => 'content (R5): quote text — page content the builder shows, not walked for CSS (class-widget-abilities.php:1859)',
 		),
-		'elementor-mcp/add-hotspot' => array(
+		'elementor-mcp/add-hotspot'               => array(
 			'hotspot[].hotspot_tooltip_content' => 'content (R5): tooltip text — page content the builder shows, not walked for CSS (class-widget-abilities.php:1965)',
 		),
-		'elementor-mcp/add-code-highlight' => array(
+		'elementor-mcp/add-code-highlight'        => array(
 			'code' => 'content (R5): source shown by the Code Highlight widget — page content the builder shows, not walked for CSS (class-widget-abilities.php:2425)',
 		),
 		// Design system (plan B R6): global-class styles are CSS-prop→value maps
 		// stored as the class's variant props (wrap_and_validate), design_system.
-		'elementor-mcp/create-global-class' => array(
+		'elementor-mcp/create-global-class'       => array(
 			'styles'            => 'design_system (R6): global-class base styles, CSS-prop map (class-global-classes-write-abilities.php:201,375)',
 			'variants[].styles' => 'design_system (R6): global-class variant styles, CSS-prop map (class-global-classes-write-abilities.php:182,1013)',
 		),
-		'elementor-mcp/update-global-class' => array(
+		'elementor-mcp/update-global-class'       => array(
 			'styles'            => 'design_system (R6): global-class base styles, CSS-prop map (class-global-classes-write-abilities.php:239,459)',
 			'variants[].styles' => 'design_system (R6): global-class variant styles, CSS-prop map (class-global-classes-write-abilities.php:182,471)',
 		),
@@ -258,55 +258,55 @@ class Elementor_MCP_Rules {
 			'typography.accent.font_style'    => self::NOT_CSS_FONT_STYLE,
 		),
 		// V4 (atomic) style shortcuts: one typed prop each, never CSS text.
-		'elementor-mcp/add-atomic-widget' => array(
+		'elementor-mcp/add-atomic-widget'         => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 		),
-		'elementor-mcp/update-atomic-widget' => array(
+		'elementor-mcp/update-atomic-widget'      => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 		),
-		'elementor-mcp/add-atomic-heading' => array(
-			'border_style' => self::NOT_CSS_BORDER_STYLE,
-			'css_position' => self::NOT_CSS_POSITION,
-			'css_id'       => self::NOT_CSS_ID,
-		),
-		'elementor-mcp/add-atomic-button' => array(
+		'elementor-mcp/add-atomic-heading'        => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
 		),
-		'elementor-mcp/add-atomic-image' => array(
+		'elementor-mcp/add-atomic-button'         => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
 		),
-		'elementor-mcp/add-atomic-svg' => array(
+		'elementor-mcp/add-atomic-image'          => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
 		),
-		'elementor-mcp/add-atomic-youtube' => array(
+		'elementor-mcp/add-atomic-svg'            => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
 		),
-		'elementor-mcp/add-atomic-video' => array(
+		'elementor-mcp/add-atomic-youtube'        => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
 		),
-		'elementor-mcp/add-atomic-divider' => array(
+		'elementor-mcp/add-atomic-video'          => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
 		),
-		'elementor-mcp/add-flexbox' => array(
+		'elementor-mcp/add-atomic-divider'        => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
 		),
-		'elementor-mcp/add-div-block' => array(
+		'elementor-mcp/add-flexbox'               => array(
+			'border_style' => self::NOT_CSS_BORDER_STYLE,
+			'css_position' => self::NOT_CSS_POSITION,
+			'css_id'       => self::NOT_CSS_ID,
+		),
+		'elementor-mcp/add-div-block'             => array(
 			'border_style' => self::NOT_CSS_BORDER_STYLE,
 			'css_position' => self::NOT_CSS_POSITION,
 			'css_id'       => self::NOT_CSS_ID,
@@ -334,93 +334,93 @@ class Elementor_MCP_Rules {
 	 * @since 1.37.0
 	 */
 	const CSS_REVIEWED = array(
-		'elementor-mcp/create-page'             => 'walk',
-		'elementor-mcp/update-page-settings'    => 'walk',
-		'elementor-mcp/delete-page-content'     => 'walk',
-		'elementor-mcp/import-template'         => 'walk',
-		'elementor-mcp/add-container'           => 'walk',
-		'elementor-mcp/update-container'        => 'walk',
-		'elementor-mcp/update-element'          => 'walk',
-		'elementor-mcp/batch-update'            => 'walk',
-		'elementor-mcp/reorder-elements'        => 'walk',
-		'elementor-mcp/move-element'            => 'walk',
-		'elementor-mcp/remove-element'          => 'walk',
-		'elementor-mcp/duplicate-element'       => 'always',
-		'elementor-mcp/add-widget'              => 'walk',
-		'elementor-mcp/update-widget'           => 'walk',
-		'elementor-mcp/add-heading'             => 'walk',
-		'elementor-mcp/add-text-editor'         => 'walk',
-		'elementor-mcp/add-image'               => 'walk',
-		'elementor-mcp/add-button'              => 'walk',
-		'elementor-mcp/add-video'               => 'walk',
-		'elementor-mcp/add-icon'                => 'walk',
-		'elementor-mcp/add-spacer'              => 'walk',
-		'elementor-mcp/add-divider'             => 'walk',
-		'elementor-mcp/add-icon-box'            => 'walk',
-		'elementor-mcp/add-accordion'           => 'walk',
-		'elementor-mcp/add-alert'               => 'walk',
-		'elementor-mcp/add-counter'             => 'walk',
-		'elementor-mcp/add-google-maps'         => 'walk',
-		'elementor-mcp/add-icon-list'           => 'walk',
-		'elementor-mcp/add-image-box'           => 'walk',
-		'elementor-mcp/add-image-carousel'      => 'walk',
-		'elementor-mcp/add-progress'            => 'walk',
-		'elementor-mcp/add-social-icons'        => 'walk',
-		'elementor-mcp/add-star-rating'         => 'walk',
-		'elementor-mcp/add-tabs'                => 'walk',
-		'elementor-mcp/add-testimonial'         => 'walk',
-		'elementor-mcp/add-toggle'              => 'walk',
-		'elementor-mcp/add-html'                => 'walk',
-		'elementor-mcp/add-menu-anchor'         => 'walk',
-		'elementor-mcp/add-shortcode'           => 'walk',
-		'elementor-mcp/add-rating'              => 'walk',
-		'elementor-mcp/add-text-path'           => 'walk',
-		'elementor-mcp/add-form'                => 'walk',
-		'elementor-mcp/add-posts-grid'          => 'walk',
-		'elementor-mcp/add-countdown'           => 'walk',
-		'elementor-mcp/add-price-table'         => 'walk',
-		'elementor-mcp/add-flip-box'            => 'walk',
-		'elementor-mcp/add-animated-headline'   => 'walk',
-		'elementor-mcp/add-call-to-action'      => 'walk',
-		'elementor-mcp/add-slides'              => 'walk',
-		'elementor-mcp/add-testimonial-carousel' => 'walk',
-		'elementor-mcp/add-price-list'          => 'walk',
-		'elementor-mcp/add-gallery'             => 'walk',
-		'elementor-mcp/add-share-buttons'       => 'walk',
-		'elementor-mcp/add-table-of-contents'   => 'walk',
-		'elementor-mcp/add-blockquote'          => 'walk',
-		'elementor-mcp/add-lottie'              => 'walk',
-		'elementor-mcp/add-hotspot'             => 'walk',
-		'elementor-mcp/add-nav-menu'            => 'walk',
-		'elementor-mcp/add-loop-grid'           => 'always',
-		'elementor-mcp/add-loop-carousel'       => 'always',
-		'elementor-mcp/add-media-carousel'      => 'walk',
-		'elementor-mcp/add-nested-tabs'         => 'walk',
-		'elementor-mcp/add-nested-accordion'    => 'walk',
-		'elementor-mcp/add-portfolio'           => 'walk',
-		'elementor-mcp/add-author-box'          => 'walk',
-		'elementor-mcp/add-login'               => 'walk',
-		'elementor-mcp/add-code-highlight'      => 'walk',
-		'elementor-mcp/add-reviews'             => 'walk',
-		'elementor-mcp/add-off-canvas'          => 'walk',
-		'elementor-mcp/add-progress-tracker'    => 'walk',
-		'elementor-mcp/add-search'              => 'walk',
-		'elementor-mcp/save-as-template'        => 'always',
-		'elementor-mcp/apply-template'          => 'always',
-		'elementor-mcp/create-theme-template'   => 'walk',
-		'elementor-mcp/set-template-conditions' => 'always',
-		'elementor-mcp/set-dynamic-tag'         => 'walk',
-		'elementor-mcp/create-popup'            => 'walk',
-		'elementor-mcp/set-popup-settings'      => 'always',
-		'elementor-mcp/update-global-colors'    => 'walk',
-		'elementor-mcp/update-global-typography' => 'walk',
-		'elementor-mcp/build-page'              => 'walk',
-		'elementor-mcp/sideload-image'          => 'none: media-library attachment only (media_handle_sideload, class-stock-image-abilities.php:393) — no Elementor page/element/kit/template data',
-		'elementor-mcp/add-stock-image'         => 'walk',
-		'elementor-mcp/upload-svg-icon'         => 'none: media-library SVG attachment only (class-svg-icon-abilities.php:163) — no Elementor page/element/kit/template data; svg_content is SVG markup where a <style> survives sanitize_svg_content, but the upload places nothing — it reaches a page only when add-icon places the icon, which is content (R5)',
-		'elementor-mcp/add-custom-js'           => 'walk',
-		'elementor-mcp/add-custom-css'          => 'walk+fields',
-		'elementor-mcp/add-code-snippet'        => 'walk+fields',
+		'elementor-mcp/create-page'               => 'walk',
+		'elementor-mcp/update-page-settings'      => 'walk',
+		'elementor-mcp/delete-page-content'       => 'walk',
+		'elementor-mcp/import-template'           => 'walk',
+		'elementor-mcp/add-container'             => 'walk',
+		'elementor-mcp/update-container'          => 'walk',
+		'elementor-mcp/update-element'            => 'walk',
+		'elementor-mcp/batch-update'              => 'walk',
+		'elementor-mcp/reorder-elements'          => 'walk',
+		'elementor-mcp/move-element'              => 'walk',
+		'elementor-mcp/remove-element'            => 'walk',
+		'elementor-mcp/duplicate-element'         => 'always',
+		'elementor-mcp/add-widget'                => 'walk',
+		'elementor-mcp/update-widget'             => 'walk',
+		'elementor-mcp/add-heading'               => 'walk',
+		'elementor-mcp/add-text-editor'           => 'walk',
+		'elementor-mcp/add-image'                 => 'walk',
+		'elementor-mcp/add-button'                => 'walk',
+		'elementor-mcp/add-video'                 => 'walk',
+		'elementor-mcp/add-icon'                  => 'walk',
+		'elementor-mcp/add-spacer'                => 'walk',
+		'elementor-mcp/add-divider'               => 'walk',
+		'elementor-mcp/add-icon-box'              => 'walk',
+		'elementor-mcp/add-accordion'             => 'walk',
+		'elementor-mcp/add-alert'                 => 'walk',
+		'elementor-mcp/add-counter'               => 'walk',
+		'elementor-mcp/add-google-maps'           => 'walk',
+		'elementor-mcp/add-icon-list'             => 'walk',
+		'elementor-mcp/add-image-box'             => 'walk',
+		'elementor-mcp/add-image-carousel'        => 'walk',
+		'elementor-mcp/add-progress'              => 'walk',
+		'elementor-mcp/add-social-icons'          => 'walk',
+		'elementor-mcp/add-star-rating'           => 'walk',
+		'elementor-mcp/add-tabs'                  => 'walk',
+		'elementor-mcp/add-testimonial'           => 'walk',
+		'elementor-mcp/add-toggle'                => 'walk',
+		'elementor-mcp/add-html'                  => 'walk',
+		'elementor-mcp/add-menu-anchor'           => 'walk',
+		'elementor-mcp/add-shortcode'             => 'walk',
+		'elementor-mcp/add-rating'                => 'walk',
+		'elementor-mcp/add-text-path'             => 'walk',
+		'elementor-mcp/add-form'                  => 'walk',
+		'elementor-mcp/add-posts-grid'            => 'walk',
+		'elementor-mcp/add-countdown'             => 'walk',
+		'elementor-mcp/add-price-table'           => 'walk',
+		'elementor-mcp/add-flip-box'              => 'walk',
+		'elementor-mcp/add-animated-headline'     => 'walk',
+		'elementor-mcp/add-call-to-action'        => 'walk',
+		'elementor-mcp/add-slides'                => 'walk',
+		'elementor-mcp/add-testimonial-carousel'  => 'walk',
+		'elementor-mcp/add-price-list'            => 'walk',
+		'elementor-mcp/add-gallery'               => 'walk',
+		'elementor-mcp/add-share-buttons'         => 'walk',
+		'elementor-mcp/add-table-of-contents'     => 'walk',
+		'elementor-mcp/add-blockquote'            => 'walk',
+		'elementor-mcp/add-lottie'                => 'walk',
+		'elementor-mcp/add-hotspot'               => 'walk',
+		'elementor-mcp/add-nav-menu'              => 'walk',
+		'elementor-mcp/add-loop-grid'             => 'always',
+		'elementor-mcp/add-loop-carousel'         => 'always',
+		'elementor-mcp/add-media-carousel'        => 'walk',
+		'elementor-mcp/add-nested-tabs'           => 'walk',
+		'elementor-mcp/add-nested-accordion'      => 'walk',
+		'elementor-mcp/add-portfolio'             => 'walk',
+		'elementor-mcp/add-author-box'            => 'walk',
+		'elementor-mcp/add-login'                 => 'walk',
+		'elementor-mcp/add-code-highlight'        => 'walk',
+		'elementor-mcp/add-reviews'               => 'walk',
+		'elementor-mcp/add-off-canvas'            => 'walk',
+		'elementor-mcp/add-progress-tracker'      => 'walk',
+		'elementor-mcp/add-search'                => 'walk',
+		'elementor-mcp/save-as-template'          => 'always',
+		'elementor-mcp/apply-template'            => 'always',
+		'elementor-mcp/create-theme-template'     => 'walk',
+		'elementor-mcp/set-template-conditions'   => 'always',
+		'elementor-mcp/set-dynamic-tag'           => 'walk',
+		'elementor-mcp/create-popup'              => 'walk',
+		'elementor-mcp/set-popup-settings'        => 'always',
+		'elementor-mcp/update-global-colors'      => 'walk',
+		'elementor-mcp/update-global-typography'  => 'walk',
+		'elementor-mcp/build-page'                => 'walk',
+		'elementor-mcp/sideload-image'            => 'none: media-library attachment only (media_handle_sideload, class-stock-image-abilities.php:393) — no Elementor page/element/kit/template data',
+		'elementor-mcp/add-stock-image'           => 'walk',
+		'elementor-mcp/upload-svg-icon'           => 'none: media-library SVG attachment only (class-svg-icon-abilities.php:163) — no Elementor page/element/kit/template data; svg_content is SVG markup where a <style> survives sanitize_svg_content, but the upload places nothing — it reaches a page only when add-icon places the icon, which is content (R5)',
+		'elementor-mcp/add-custom-js'             => 'walk',
+		'elementor-mcp/add-custom-css'            => 'walk+fields',
+		'elementor-mcp/add-code-snippet'          => 'walk+fields',
 		// Global-classes scope (governance resolves it to the active kit id,
 		// Task 2). Their `styles` are CSS-prop maps, design_system (R6) — see
 		// NOT_CSS_FIELDS. A literal `custom_css` key anywhere in the input is
@@ -428,39 +428,39 @@ class Elementor_MCP_Rules {
 		// not CSS_PRECISE_ABILITIES): the variant builder writes its own
 		// custom_css null (class-global-classes-write-abilities.php:994), so a
 		// caller-supplied key is unexplained input, never evidence.
-		'elementor-mcp/create-global-class'     => 'walk',
-		'elementor-mcp/update-global-class'     => 'walk',
-		'elementor-mcp/delete-global-class'     => 'walk',
-		'elementor-mcp/apply-global-class'      => 'walk',
-		'elementor-mcp/create-variable'         => 'walk',
-		'elementor-mcp/edit-variable'           => 'walk',
-		'elementor-mcp/delete-variable'         => 'walk',
-		'elementor-mcp/restore-variable'        => 'walk',
-		'elementor-mcp/add-interaction'         => 'walk',
-		'elementor-mcp/edit-interaction'        => 'walk',
-		'elementor-mcp/delete-interaction'      => 'walk',
-		'elementor-mcp/add-atomic-widget'       => 'walk',
-		'elementor-mcp/update-atomic-widget'    => 'walk',
-		'elementor-mcp/add-atomic-heading'      => 'walk',
-		'elementor-mcp/add-atomic-paragraph'    => 'walk',
-		'elementor-mcp/add-atomic-button'       => 'walk',
-		'elementor-mcp/add-atomic-image'        => 'walk',
-		'elementor-mcp/add-atomic-svg'          => 'walk',
-		'elementor-mcp/add-atomic-youtube'      => 'walk',
-		'elementor-mcp/add-atomic-video'        => 'walk',
-		'elementor-mcp/add-atomic-divider'      => 'walk',
-		'elementor-mcp/add-flexbox'             => 'walk',
-		'elementor-mcp/add-div-block'           => 'walk',
-		'elementor-mcp/replace-system-colors'   => 'walk',
+		'elementor-mcp/create-global-class'       => 'walk',
+		'elementor-mcp/update-global-class'       => 'walk',
+		'elementor-mcp/delete-global-class'       => 'walk',
+		'elementor-mcp/apply-global-class'        => 'walk',
+		'elementor-mcp/create-variable'           => 'walk',
+		'elementor-mcp/edit-variable'             => 'walk',
+		'elementor-mcp/delete-variable'           => 'walk',
+		'elementor-mcp/restore-variable'          => 'walk',
+		'elementor-mcp/add-interaction'           => 'walk',
+		'elementor-mcp/edit-interaction'          => 'walk',
+		'elementor-mcp/delete-interaction'        => 'walk',
+		'elementor-mcp/add-atomic-widget'         => 'walk',
+		'elementor-mcp/update-atomic-widget'      => 'walk',
+		'elementor-mcp/add-atomic-heading'        => 'walk',
+		'elementor-mcp/add-atomic-paragraph'      => 'walk',
+		'elementor-mcp/add-atomic-button'         => 'walk',
+		'elementor-mcp/add-atomic-image'          => 'walk',
+		'elementor-mcp/add-atomic-svg'            => 'walk',
+		'elementor-mcp/add-atomic-youtube'        => 'walk',
+		'elementor-mcp/add-atomic-video'          => 'walk',
+		'elementor-mcp/add-atomic-divider'        => 'walk',
+		'elementor-mcp/add-flexbox'               => 'walk',
+		'elementor-mcp/add-div-block'             => 'walk',
+		'elementor-mcp/replace-system-colors'     => 'walk',
 		'elementor-mcp/replace-system-typography' => 'walk',
-		'elementor-mcp/generate-meta-tags'      => 'none: writes only the SEO plugin\'s title/description meta (Elementor_MCP_Seo_Meta::write, class-seo-abilities.php:328) — no Elementor data',
-		'elementor-mcp/generate-schema-markup'  => 'walk',
-		'elementor-mcp/fix-color-contrast'      => 'walk',
+		'elementor-mcp/generate-meta-tags'        => 'none: writes only the SEO plugin\'s title/description meta (Elementor_MCP_Seo_Meta::write, class-seo-abilities.php:328) — no Elementor data',
+		'elementor-mcp/generate-schema-markup'    => 'walk',
+		'elementor-mcp/fix-color-contrast'        => 'walk',
 		'elementor-mcp/add-alt-text-from-context' => 'walk',
-		'elementor-mcp/create-custom-widget'    => 'walk+fields',
-		'elementor-mcp/update-custom-widget'    => 'walk+fields',
-		'elementor-mcp/set-widget-status'       => 'always',
-		'elementor-mcp/delete-custom-widget'    => 'none: deletes a custom widget record + file (Widget_Store::delete, class-widget-builder-abilities.php:693) — input is an id only',
+		'elementor-mcp/create-custom-widget'      => 'walk+fields',
+		'elementor-mcp/update-custom-widget'      => 'walk+fields',
+		'elementor-mcp/set-widget-status'         => 'always',
+		'elementor-mcp/delete-custom-widget'      => 'none: deletes a custom widget record + file (Widget_Store::delete, class-widget-builder-abilities.php:693) — input is an id only',
 	);
 
 	/**
@@ -611,12 +611,17 @@ class Elementor_MCP_Rules {
 	public static function css_touches( string $id, string $name, $input ): array {
 		if ( isset( self::ALWAYS_CONSERVATIVE_CSS[ $name ] ) ) {
 			$lands = self::ALWAYS_CONSERVATIVE_CSS[ $name ];
-			return array( array( 'type' => 'custom_css', 'id' => '*' === $lands ? '*' : $id ) );
+			return array(
+				array(
+					'type' => 'custom_css',
+					'id'   => '*' === $lands ? '*' : $id,
+				),
+			);
 		}
 		if ( ! is_array( $input ) ) {
 			return array();
 		}
-		$found = 'none'; // none | css | unknown
+		$found = 'none'; // One of: none, css, unknown.
 		foreach ( self::RAW_CSS_FIELDS[ $name ] ?? array() as $field ) {
 			$at = self::field_at( $input, $field );
 			if ( $at[0] ) {
@@ -633,7 +638,10 @@ class Elementor_MCP_Rules {
 		if ( 'none' === $found ) {
 			return array();
 		}
-		$touch = array( 'type' => 'custom_css', 'id' => $id );
+		$touch = array(
+			'type' => 'custom_css',
+			'id'   => $id,
+		);
 		if ( 'css' === $found && ctype_digit( $id ) && in_array( $name, self::CSS_PRECISE_ABILITIES, true ) ) {
 			$touch['precise'] = true;
 			if ( self::only_css( $input, $name ) ) {
@@ -649,6 +657,8 @@ class Elementor_MCP_Rules {
 	 * way, is "absent".
 	 *
 	 * @since 1.37.0
+	 * @param array  $input Ability input.
+	 * @param string $path  Field-map path.
 	 * @return array{0:bool,1:mixed} [present, value]
 	 */
 	private static function field_at( array $input, string $path ): array {
@@ -662,7 +672,14 @@ class Elementor_MCP_Rules {
 		return array( true, $node );
 	}
 
-	/** @return string none|css|unknown */
+	/**
+	 * How much CSS a field value is: none (null, blank, empty array), css (a
+	 * non-blank string) or unknown (anything else).
+	 *
+	 * @since 1.37.0
+	 * @param mixed $v Field value.
+	 * @return string none|css|unknown
+	 */
 	private static function css_value( $v ): string {
 		if ( null === $v ) {
 			return 'none';
@@ -673,6 +690,14 @@ class Elementor_MCP_Rules {
 		return ( is_array( $v ) && array() === $v ) ? 'none' : 'unknown';
 	}
 
+	/**
+	 * The worse of two findings: unknown beats css beats none.
+	 *
+	 * @since 1.37.0
+	 * @param string $a A finding.
+	 * @param string $b A finding.
+	 * @return string none|css|unknown
+	 */
 	private static function worse( string $a, string $b ): string {
 		if ( 'unknown' === $a || 'unknown' === $b ) {
 			return 'unknown';
@@ -684,6 +709,10 @@ class Elementor_MCP_Rules {
 	 * Does an EMBED_KEYS value name a template? Empty, null, false, 0 and '0'
 	 * (and an empty array) mean "no embed"; anything else counts, scalar or
 	 * array — a malformed ref is not proof of no CSS.
+	 *
+	 * @since 1.37.0
+	 * @param mixed $v The EMBED_KEYS value.
+	 * @return bool
 	 */
 	private static function is_embed( $v ): bool {
 		if ( null === $v || false === $v || 0 === $v || array() === $v ) {
@@ -703,6 +732,8 @@ class Elementor_MCP_Rules {
 	 * (`update_element_settings( array $settings )` etc.) fatal on anything
 	 * else, so a `stdClass` here is not a value this class needs to handle.
 	 *
+	 * @since 1.37.0
+	 * @param mixed $node Input node.
 	 * @return string none|css|unknown
 	 */
 	private static function walk_custom_css( $node ): string {
@@ -734,6 +765,11 @@ class Elementor_MCP_Rules {
 	 * `add-custom-css` — the `settings` it carries (each batch op's, for
 	 * `batch-update`) must be exactly `{custom_css: <string>}`. An ability not
 	 * listed there is never css_only.
+	 *
+	 * @since 1.37.0
+	 * @param array  $input Ability input.
+	 * @param string $name  Ability name.
+	 * @return bool
 	 */
 	private static function only_css( array $input, string $name ): bool {
 		$allowed = self::CSS_ONLY_SHAPES[ $name ] ?? null;
@@ -749,7 +785,14 @@ class Elementor_MCP_Rules {
 		return self::settings_is_only_custom_css( $input['settings'] ?? null );
 	}
 
-	/** Are $input's keys all in $allowed? */
+	/**
+	 * Are $input's keys all in $allowed?
+	 *
+	 * @since 1.37.0
+	 * @param array $input   Input to check.
+	 * @param array $allowed Allowed keys.
+	 * @return bool
+	 */
 	private static function keys_subset( array $input, array $allowed ): bool {
 		foreach ( array_keys( $input ) as $k ) {
 			if ( ! in_array( (string) $k, $allowed, true ) ) {
@@ -759,7 +802,13 @@ class Elementor_MCP_Rules {
 		return true;
 	}
 
-	/** Is $settings exactly one key, `custom_css`, holding a string? */
+	/**
+	 * Is $settings exactly one key, `custom_css`, holding a string?
+	 *
+	 * @since 1.37.0
+	 * @param mixed $settings Settings value.
+	 * @return bool
+	 */
 	private static function settings_is_only_custom_css( $settings ): bool {
 		return is_array( $settings )
 			&& 1 === count( $settings )
@@ -767,7 +816,14 @@ class Elementor_MCP_Rules {
 			&& is_string( $settings['custom_css'] );
 	}
 
-	/** Is $operations a non-empty list of ops, each `{element_id?, settings: {custom_css: <string>}}`? */
+	/**
+	 * Is $operations a non-empty list of ops, each
+	 * `{element_id?, settings: {custom_css: <string>}}`?
+	 *
+	 * @since 1.37.0
+	 * @param mixed $operations batch-update operations.
+	 * @return bool
+	 */
 	private static function batch_ops_only_custom_css( $operations ): bool {
 		if ( ! is_array( $operations ) || array() === $operations ) {
 			return false;

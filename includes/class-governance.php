@@ -407,7 +407,7 @@ class Elementor_MCP_Governance {
 				$css_id = '*';
 			}
 			$touches = array_merge( $touches, Elementor_MCP_Rules::css_touches( $css_id, (string) $name, $input ) );
-			$gate = self::rules_gate( $touches, $name );
+			$gate    = self::rules_gate( $touches, $name );
 			if ( is_wp_error( $gate ) ) {
 				return $gate;
 			}

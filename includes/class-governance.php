@@ -383,7 +383,31 @@ class Elementor_MCP_Governance {
 			} else {
 				$touches = Elementor_MCP_Rules::site_touches();
 			}
-			$gate = self::rules_gate( $touches, $name );
+			// Custom CSS (1.37.0, Aura spec 2026-09-24 §4.1): appended to what
+			// the input already told us. An edit names its post, a kit write
+			// names the active kit; anything else — a create, a source-post
+			// create — may land anywhere, so it is the wildcard, never precise.
+			// A kit-scoped write targets the ACTIVE KIT (spec §3: the kit's CSS
+			// declares custom_css:<kit post id>, Codex r1) — concrete, so an
+			// id-less allow custom_css can admit a CSS-only kit write. The kit
+			// id is read the way before_kit_write() reads it; 0 = unknown → '*'.
+			// A throw resolving it (as before_kit_write() also guards against)
+			// is swallowed here too — this is only a declaration, and the write
+			// site still fails closed on the same throw when it actually writes.
+			if ( $early_edit ) {
+				$css_id = (string) absint( $input['post_id'] );
+			} elseif ( $is_kit ) {
+				try {
+					$kit_id = self::active_kit_id();
+				} catch ( \Throwable $e ) {
+					$kit_id = 0;
+				}
+				$css_id = $kit_id > 0 ? (string) $kit_id : '*';
+			} else {
+				$css_id = '*';
+			}
+			$touches = array_merge( $touches, Elementor_MCP_Rules::css_touches( $css_id, (string) $name, $input ) );
+			$gate    = self::rules_gate( $touches, $name );
 			if ( is_wp_error( $gate ) ) {
 				return $gate;
 			}

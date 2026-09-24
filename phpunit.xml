@@ -41,6 +41,8 @@
             <file>tests/unit/AngieBridgeTest.php</file>
             <file>tests/unit/UpdaterTest.php</file>
             <file>tests/unit/AdapterBootstrapTest.php</file>
+            <file>tests/unit/CssTouchesTest.php</file>
+            <file>tests/unit/CssClassificationInvariantTest.php</file>
         </testsuite>
     </testsuites>
 

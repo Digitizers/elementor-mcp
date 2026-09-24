@@ -104,25 +104,29 @@ class Elementor_MCP_Rules {
 
 	/**
 	 * Fields whose value IS raw CSS under a name other than Elementor's
-	 * `custom_css` key (plan B R3/R4). ability => field names.
+	 * `custom_css` key (plan B R3/R4). ability => field paths: a top-level
+	 * key, or a dotted path through OBJECT keys (`spec.styles` — the custom
+	 * widget tools nest their code under `spec`). No `[]` segments: a field
+	 * inside a list needs handler code, not a map entry.
 	 *
 	 * @since 1.37.0
 	 */
 	const RAW_CSS_FIELDS = array(
 		'elementor-mcp/add-custom-css'       => array( 'css' ),
-		'elementor-mcp/create-custom-widget' => array( 'styles' ),
-		'elementor-mcp/update-custom-widget' => array( 'styles' ),
+		'elementor-mcp/create-custom-widget' => array( 'spec.styles' ),
+		'elementor-mcp/update-custom-widget' => array( 'spec.styles' ),
 	);
 
 	/**
 	 * Fields that may carry CSS inside content this class does not parse —
-	 * a non-empty value declares a conservative touch (plan B R4).
+	 * a non-empty value declares a conservative touch (plan B R4). Same path
+	 * syntax as RAW_CSS_FIELDS.
 	 *
 	 * @since 1.37.0
 	 */
 	const CONSERVATIVE_CSS_FIELDS = array(
-		'elementor-mcp/create-custom-widget' => array( 'html_template' ),
-		'elementor-mcp/update-custom-widget' => array( 'html_template' ),
+		'elementor-mcp/create-custom-widget' => array( 'spec.html_template' ),
+		'elementor-mcp/update-custom-widget' => array( 'spec.html_template' ),
 		'elementor-mcp/add-code-snippet'     => array( 'code' ),
 	);
 
@@ -314,7 +318,8 @@ class Elementor_MCP_Rules {
 	 * registered ability whose writes are not read-only must appear in exactly
 	 * one list"). The value says how its CSS is judged: 'walk' (custom_css
 	 * keys only), 'walk+fields' (also RAW_CSS_FIELDS / CONSERVATIVE_CSS_FIELDS),
-	 * or 'none: <reason>' (cannot carry CSS). A write ability missing here
+	 * 'always' (in ALWAYS_CONSERVATIVE_CSS: every call declares a conservative
+	 * touch), or 'none: <reason>' (cannot carry CSS). A write ability missing here
 	 * fails the build — a human looks at every new one. Reviewed by reading
 	 * each ability's execute path with every registration gate open (Pro,
 	 * atomic, variables, interactions): anything that saves page, element,
@@ -334,7 +339,7 @@ class Elementor_MCP_Rules {
 		'elementor-mcp/reorder-elements'        => 'walk',
 		'elementor-mcp/move-element'            => 'walk',
 		'elementor-mcp/remove-element'          => 'walk',
-		'elementor-mcp/duplicate-element'       => 'walk',
+		'elementor-mcp/duplicate-element'       => 'always',
 		'elementor-mcp/add-widget'              => 'walk',
 		'elementor-mcp/update-widget'           => 'walk',
 		'elementor-mcp/add-heading'             => 'walk',
@@ -381,8 +386,8 @@ class Elementor_MCP_Rules {
 		'elementor-mcp/add-lottie'              => 'walk',
 		'elementor-mcp/add-hotspot'             => 'walk',
 		'elementor-mcp/add-nav-menu'            => 'walk',
-		'elementor-mcp/add-loop-grid'           => 'walk',
-		'elementor-mcp/add-loop-carousel'       => 'walk',
+		'elementor-mcp/add-loop-grid'           => 'always',
+		'elementor-mcp/add-loop-carousel'       => 'always',
 		'elementor-mcp/add-media-carousel'      => 'walk',
 		'elementor-mcp/add-nested-tabs'         => 'walk',
 		'elementor-mcp/add-nested-accordion'    => 'walk',
@@ -394,13 +399,13 @@ class Elementor_MCP_Rules {
 		'elementor-mcp/add-off-canvas'          => 'walk',
 		'elementor-mcp/add-progress-tracker'    => 'walk',
 		'elementor-mcp/add-search'              => 'walk',
-		'elementor-mcp/save-as-template'        => 'walk',
-		'elementor-mcp/apply-template'          => 'walk',
+		'elementor-mcp/save-as-template'        => 'always',
+		'elementor-mcp/apply-template'          => 'always',
 		'elementor-mcp/create-theme-template'   => 'walk',
-		'elementor-mcp/set-template-conditions' => 'walk',
+		'elementor-mcp/set-template-conditions' => 'always',
 		'elementor-mcp/set-dynamic-tag'         => 'walk',
 		'elementor-mcp/create-popup'            => 'walk',
-		'elementor-mcp/set-popup-settings'      => 'walk',
+		'elementor-mcp/set-popup-settings'      => 'always',
 		'elementor-mcp/update-global-colors'    => 'walk',
 		'elementor-mcp/update-global-typography' => 'walk',
 		'elementor-mcp/build-page'              => 'walk',
@@ -448,8 +453,41 @@ class Elementor_MCP_Rules {
 		'elementor-mcp/add-alt-text-from-context' => 'walk',
 		'elementor-mcp/create-custom-widget'    => 'walk+fields',
 		'elementor-mcp/update-custom-widget'    => 'walk+fields',
-		'elementor-mcp/set-widget-status'       => 'none: flips a custom widget\'s store status (Widget_Store::set_status, class-widget-builder-abilities.php:635) — input is an id and an enum; its CSS is declared where it is written (create/update-custom-widget, R4)',
+		'elementor-mcp/set-widget-status'       => 'always',
 		'elementor-mcp/delete-custom-widget'    => 'none: deletes a custom widget record + file (Widget_Store::delete, class-widget-builder-abilities.php:693) — input is an id only',
+	);
+
+	/**
+	 * Abilities whose effect copies or activates EXISTING custom CSS into a
+	 * target while nothing in their input shows it (Task 3 review, C4): the
+	 * CSS rides on a template, element or widget named by id, so the walker
+	 * sees only the id. Each call declares a conservative custom_css touch on
+	 * whatever id governance resolved — never precise, never css_only,
+	 * whatever the input — so an operator's `block custom_css` still applies
+	 * and an `allow custom_css` can never admit one. Cost: every call is
+	 * declared, CSS or not (an over-block, by design).
+	 *
+	 *  - apply-template / duplicate-element: copy a template's or element's
+	 *    tree (with any custom_css) into the page.
+	 *  - save-as-template: copies an element's tree into a new template.
+	 *  - add-loop-grid / add-loop-carousel: render a loop template (and its
+	 *    custom CSS) inside the page, by template_id.
+	 *  - set-template-conditions / set-popup-settings: make a theme template
+	 *    or popup — and its CSS — live on the pages its conditions name.
+	 *  - set-widget-status: activating a custom widget serves its stored
+	 *    `styles` site-wide (R4).
+	 *
+	 * @since 1.37.0
+	 */
+	const ALWAYS_CONSERVATIVE_CSS = array(
+		'elementor-mcp/apply-template',
+		'elementor-mcp/duplicate-element',
+		'elementor-mcp/save-as-template',
+		'elementor-mcp/add-loop-grid',
+		'elementor-mcp/add-loop-carousel',
+		'elementor-mcp/set-template-conditions',
+		'elementor-mcp/set-popup-settings',
+		'elementor-mcp/set-widget-status',
 	);
 
 	/**
@@ -509,17 +547,22 @@ class Elementor_MCP_Rules {
 	 * @return array
 	 */
 	public static function css_touches( string $id, string $name, $input ): array {
+		if ( in_array( $name, self::ALWAYS_CONSERVATIVE_CSS, true ) ) {
+			return array( array( 'type' => 'custom_css', 'id' => $id ) );
+		}
 		if ( ! is_array( $input ) ) {
 			return array();
 		}
 		$found = 'none'; // none | css | unknown
 		foreach ( self::RAW_CSS_FIELDS[ $name ] ?? array() as $field ) {
-			if ( array_key_exists( $field, $input ) ) {
-				$found = self::worse( $found, self::css_value( $input[ $field ] ) );
+			$at = self::field_at( $input, $field );
+			if ( $at[0] ) {
+				$found = self::worse( $found, self::css_value( $at[1] ) );
 			}
 		}
 		foreach ( self::CONSERVATIVE_CSS_FIELDS[ $name ] ?? array() as $field ) {
-			if ( array_key_exists( $field, $input ) && 'none' !== self::css_value( $input[ $field ] ) ) {
+			$at = self::field_at( $input, $field );
+			if ( $at[0] && 'none' !== self::css_value( $at[1] ) ) {
 				$found = 'unknown';
 			}
 		}
@@ -535,6 +578,25 @@ class Elementor_MCP_Rules {
 			}
 		}
 		return array( $touch );
+	}
+
+	/**
+	 * The value at a field-map path: a top-level key or a dotted path through
+	 * object keys (`spec.styles`). A missing segment, or a non-array on the
+	 * way, is "absent".
+	 *
+	 * @since 1.37.0
+	 * @return array{0:bool,1:mixed} [present, value]
+	 */
+	private static function field_at( array $input, string $path ): array {
+		$node = $input;
+		foreach ( explode( '.', $path ) as $segment ) {
+			if ( ! is_array( $node ) || ! array_key_exists( $segment, $node ) ) {
+				return array( false, null );
+			}
+			$node = $node[ $segment ];
+		}
+		return array( true, $node );
 	}
 
 	/** @return string none|css|unknown */

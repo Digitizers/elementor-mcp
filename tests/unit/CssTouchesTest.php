@@ -77,10 +77,24 @@ class CssTouchesTest extends TestCase {
 	}
 
 	public function test_site_wide_code_surfaces_are_the_wildcard(): void {
-		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/create-custom-widget', array( 'id' => 'card', 'styles' => '.card{}' ), '*' ) );
-		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/update-custom-widget', array( 'id' => 'card', 'html_template' => '<div/>' ), '*' ), 'html_template is conservative' );
+		// The custom-widget tools nest their code under `spec` (the real
+		// schema, class-widget-builder-abilities.php spec_schema()).
+		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/create-custom-widget', array( 'spec' => array( 'html_template' => '', 'styles' => '.card{}' ) ), '*' ) );
+		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/update-custom-widget', array( 'widget_id' => 7, 'spec' => array( 'html_template' => '<div/>' ) ), '*' ), 'html_template is conservative' );
+		$this->assertSame( array(), $this->t( 'elementor-mcp/create-custom-widget', array( 'spec' => array( 'html_template' => '', 'styles' => '' ) ), '*' ), 'empty code declares nothing' );
+		$this->assertSame( array(), $this->t( 'elementor-mcp/create-custom-widget', array( 'styles' => '.card{}' ), '*' ), 'a top-level styles key is not the tool\'s input' );
 		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/add-code-snippet', array( 'title' => 's', 'code' => '<script/>' ), '*' ) );
 		$this->assertSame( array(), $this->t( 'elementor-mcp/add-code-snippet', array( 'title' => 's', 'code' => '  ' ), '*' ) );
+	}
+
+	public function test_abilities_that_copy_existing_css_always_declare_it_conservatively(): void {
+		// apply-template carries only an id; the template's CSS is copied in.
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/apply-template', array( 'post_id' => 42, 'template_id' => 7 ) ) );
+		// Never precise, even when the input carries a CSS-only shape.
+		$this->assertSame( self::CONS, $this->t( 'elementor-mcp/duplicate-element', array( 'post_id' => 42, 'element_id' => 'a', 'settings' => array( 'custom_css' => 'x{}' ) ) ) );
+		// A create-style call is declared on the wildcard governance passes.
+		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/set-widget-status', array( 'widget_id' => 7, 'status' => 'active' ), '*' ) );
+		$this->assertSame( array( array( 'type' => 'custom_css', 'id' => '*' ) ), $this->t( 'elementor-mcp/set-widget-status', 'garbage', '*' ), 'whatever the input' );
 	}
 
 	public function test_design_system_css_is_not_custom_css(): void {

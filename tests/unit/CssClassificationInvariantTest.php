@@ -79,7 +79,8 @@ class CssClassificationInvariantTest extends TestCase {
 		$this->assertSame( array(), array_values( array_diff( $writes, $reviewed ) ), 'unreviewed write abilities — add each to CSS_REVIEWED after reading its execute method' );
 		$this->assertSame( array(), array_values( array_diff( $reviewed, $writes ) ), 'CSS_REVIEWED names an ability that is not a registered write' );
 		foreach ( \Elementor_MCP_Rules::CSS_REVIEWED as $name => $how ) {
-			$this->assertMatchesRegularExpression( '/^(walk|walk\+fields|none: .+)$/', $how, $name );
+			$this->assertMatchesRegularExpression( '/^(walk|walk\+fields|always|none: .+)$/', $how, $name );
+			$this->assertSame( in_array( $name, \Elementor_MCP_Rules::ALWAYS_CONSERVATIVE_CSS, true ), 'always' === $how, "{$name}: always iff listed in ALWAYS_CONSERVATIVE_CSS" );
 			$has_fields = isset( \Elementor_MCP_Rules::RAW_CSS_FIELDS[ $name ] ) || isset( \Elementor_MCP_Rules::CONSERVATIVE_CSS_FIELDS[ $name ] );
 			$this->assertSame( $has_fields, 'walk+fields' === $how, "{$name}: walk+fields iff it has field-map entries" );
 		}
@@ -183,11 +184,29 @@ class CssClassificationInvariantTest extends TestCase {
 		return $out;
 	}
 
-	public function test_field_maps_hold_top_level_keys_only(): void {
+	/**
+	 * Field maps hold object-key paths (`css`, `spec.styles`) — no `[]` list
+	 * segments, which css_touches() cannot resolve — and css_touches() really
+	 * reads every entry: a non-empty string at the path declares custom_css,
+	 * so a map entry can never satisfy the guard without being read (Task 3
+	 * review, C1).
+	 */
+	public function test_field_maps_hold_object_paths_that_css_touches_reads(): void {
 		foreach ( array( \Elementor_MCP_Rules::RAW_CSS_FIELDS, \Elementor_MCP_Rules::CONSERVATIVE_CSS_FIELDS ) as $map ) {
 			foreach ( $map as $name => $fields ) {
 				foreach ( $fields as $f ) {
-					$this->assertMatchesRegularExpression( '/^[a-z0-9_]+$/', $f, "{$name} :: {$f} is not a top-level key" );
+					$this->assertMatchesRegularExpression( '/^[a-z0-9_]+(\.[a-z0-9_]+)*$/', $f, "{$name} :: {$f} is not an object-key path" );
+					$input = array();
+					$node  = &$input;
+					foreach ( explode( '.', $f ) as $segment ) {
+						$node[ $segment ] = array();
+						$node             = &$node[ $segment ];
+					}
+					$node = 'a{color:red}';
+					unset( $node );
+					$touches = \Elementor_MCP_Rules::css_touches( '*', $name, $input );
+					$this->assertCount( 1, $touches, "{$name} :: {$f} is mapped but css_touches() does not read it" );
+					$this->assertSame( 'custom_css', $touches[0]['type'] );
 				}
 			}
 		}

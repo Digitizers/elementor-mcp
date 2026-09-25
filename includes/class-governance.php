@@ -221,6 +221,17 @@ class Elementor_MCP_Governance {
 	private static $active_override = null;
 
 	/**
+	 * Every governed ability wrap_ability() wrapped, keyed by the MCP tool name
+	 * the bundled adapter publishes for it (str_replace('/', '-', $name) — the
+	 * mapping verify_grant() binds to). Read by declare_touches() so SiteAgent's
+	 * preview can resolve a queued call's name to the flags run_governed() uses.
+	 *
+	 * @since 1.38.0
+	 * @var array<string, array{ability: string, preview_capable: bool, is_kit: bool, is_edit: bool}>
+	 */
+	private static $declared = array();
+
+	/**
 	 * Is SiteAgent's snapshot engine available to govern writes?
 	 *
 	 * @return bool
@@ -295,6 +306,12 @@ class Elementor_MCP_Governance {
 			? (string) $args['meta']['governance']['writes']
 			: 'create';
 		$is_edit_ability          = 'edit' === $writes_declared;
+		self::$declared[ str_replace( '/', '-', trim( $name ) ) ] = array(
+			'ability'         => $name,
+			'preview_capable' => $preview_capable,
+			'is_kit'          => $is_kit,
+			'is_edit'         => $is_edit_ability,
+		);
 		$original                 = $args['execute_callback'];
 		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable, $is_kit, $is_edit_ability ) {
 			return self::run_governed( $name, $original, $input, $preview_capable, $is_kit, $is_edit_ability );
@@ -366,47 +383,7 @@ class Elementor_MCP_Governance {
 			// PARAMETERS (set by wrap_ability() from meta.governance.scope /
 			// .writes) — defined here; the `$is_edit` LOCAL below is computed
 			// after this gate on purpose.
-			$has_post_id = is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
-			$early_edit  = ! $is_kit && $is_edit_ability && $has_post_id;
-			if ( $early_edit ) {
-				$touches = Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) );
-			} elseif ( ! $is_kit && $has_post_id ) {
-				// A create-style ability (default, or explicitly declared)
-				// whose input post_id is a SOURCE it reads rather than
-				// writes (save-as-template: reads a page, then inserts a
-				// NEW elementor_library post) — declare the whole site (it
-				// is still a create with no target id yet) PLUS the
-				// source's own touches: cheaper to declare a source that
-				// turns out irrelevant than to let an operator's freeze on
-				// "checkout" miss a copy-of-checkout being created from it.
-				$touches = array_merge( Elementor_MCP_Rules::site_touches(), Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) ) );
-			} else {
-				$touches = Elementor_MCP_Rules::site_touches();
-			}
-			// Custom CSS (1.37.0, Aura spec 2026-09-24 §4.1): appended to what
-			// the input already told us. An edit names its post, a kit write
-			// names the active kit; anything else — a create, a source-post
-			// create — may land anywhere, so it is the wildcard, never precise.
-			// A kit-scoped write targets the ACTIVE KIT (spec §3: the kit's CSS
-			// declares custom_css:<kit post id>, Codex r1) — concrete, so an
-			// id-less allow custom_css can admit a CSS-only kit write. The kit
-			// id is read the way before_kit_write() reads it; 0 = unknown → '*'.
-			// A throw resolving it (as before_kit_write() also guards against)
-			// is swallowed here too — this is only a declaration, and the write
-			// site still fails closed on the same throw when it actually writes.
-			if ( $early_edit ) {
-				$css_id = (string) absint( $input['post_id'] );
-			} elseif ( $is_kit ) {
-				try {
-					$kit_id = self::active_kit_id();
-				} catch ( \Throwable $e ) {
-					$kit_id = 0;
-				}
-				$css_id = $kit_id > 0 ? (string) $kit_id : '*';
-			} else {
-				$css_id = '*';
-			}
-			$touches = array_merge( $touches, Elementor_MCP_Rules::css_touches( $css_id, (string) $name, $input ) );
+			$touches = self::governed_touches( $name, $input, $is_kit, $is_edit_ability );
 			$gate    = self::rules_gate( $touches, $name );
 			if ( is_wp_error( $gate ) ) {
 				return $gate;
@@ -642,6 +619,103 @@ class Elementor_MCP_Governance {
 		}
 		self::$run = null;
 		return self::with_run_warnings( $result );
+	}
+
+	/**
+	 * The touches the early rules gate judges for one governed call — the one
+	 * source for run_governed() and declare_touches() (Aura spec 2026-09-25
+	 * §4.1). What we can declare here is what the input tells us: an edit
+	 * names its post (post:<id> + page:<id>); a design-system write is the
+	 * whole site; a create has no id yet, so only a site freeze can apply to
+	 * it here — the write site (before_page_write) declares the real id once
+	 * it exists. Custom CSS (1.37.0) is appended: an edit names its post, a
+	 * kit write the active kit, anything else '*'.
+	 *
+	 * @since 1.38.0
+	 * @param string $name            Ability name.
+	 * @param mixed  $input           Ability input.
+	 * @param bool   $is_kit          meta.governance.scope is kit / global-classes.
+	 * @param bool   $is_edit_ability meta.governance.writes is 'edit'.
+	 * @return array
+	 */
+	private static function governed_touches( string $name, $input, bool $is_kit, bool $is_edit_ability ): array {
+		$has_post_id = is_array( $input ) && isset( $input['post_id'] ) && absint( $input['post_id'] ) > 0;
+		$early_edit  = ! $is_kit && $is_edit_ability && $has_post_id;
+		if ( $early_edit ) {
+			$touches = Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) );
+		} elseif ( ! $is_kit && $has_post_id ) {
+			// A create-style ability (default, or explicitly declared)
+			// whose input post_id is a SOURCE it reads rather than
+			// writes (save-as-template: reads a page, then inserts a
+			// NEW elementor_library post) — declare the whole site (it
+			// is still a create with no target id yet) PLUS the
+			// source's own touches: cheaper to declare a source that
+			// turns out irrelevant than to let an operator's freeze on
+			// "checkout" miss a copy-of-checkout being created from it.
+			$touches = array_merge( Elementor_MCP_Rules::site_touches(), Elementor_MCP_Rules::page_touches( absint( $input['post_id'] ) ) );
+		} else {
+			$touches = Elementor_MCP_Rules::site_touches();
+		}
+		// Custom CSS (1.37.0, Aura spec 2026-09-24 §4.1): appended to what
+		// the input already told us. An edit names its post, a kit write
+		// names the active kit; anything else — a create, a source-post
+		// create — may land anywhere, so it is the wildcard, never precise.
+		// A kit-scoped write targets the ACTIVE KIT (spec §3: the kit's CSS
+		// declares custom_css:<kit post id>, Codex r1) — concrete, so an
+		// id-less allow custom_css can admit a CSS-only kit write. The kit
+		// id is read the way before_kit_write() reads it; 0 = unknown → '*'.
+		// A throw resolving it (as before_kit_write() also guards against)
+		// is swallowed here too — this is only a declaration, and the write
+		// site still fails closed on the same throw when it actually writes.
+		if ( $early_edit ) {
+			$css_id = (string) absint( $input['post_id'] );
+		} elseif ( $is_kit ) {
+			try {
+				$kit_id = self::active_kit_id();
+			} catch ( \Throwable $e ) {
+				$kit_id = 0;
+			}
+			$css_id = $kit_id > 0 ? (string) $kit_id : '*';
+		} else {
+			$css_id = '*';
+		}
+		return array_merge( $touches, Elementor_MCP_Rules::css_touches( $css_id, $name, $input ) );
+	}
+
+	/**
+	 * What the early rules gate would judge for this call, without running it
+	 * (Aura spec 2026-09-25 §4.3) — SiteAgent's tools/preview asks this so a
+	 * queued fork write shows its rule verdict before approval.
+	 *
+	 * Pure: no grant, no snapshot, no run state, no rules engine, no write.
+	 * Null = cannot say (unknown or ungoverned name, governance inactive, the
+	 * rules bridge absent, anything throwing), which the caller reports as
+	 * unknown coverage. A dry run declares nothing — rules never see one.
+	 *
+	 * @since 1.38.0
+	 * @param string $mcp_tool The published MCP tool name (e.g. elementor-mcp-update-element).
+	 * @param array  $input    The call's input, as the ability will receive it.
+	 * @return array{ability: string, touches: array}|null
+	 */
+	public static function declare_touches( string $mcp_tool, array $input ): ?array {
+		try {
+			if ( ! self::is_active() || ! class_exists( 'Elementor_MCP_Rules' ) ) {
+				return null;
+			}
+			if ( ! isset( self::$declared[ $mcp_tool ] ) ) {
+				return null;
+			}
+			$entry = self::$declared[ $mcp_tool ];
+			if ( self::is_preview_call( $entry['preview_capable'], $input ) ) {
+				return array( 'ability' => $entry['ability'], 'touches' => array() );
+			}
+			return array(
+				'ability' => $entry['ability'],
+				'touches' => self::governed_touches( $entry['ability'], $input, $entry['is_kit'], $entry['is_edit'] ),
+			);
+		} catch ( \Throwable $e ) {
+			return null;
+		}
 	}
 
 	/**
@@ -1604,6 +1678,16 @@ class Elementor_MCP_Governance {
 	}
 
 	/**
+	 * Test-only: the armed run, or null.
+	 *
+	 * @since 1.38.0
+	 * @return array|null
+	 */
+	public static function current_run_for_tests(): ?array {
+		return self::$run;
+	}
+
+	/**
 	 * Clear all governed-run state. For test isolation. An optional snapshot-engine
 	 * override lets a test inject a stand-in (e.g. an engine lacking snapshot_posts,
 	 * to exercise the fail-closed path) instead of the lazily-created default. An
@@ -1622,5 +1706,6 @@ class Elementor_MCP_Governance {
 		self::$run_warnings    = array();
 		self::$snapshots       = $snapshots_override;
 		self::$active_override = $active_override;
+		self::$declared        = array();
 	}
 }

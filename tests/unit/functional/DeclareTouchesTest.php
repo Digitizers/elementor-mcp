@@ -141,4 +141,27 @@ class DeclareTouchesTest extends TestCase {
 		$this->assertSame( 'elementor-mcp/update-page-settings', $outer['name'] );
 		$this->assertSame( array( 'post_id' => 7, 'settings' => array( 'custom_css' => 'a{}' ) ), $outer['input'] );
 	}
+
+	public function test_the_seam_triggers_ability_registration_when_the_name_is_not_yet_known(): void {
+		// Core's Abilities API fires wp_abilities_api_init on first registry
+		// access; this plugin's register_abilities() then wraps every ability.
+		// The bootstrap stub runs the queued init once, the way core would.
+		$GLOBALS['_abilities_init'] = function () {
+			$this->wrap( 'elementor-mcp/update-element', array( 'writes' => 'edit' ) );
+		};
+		$this->assertSame(
+			array( 'ability' => 'elementor-mcp/update-element', 'touches' => \Elementor_MCP_Rules::page_touches( 7 ) ),
+			\Elementor_MCP_Governance::declare_touches( 'elementor-mcp-update-element', array( 'post_id' => 7, 'element_id' => 'abc', 'settings' => array( 'title' => 'x' ) ) )
+		);
+	}
+
+	public function test_registration_is_triggered_only_when_the_name_is_missing(): void {
+		$this->wrap( 'elementor-mcp/update-element', array( 'writes' => 'edit' ) );
+		$ran                        = false;
+		$GLOBALS['_abilities_init'] = static function () use ( &$ran ) {
+			$ran = true;
+		};
+		\Elementor_MCP_Governance::declare_touches( 'elementor-mcp-update-element', array( 'post_id' => 7 ) );
+		$this->assertFalse( $ran );
+	}
 }

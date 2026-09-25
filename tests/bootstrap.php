@@ -1454,6 +1454,20 @@ namespace {
 		}
 	}
 
+	// $GLOBALS['_abilities_init'] => callable|null — run once on the first
+	// wp_get_abilities() call, the way core fires wp_abilities_api_init on
+	// first registry access (DeclareTouchesTest).
+	if ( ! function_exists( 'wp_get_abilities' ) ) {
+		function wp_get_abilities(): array {
+			if ( isset( $GLOBALS['_abilities_init'] ) && is_callable( $GLOBALS['_abilities_init'] ) ) {
+				$init                       = $GLOBALS['_abilities_init'];
+				$GLOBALS['_abilities_init'] = null;
+				$init();
+			}
+			return $GLOBALS['_abilities'] ?? array();
+		}
+	}
+
 	if ( ! function_exists( 'is_user_logged_in' ) ) {
 		function is_user_logged_in(): bool {
 			return $GLOBALS['_logged_in'] ?? true;

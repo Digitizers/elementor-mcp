@@ -704,6 +704,13 @@ class Elementor_MCP_Governance {
 			if ( ! self::is_active() || ! class_exists( 'Elementor_MCP_Rules' ) ) {
 				return null;
 			}
+			// SiteAgent's REST route can reach us before anything on this
+			// request touched the Abilities API — and it is registration that
+			// fills self::$declared (register_abilities() → wrap_ability()).
+			// Core fires wp_abilities_api_init on first registry access.
+			if ( ! isset( self::$declared[ $mcp_tool ] ) && function_exists( 'wp_get_abilities' ) ) {
+				wp_get_abilities();
+			}
 			if ( ! isset( self::$declared[ $mcp_tool ] ) ) {
 				return null;
 			}

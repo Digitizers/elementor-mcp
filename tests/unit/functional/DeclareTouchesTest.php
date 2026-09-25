@@ -74,6 +74,8 @@ class DeclareTouchesTest extends TestCase {
 			'kit_write_no_kit'       => array( 'elementor-mcp/update-global-colors', array( 'scope' => 'kit' ), array( 'custom_css' => 'body{}' ), 0, false ),
 			'global_classes'         => array( 'elementor-mcp/update-global-class', array( 'scope' => 'global-classes' ), array( 'id' => 'g-1', 'label' => 'x' ), 900, false ),
 			'seo_apply_true'         => array( 'elementor-mcp/generate-meta-tags', array( 'writes' => 'edit' ), array( 'post_id' => 7, 'apply' => true ), 0, true ),
+			'edit_css_and_title'     => array( 'elementor-mcp/update-page-settings', array( 'writes' => 'edit' ), array( 'post_id' => 7, 'settings' => array( 'custom_css' => 'a{}', 'title' => 'x' ) ), 0, false ),
+			'always_conservative'    => array( 'elementor-mcp/apply-template', array( 'writes' => 'edit' ), array( 'post_id' => 42, 'template_id' => 7 ), 0, false ),
 		);
 	}
 

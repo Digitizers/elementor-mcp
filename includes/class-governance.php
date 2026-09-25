@@ -226,6 +226,12 @@ class Elementor_MCP_Governance {
 	 * mapping verify_grant() binds to). Read by declare_touches() so SiteAgent's
 	 * preview can resolve a queued call's name to the flags run_governed() uses.
 	 *
+	 * Out of scope: a third-party `mcp_adapter_tool_name` filter renaming the
+	 * published tool (the lookup then misses → null, fail-safe unknown) or an
+	 * `mcp_adapter_pre_tool_call` filter rewriting arguments before execute
+	 * (the preview then declares from the arguments as queued). This plugin
+	 * uses neither.
+	 *
 	 * @since 1.38.0
 	 * @var array<string, array{ability: string, preview_capable: bool, is_kit: bool, is_edit: bool}>
 	 */
@@ -693,6 +699,11 @@ class Elementor_MCP_Governance {
 	 * Null = cannot say (unknown or ungoverned name, governance inactive, the
 	 * rules bridge absent, anything throwing), which the caller reports as
 	 * unknown coverage. A dry run declares nothing — rules never see one.
+	 *
+	 * Declares for every governed ability, whether or not the admin's
+	 * disabled-tools setting exposes it on this plugin's own server — the
+	 * gate would judge the same touches if the ability ran (a foreign
+	 * transport can still reach it).
 	 *
 	 * @since 1.38.0
 	 * @param string $mcp_tool The published MCP tool name (e.g. elementor-mcp-update-element).

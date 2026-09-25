@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.37.0
+Stable tag: 1.38.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.38.0 =
+* Feature: SiteAgent can now ask this plugin which pages and site areas a queued write would touch, so the Aura approval queue shows whether an operator rule would block or warn about the write before anyone approves it (SiteAgent 2.21.0 and later). Nothing runs and nothing is written when SiteAgent asks.
 
 = 1.37.0 =
 * Feature: governed writes now tell SiteAgent when they change custom CSS, so an Aura rule can block, warn about or allow custom CSS on one page or across the site (SiteAgent 2.20.0 and later). A write that clearly sets only CSS is marked as such; anything the plugin cannot read precisely (embedded templates, copied elements, code snippets) is marked cautiously so a block still applies.
@@ -497,6 +500,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.38.0 =
+Safe for every site. Writes behave exactly as in 1.37.0; the new declaration is read-only and only used by SiteAgent 2.21.0 and later.
 
 = 1.37.0 =
 Safe for every site. Writes behave exactly as in 1.36.1 unless an Aura rule targets custom CSS; with SiteAgent 2.20.0 such rules now judge this plugin's writes precisely instead of treating every page write as possible CSS.

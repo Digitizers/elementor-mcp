@@ -113,9 +113,9 @@ class DeclareTouchesTest extends TestCase {
 		$this->assertNull( \Elementor_MCP_Governance::declare_touches( 'elementor-mcp/update-element', array( 'post_id' => 7 ) ) );
 	}
 
-	public function test_inactive_governance_is_null(): void {
-		$this->wrap( 'elementor-mcp/update-element', array( 'writes' => 'edit' ) );
+	public function test_inactive_governance_declares_nothing(): void {
 		\Elementor_MCP_Governance::reset_state( null, false );
+		$this->wrap( 'elementor-mcp/update-element', array( 'writes' => 'edit' ) );
 		$this->assertNull( \Elementor_MCP_Governance::declare_touches( 'elementor-mcp-update-element', array( 'post_id' => 7 ) ) );
 	}
 

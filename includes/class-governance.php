@@ -306,12 +306,14 @@ class Elementor_MCP_Governance {
 			? (string) $args['meta']['governance']['writes']
 			: 'create';
 		$is_edit_ability          = 'edit' === $writes_declared;
+
 		self::$declared[ str_replace( '/', '-', trim( $name ) ) ] = array(
 			'ability'         => $name,
 			'preview_capable' => $preview_capable,
 			'is_kit'          => $is_kit,
 			'is_edit'         => $is_edit_ability,
 		);
+
 		$original                 = $args['execute_callback'];
 		$args['execute_callback'] = static function ( $input ) use ( $original, $name, $preview_capable, $is_kit, $is_edit_ability ) {
 			return self::run_governed( $name, $original, $input, $preview_capable, $is_kit, $is_edit_ability );

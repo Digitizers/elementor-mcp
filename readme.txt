@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.39.0
+Stable tag: 1.40.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,11 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.40.0 =
+* Fix: updating page settings (including page-level custom CSS and edits to the site kit) no longer deletes the page's other settings, such as custom colors and typography.
+* Fix: the global colors tool refuses Elementor's four system color slots (primary, secondary, text, accent) instead of creating a hidden duplicate and reporting success. Use replace-system-colors for those.
+* Fix: padding, margin, border and gap values written by the tools now show their real numbers in the editor's Layout panel instead of 0.
 
 = 1.39.0 =
 * Feature: when another plugin blocks this plugin's MCP tool calls, the error now says so. Angie 1.1.17 refuses every MCP tool call on the site until its own consent is granted; calls to this plugin now report that Angie refused them and where to grant its consent, and the server-info tool shows it, instead of passing on Angie's message unexplained. The block itself is left to Angie.
@@ -503,6 +508,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.40.0 =
+Recommended for every site. Page-settings updates no longer erase other settings. A global-colors call that names a system slot is now refused; switch it to replace-system-colors.
 
 = 1.39.0 =
 Safe for every site. Nothing is written or unblocked; only the error text for a call another plugin refuses, and the server-info report, change.

@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.38.0
+Stable tag: 1.39.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.39.0 =
+* Feature: when another plugin blocks this plugin's MCP tool calls, the error now says so. Angie 1.1.17 refuses every MCP tool call on the site until its own consent is granted; calls to this plugin now report that Angie refused them and where to grant its consent, and the server-info tool shows it, instead of passing on Angie's message unexplained. The block itself is left to Angie.
 
 = 1.38.0 =
 * Feature: SiteAgent can now ask this plugin which pages and site areas a queued write would touch, so the Aura approval queue shows whether an operator rule would block or warn about the write before anyone approves it (SiteAgent 2.21.0 and later). Nothing runs and nothing is written when SiteAgent asks.
@@ -500,6 +503,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.39.0 =
+Safe for every site. Nothing is written or unblocked; only the error text for a call another plugin refuses, and the server-info report, change.
 
 = 1.38.0 =
 Safe for every site. Writes behave exactly as in 1.37.0; the new declaration is read-only and only used by SiteAgent 2.21.0 and later.

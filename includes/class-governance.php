@@ -230,7 +230,9 @@ class Elementor_MCP_Governance {
 	 * published tool (the lookup then misses → null, fail-safe unknown) or an
 	 * `mcp_adapter_pre_tool_call` filter rewriting arguments before execute
 	 * (the preview then declares from the arguments as queued). This plugin
-	 * uses neither.
+	 * renames nothing and rewrites no arguments: its one pre-call callback
+	 * (Elementor_MCP_Foreign_Blockers::explain(), 1.39.0) only re-words a
+	 * foreign plugin's WP_Error refusal.
 	 *
 	 * @since 1.38.0
 	 * @var array<string, array{ability: string, preview_capable: bool, is_kit: bool, is_edit: bool}>

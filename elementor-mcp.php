@@ -546,6 +546,11 @@ function elementor_mcp_init(): void {
 	elementor_mcp_require( 'includes/class-kit-backup-store.php' );
 	elementor_mcp_require( 'includes/class-free-brand-kits.php' );
 	elementor_mcp_require( 'includes/class-angie-bridge.php' );
+	// Names a foreign plugin's refusal of our calls (Angie 1.1.17's consent
+	// gate on the global pre-call filter) instead of passing it on unexplained.
+	if ( elementor_mcp_require( 'includes/class-foreign-blockers.php' ) && class_exists( 'Elementor_MCP_Foreign_Blockers' ) ) {
+		Elementor_MCP_Foreign_Blockers::register();
+	}
 	if ( $kit_writer_ok && class_exists( 'Elementor_MCP_System_Kit_Writer' ) ) {
 		elementor_mcp_require( 'includes/abilities/class-system-kit-abilities.php' );
 	}

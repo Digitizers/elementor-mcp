@@ -1271,6 +1271,7 @@ namespace {
 			'Elementor_MCP_Collateral'             => 'includes/class-collateral.php',
 			'Elementor_MCP_Governance'             => 'includes/class-governance.php',
 			'Elementor_MCP_Rules'                  => 'includes/class-rules.php',
+			'Elementor_MCP_Foreign_Blockers'       => 'includes/class-foreign-blockers.php',
 		];
 
 		if ( isset( $map[ $class ] ) ) {

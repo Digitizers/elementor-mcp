@@ -74,6 +74,7 @@ class Elementor_MCP_Server_Info_Abilities {
 						'server_enabled'    => array( 'type' => 'boolean' ),
 						'write_exposure'    => array( 'type' => 'object' ),
 						'rules'             => array( 'type' => 'object' ),
+						'foreign_call_blockers' => array( 'type' => 'object' ),
 						'notes'             => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
 					),
 				),
@@ -721,6 +722,23 @@ class Elementor_MCP_Server_Info_Abilities {
 			$notes[] = $rules_note;
 		}
 
+		// Another plugin's callback on the adapter's GLOBAL pre-call filter can
+		// refuse calls to this server (Angie 1.1.17's consent gate does, until
+		// consent is granted). Nothing else on this report would show it.
+		$foreign_call_blockers = class_exists( 'Elementor_MCP_Foreign_Blockers' )
+			? Elementor_MCP_Foreign_Blockers::report()
+			: array( 'known' => array(), 'other_callbacks' => array() );
+		foreach ( $foreign_call_blockers['known'] as $blocker ) {
+			if ( ! empty( $blocker['blocking'] ) ) {
+				$notes[] = sprintf(
+					/* translators: 1: plugin slug, 2: URL where the block is lifted. */
+					__( 'Every tool call to this server is currently refused by another plugin (%1$s) before it runs: its consent has not been granted. Grant it at %2$s or deactivate that plugin. Listing tools still works, so the server looks healthy until a call is made.', 'elementor-mcp' ),
+					$blocker['plugin'],
+					$blocker['remedy_url']
+				);
+			}
+		}
+
 		return array(
 			'plugin_version'    => defined( 'ELEMENTOR_MCP_VERSION' ) ? ELEMENTOR_MCP_VERSION : '',
 			'elementor_version' => defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : '',
@@ -764,6 +782,7 @@ class Elementor_MCP_Server_Info_Abilities {
 			'server_enabled'    => $server_enabled,
 			'write_exposure'    => $write_exposure,
 			'rules'             => $rules,
+			'foreign_call_blockers' => $foreign_call_blockers,
 			'notes'             => $notes,
 		);
 	}

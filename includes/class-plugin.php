@@ -484,6 +484,16 @@ class Elementor_MCP_Plugin {
 	const SERVER_ROUTE = 'elementor-mcp-server';
 
 	/**
+	 * The adapter server id this plugin registers — what a `$server` passed to
+	 * an adapter filter reports from get_server_id(). Equal to SERVER_ROUTE
+	 * today, but a different identifier.
+	 *
+	 * @since 1.39.0
+	 * @var string
+	 */
+	const SERVER_ID = 'elementor-mcp-server';
+
+	/**
 	 * Whether the MCP server should be exposed. On by default; the Connection
 	 * tab toggle writes '0' to switch it off.
 	 *
@@ -545,7 +555,7 @@ class Elementor_MCP_Plugin {
 		}
 
 		$mcp_adapter->create_server(
-			'elementor-mcp-server',                                   // server_id
+			self::SERVER_ID,                                          // server_id
 			self::SERVER_ROUTE_NAMESPACE,                             // route_namespace
 			self::SERVER_ROUTE,                                       // route
 			__( 'MCP Tools for Elementor Server', 'elementor-mcp' ),            // server_name

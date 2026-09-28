@@ -38,7 +38,9 @@ name: Release ZIP
 # builds exactly as for a pushed tag, ending at the same DRAFT. So merging a
 # release PR is the whole release up to "publish". A push that changes the file
 # without bumping the version finds its tag already there and does nothing, and
-# a tag pushed by hand first wins the same way. The tag is created by this job,
+# a tag pushed by hand first wins the same way. A re-run after a failure past
+# the tag resumes the build instead of skipping it: the tag on this commit
+# counts as done only once its release carries the ZIP. The tag is created by this job,
 # with GITHUB_TOKEN — which, by GitHub's design, does not start another run —
 # so nothing builds twice.
 
@@ -57,6 +59,14 @@ on:
 
 permissions:
   contents: write
+
+# One run per commit at a time: the main-push run and a tag pushed by hand on
+# the same commit would otherwise race to create the same release. Queued, not
+# cancelled — the second run finds the ZIP and stops (main path) or re-uploads
+# it with --clobber (tag path).
+concurrency:
+  group: release-zip-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -78,14 +88,30 @@ jobs:
             fi
             tag="v$version"
             if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "$tag already exists — no version bump in this push; nothing to release." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
+              # An existing tag is "done" only when this run has nothing left
+              # to do. On another commit: no bump in this push. On THIS commit
+              # with the ZIP already on its release: a finished earlier run.
+              # On this commit WITHOUT the ZIP: an earlier attempt cut the tag
+              # and then failed — resume the build rather than report a
+              # success that left a tag with no release (Codex r1 on #86).
+              tagged="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)"
+              if [ "$tagged" != "$GITHUB_SHA" ]; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                echo "$tag already exists on $tagged — no version bump in this push; nothing to release." >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx 'elementor-mcp.zip'; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                echo "$tag and its release ZIP already exist — nothing to do." >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              echo "$tag exists on this commit but its release has no ZIP — resuming the build." >> "$GITHUB_STEP_SUMMARY"
+            else
+              object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
+                -f tag="$tag" -f message="elementor-mcp $version" -f object="$GITHUB_SHA" -f type=commit --jq .sha)"
+              gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$object" >/dev/null
+              echo "Cut $tag on $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
             fi
-            object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
-              -f tag="$tag" -f message="elementor-mcp $version" -f object="$GITHUB_SHA" -f type=commit --jq .sha)"
-            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$object" >/dev/null
-            echo "Cut $tag on $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
           else
             tag="${{ github.event.release.tag_name || inputs.tag || github.ref_name }}"
           fi

@@ -74,6 +74,21 @@ class ForeignCallBlockersTest extends Ability_Test_Case {
 		$this->assertSame( $refusal, \Elementor_MCP_Foreign_Blockers::explain( $refusal, 'x', null, null ), 'No server object: nothing proves the call is ours.' );
 	}
 
+	public function test_refusal_passes_through_when_the_plugin_class_did_not_load(): void {
+		// A quarantined class-plugin.php leaves the explainer registered and the
+		// constant it compares against undefined. The foreign refusal must reach
+		// the client intact — not become a fatal on someone else's server.
+		$blockers = new class() extends \Elementor_MCP_Foreign_Blockers {
+			protected static function own_server_id(): string {
+				return '';
+			}
+		};
+		$refusal  = $this->angie_refusal();
+
+		$this->assertSame( $refusal, $blockers::explain( $refusal, 'x', null, $this->server( \Elementor_MCP_Plugin::SERVER_ID ) ) );
+		$this->assertSame( $refusal, $blockers::explain( $refusal, 'x', null, $this->server( '' ) ), 'An empty server id never matches the missing one.' );
+	}
+
 	public function test_arguments_and_unknown_errors_pass_through_unchanged(): void {
 		$ours  = $this->server( \Elementor_MCP_Plugin::SERVER_ID );
 		$args  = array( 'post_id' => 12, 'title' => 'Hi' );

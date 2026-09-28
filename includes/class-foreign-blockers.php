@@ -82,7 +82,7 @@ class Elementor_MCP_Foreign_Blockers {
 	 * @return array|WP_Error
 	 */
 	public static function explain( $args, $tool_name = '', $mcp_tool = null, $server = null ) {
-		if ( ! is_wp_error( $args ) || ! self::is_own_server( $server ) ) {
+		if ( ! is_wp_error( $args ) || ! static::is_own_server( $server ) ) {
 			return $args;
 		}
 
@@ -201,9 +201,26 @@ class Elementor_MCP_Foreign_Blockers {
 	 * @param mixed $server The adapter's server object.
 	 * @return bool
 	 */
-	private static function is_own_server( $server ): bool {
-		return is_object( $server )
+	protected static function is_own_server( $server ): bool {
+		$own = static::own_server_id();
+		return '' !== $own
+			&& is_object( $server )
 			&& method_exists( $server, 'get_server_id' )
-			&& Elementor_MCP_Plugin::SERVER_ID === $server->get_server_id();
+			&& $own === $server->get_server_id();
+	}
+
+	/**
+	 * This plugin's adapter server id, or '' when the plugin class did not load.
+	 *
+	 * The explainer is registered before the core files are known to have
+	 * loaded, and the guarded loader lets a quarantined class-plugin.php boot
+	 * nothing further. Reading the constant unguarded would then fatal inside a
+	 * FOREIGN refusal on another server — breaking it instead of passing it on.
+	 * Without the class no server of ours exists, so '' (never ours) is exact.
+	 *
+	 * @return string
+	 */
+	protected static function own_server_id(): string {
+		return class_exists( 'Elementor_MCP_Plugin' ) ? Elementor_MCP_Plugin::SERVER_ID : '';
 	}
 }

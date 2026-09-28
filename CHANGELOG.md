@@ -2,6 +2,10 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.39.0 — 2026-09-28
+
+- Feature: **a foreign plugin's refusal of our calls is named, never lifted** (elementor-mcp#83). Angie 1.1.17 hooks the adapter's global `mcp_adapter_pre_tool_call` filter with no server check and returns `angie_consent_required` until its external-scripts consent is granted, so every call to this server that reaches a registered tool and passes its permission check was refused with Angie's message while `tools/list` kept working (evidence: Digitizers/references#44). `Elementor_MCP_Foreign_Blockers::explain()` (`PHP_INT_MAX`, 4 args) re-words a known foreign refusal, on this plugin's server only, into `elementor_mcp_blocked_by_foreign_plugin` — the plugin, the remedy URL and its original message; data `blocked_by` / `original_code` / `tool`. The call stays refused; arguments, unknown errors and other servers pass through untouched, and without `Elementor_MCP_Plugin` loaded nothing is re-worded. `server-info` gains `foreign_call_blockers { known[], other_callbacks[] }` and a note while a known blocker is blocking. `Elementor_MCP_Plugin::SERVER_ID` names the adapter server id. Tests +8; suite 1403 green.
+
 ## 1.38.0 — 2026-09-25
 
 - Feature: **`Elementor_MCP_Governance::declare_touches( $mcp_tool, $input )`** (elementor-mcp#81, Digitizers/Aura#586 Plan A) — the touches the early rules gate would judge for a call, without running it, so SiteAgent 2.21.0's `tools/preview` can show a queued fork write's rule verdict. `run_governed()`'s touch computation moved verbatim into `governed_touches()`, the one source for both; `wrap_ability()` records each governed ability's flags under its published MCP tool name. Pure: no grant, snapshot, run state, rules engine or write. `null` when it cannot say (unknown / read-only name, governance inactive, rules bridge absent, a throw); `[]` for a dry run. Triggers ability registration via `wp_get_abilities()` when the name is not yet known. Runtime behaviour unchanged. Tests +19 (each parity case runs the real `run_governed()` and the seam on the same input); suite 1395 green.

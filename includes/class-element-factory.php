@@ -52,6 +52,137 @@ class Elementor_MCP_Element_Factory {
 	}
 
 	/**
+	 * Sub-keys of a classic `dimensions` / `gaps` value. Elementor's editor
+	 * serialises every side as a string ("40", not 40); the CSS is the same
+	 * either way, but the Layout panel hydrates strictly and shows 0 for a
+	 * numeric side (P7.1, EMCP 3.17.1 #146).
+	 *
+	 * @since 1.40.0
+	 */
+	const DIMENSION_SIDES = array( 'top', 'right', 'bottom', 'left', 'column', 'row' );
+
+	/**
+	 * Cast numeric dimension sides to the strings the editor expects.
+	 *
+	 * Only arrays shaped like a classic dimension value are touched: a `unit`
+	 * key plus at least one side, and no `$$type` (atomic props have their own
+	 * typed shape and are never rewritten here). A slider's `size` stays
+	 * numeric, as the editor keeps it. Nested arrays (repeaters) are walked.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $settings Element settings.
+	 * @return array
+	 */
+	public static function normalize_dimension_settings( array $settings ): array {
+		foreach ( $settings as $key => $value ) {
+			if ( ! is_array( $value ) || isset( $value['$$type'] ) ) {
+				continue;
+			}
+			if ( self::looks_like_dimensions( $value ) ) {
+				foreach ( self::DIMENSION_SIDES as $side ) {
+					if ( isset( $value[ $side ] ) && ( is_int( $value[ $side ] ) || is_float( $value[ $side ] ) ) ) {
+						$value[ $side ] = (string) $value[ $side ];
+					}
+				}
+				$settings[ $key ] = $value;
+				continue;
+			}
+			$settings[ $key ] = self::normalize_dimension_settings( $value );
+		}
+		return $settings;
+	}
+
+	/**
+	 * Apply normalize_dimension_settings() to the elements of a tree that a
+	 * write adds or changes.
+	 *
+	 * An element whose id is in $before with identical settings is left as it
+	 * is stored: normalising it would rewrite a node the write never touched,
+	 * which the collateral diff reports as damage. Children are always walked.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $elements Element tree about to be saved.
+	 * @param array $before   Settings of the stored tree by element id (settings_by_id()).
+	 * @return array
+	 */
+	public static function normalize_dimension_tree( array $elements, array $before = array() ): array {
+		foreach ( $elements as $index => $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+			if ( ! empty( $element['settings'] ) && is_array( $element['settings'] ) ) {
+				$id        = isset( $element['id'] ) && is_scalar( $element['id'] ) ? (string) $element['id'] : null;
+				$untouched = null !== $id && array_key_exists( $id, $before ) && $before[ $id ] === $element['settings'];
+				if ( ! $untouched ) {
+					$element['settings'] = self::normalize_dimension_settings( $element['settings'] );
+				}
+			}
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				$element['elements'] = self::normalize_dimension_tree( $element['elements'], $before );
+			}
+			$elements[ $index ] = $element;
+		}
+		return $elements;
+	}
+
+	/**
+	 * Settings of every element in a tree, keyed by element id. An id that
+	 * occurs more than once maps to null, so none of its copies counts as
+	 * untouched.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $elements Element tree.
+	 * @return array<string, array|null>
+	 */
+	public static function settings_by_id( array $elements ): array {
+		$map = array();
+		self::collect_settings_by_id( $elements, $map );
+		return $map;
+	}
+
+	/**
+	 * @param array $elements Element tree.
+	 * @param array $map      Accumulator.
+	 * @return void
+	 */
+	private static function collect_settings_by_id( array $elements, array &$map ): void {
+		foreach ( $elements as $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+			if ( isset( $element['id'] ) && is_scalar( $element['id'] ) ) {
+				$id         = (string) $element['id'];
+				$settings   = isset( $element['settings'] ) && is_array( $element['settings'] ) ? $element['settings'] : array();
+				$map[ $id ] = array_key_exists( $id, $map ) ? null : $settings;
+			}
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				self::collect_settings_by_id( $element['elements'], $map );
+			}
+		}
+	}
+
+	/**
+	 * Does this array look like a classic dimension/gap value?
+	 *
+	 * @param array $value Candidate.
+	 * @return bool
+	 */
+	private static function looks_like_dimensions( array $value ): bool {
+		if ( ! array_key_exists( 'unit', $value ) ) {
+			return false;
+		}
+		foreach ( self::DIMENSION_SIDES as $side ) {
+			if ( array_key_exists( $side, $value ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Warnings about settings that PERSIST but will probably not do what the
 	 * agent meant — a channel beside success, never a refusal, never a
 	 * coercion (mirrors EMCP 3.16.x; P6.2 of the 2026-09-18 reverification).

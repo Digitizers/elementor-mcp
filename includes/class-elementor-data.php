@@ -250,6 +250,20 @@ class Elementor_MCP_Data {
 		$pre_tree = ( is_string( $pre_raw ) && '' !== $pre_raw ) ? json_decode( $pre_raw, true ) : null;
 		$pre_seq  = is_array( $pre_tree ) ? $this->element_id_sequence( $pre_tree ) : array();
 
+		// Classic dimension/gap sides as the strings the editor reads (P7.1,
+		// EMCP 3.17.1 #146): a numeric side renders correctly but the Layout
+		// panel shows 0. Only for elements this write adds or whose settings it
+		// changes — an untouched element keeps whatever it stored, so a page an
+		// older build wrote with numeric sides is not rewritten by an unrelated
+		// edit (the collateral diff would rightly report that as damage). After
+		// the pre-save capture, so $data stays exactly what is handed to Elementor.
+		if ( class_exists( 'Elementor_MCP_Element_Factory' ) ) {
+			$data = Elementor_MCP_Element_Factory::normalize_dimension_tree(
+				$data,
+				is_array( $pre_tree ) ? Elementor_MCP_Element_Factory::settings_by_id( $pre_tree ) : array()
+			);
+		}
+
 		// Attempt native Elementor save (handles CSS regen, cache busting).
 		// Elementor 4.0 atomic widgets THROW on invalid settings instead of
 		// returning false, so catch it and return a clean error rather than
@@ -437,17 +451,24 @@ class Elementor_MCP_Data {
 			return $document;
 		}
 
-		$result = $document->save( array( 'settings' => $settings ) );
+		// A PATCH, not a replacement. Elementor's page-settings manager writes
+		// `_elementor_page_settings` verbatim (Settings\Page\Manager::save_settings_to_db(),
+		// reached from Document::save() → save_settings()), so handing it a
+		// one-key patch deleted every other stored setting — on the active kit,
+		// every custom color, typography preset and site-identity value (P7.1,
+		// found by EMCP 3.17.1 #145). The fallback below already merged; the
+		// native path now does the same, so both paths write the same thing.
+		$existing = get_post_meta( $post_id, '_elementor_page_settings', true );
+		if ( ! is_array( $existing ) ) {
+			$existing = array();
+		}
+		$merged = array_merge( $existing, $settings );
+
+		$result = $document->save( array( 'settings' => $merged ) );
 
 		if ( ! $result ) {
-			// Fallback: merge settings into existing page settings meta.
-			$existing = get_post_meta( $post_id, '_elementor_page_settings', true );
-			if ( ! is_array( $existing ) ) {
-				$existing = array();
-			}
-
-			$merged = array_merge( $existing, $settings );
-			update_post_meta( $post_id, '_elementor_page_settings', $merged );
+			// Fallback: direct meta write of the same merged settings.
+			update_post_meta( $post_id, '_elementor_page_settings', wp_slash( $merged ) );
 
 			// Invalidate CSS + rendered-HTML caches (see save_page_data()).
 			delete_post_meta( $post_id, '_elementor_css' );

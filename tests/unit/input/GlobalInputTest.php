@@ -59,12 +59,13 @@ class GlobalInputTest extends Ability_Test_Case {
 	 *
 	 * When colors are valid (non-empty), the code proceeds to kit access which
 	 * returns WP_Error (kit_not_found) because the test stub kits_manager
-	 * returns null from get_active_kit().
+	 * returns null from get_active_kit(). A custom id: since 1.40.0 the system
+	 * slot ids (primary, …) are refused before kit access (P71DataLossFixesTest).
 	 */
 	public function test_update_global_colors_returns_wp_error_when_kit_not_found(): void {
 		$result = $this->ability->execute_update_global_colors( [
 			'colors' => [
-				[ '_id' => 'primary', 'title' => 'Primary', 'color' => '#FF0000' ],
+				[ '_id' => 'brand_red', 'title' => 'Brand red', 'color' => '#FF0000' ],
 			],
 		] );
 		$this->assertWPError( $result, 'kit_not_found' );

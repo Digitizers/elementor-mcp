@@ -152,19 +152,46 @@ class P71DataLossFixesTest extends TestCase {
 
 	// ---------------------------------------------------------------- 3 ----
 
-	public function test_numeric_dimension_sides_become_strings(): void {
+	private static function map( array $keys, array $repeaters = array() ): array {
+		return array( 'keys' => array_fill_keys( $keys, true ), 'repeaters' => $repeaters );
+	}
+
+	public function test_control_map_reads_registered_types_only(): void {
+		$map = \Elementor_MCP_Element_Factory::dimension_keys_from_controls(
+			array(
+				'padding'        => array( 'name' => 'padding', 'type' => 'dimensions' ),
+				'padding_tablet' => array( 'name' => 'padding_tablet', 'type' => 'dimensions' ),
+				'flex_gap'       => array( 'name' => 'flex_gap', 'type' => 'gaps' ),
+				'spacing'        => array( 'name' => 'spacing', 'type' => 'slider' ),
+				'my_box'         => array( 'name' => 'my_box', 'type' => 'my_custom_control' ),
+				'slides'         => array(
+					'name'   => 'slides',
+					'type'   => 'repeater',
+					'fields' => array( 'slide_padding' => array( 'name' => 'slide_padding', 'type' => 'dimensions' ) ),
+				),
+			)
+		);
+
+		$this->assertSame( array( 'padding' => true, 'padding_tablet' => true, 'flex_gap' => true ), $map['keys'] );
+		$this->assertSame( array( 'slides' => array( 'slide_padding' => true ) ), $map['repeaters'] );
+	}
+
+	public function test_only_registered_dimension_controls_are_stringified(): void {
 		$out = \Elementor_MCP_Element_Factory::normalize_dimension_settings(
 			array(
-				'padding'         => array( 'unit' => 'px', 'top' => 40, 'right' => 0, 'bottom' => 12.5, 'left' => '8', 'isLinked' => false ),
-				'flex_gap'        => array( 'unit' => 'px', 'column' => 20, 'row' => 10 ),
-				'typography_size' => array( 'unit' => 'px', 'size' => 18 ),
-				'title'           => 'Hello',
-			)
+				'padding'  => array( 'unit' => 'px', 'top' => 40, 'right' => 0, 'bottom' => 12.5, 'left' => '8', 'isLinked' => false ),
+				'flex_gap' => array( 'unit' => 'px', 'column' => 20, 'row' => 10 ),
+				'my_box'   => array( 'unit' => 'px', 'top' => 3 ),
+				'spacing'  => array( 'unit' => 'px', 'size' => 18 ),
+				'title'    => 'Hello',
+			),
+			self::map( array( 'padding', 'flex_gap' ) )
 		);
 
 		$this->assertSame( array( 'unit' => 'px', 'top' => '40', 'right' => '0', 'bottom' => '12.5', 'left' => '8', 'isLinked' => false ), $out['padding'] );
 		$this->assertSame( array( 'unit' => 'px', 'column' => '20', 'row' => '10' ), $out['flex_gap'] );
-		$this->assertSame( 18, $out['typography_size']['size'], 'A slider size stays numeric, as the editor keeps it.' );
+		$this->assertSame( 3, $out['my_box']['top'], 'A dimension-SHAPED value in a control that is not a dimension control is left alone (Codex r1 on #85).' );
+		$this->assertSame( 18, $out['spacing']['size'], 'A slider size stays numeric, as the editor keeps it.' );
 		$this->assertSame( 'Hello', $out['title'] );
 	}
 
@@ -172,21 +199,28 @@ class P71DataLossFixesTest extends TestCase {
 		$atomic = array( '$$type' => 'dimensions', 'unit' => 'px', 'top' => 4 );
 		$out    = \Elementor_MCP_Element_Factory::normalize_dimension_settings(
 			array(
-				'atomic' => $atomic,
-				'slides' => array( array( 'padding' => array( 'unit' => 'em', 'top' => 2 ) ) ),
-			)
+				'padding' => $atomic,
+				'slides'  => array(
+					array( 'slide_padding' => array( 'unit' => 'em', 'top' => 2 ), 'other' => array( 'unit' => 'em', 'top' => 2 ) ),
+				),
+			),
+			self::map( array( 'padding' ), array( 'slides' => array( 'slide_padding' => true ) ) )
 		);
 
-		$this->assertSame( $atomic, $out['atomic'], 'An atomic $$type value has its own shape and is never rewritten.' );
-		$this->assertSame( '2', $out['slides'][0]['padding']['top'], 'Repeater items are walked.' );
+		$this->assertSame( $atomic, $out['padding'], 'An atomic $$type value has its own shape and is never rewritten.' );
+		$this->assertSame( '2', $out['slides'][0]['slide_padding']['top'], 'A repeater field registered as dimensions is normalised.' );
+		$this->assertSame( 2, $out['slides'][0]['other']['top'], 'Its unregistered sibling is not.' );
 	}
 
 	public function test_tree_normalises_only_elements_the_write_adds_or_changes(): void {
-		$before = array(
+		$resolver = static function () {
+			return array( 'keys' => array( 'padding' => true, 'margin' => true ), 'repeaters' => array() );
+		};
+		$before   = array(
 			array( 'id' => 'keep', 'settings' => array( 'padding' => array( 'unit' => 'px', 'top' => 5 ) ), 'elements' => array() ),
 			array( 'id' => 'edit', 'settings' => array( 'padding' => array( 'unit' => 'px', 'top' => 5 ) ), 'elements' => array() ),
 		);
-		$after = array(
+		$after    = array(
 			array(
 				'id'       => 'keep',
 				'settings' => array( 'padding' => array( 'unit' => 'px', 'top' => 5 ) ),
@@ -197,11 +231,21 @@ class P71DataLossFixesTest extends TestCase {
 			array( 'id' => 'edit', 'settings' => array( 'padding' => array( 'unit' => 'px', 'top' => 9 ) ), 'elements' => array() ),
 		);
 
-		$out = \Elementor_MCP_Element_Factory::normalize_dimension_tree( $after, \Elementor_MCP_Element_Factory::settings_by_id( $before ) );
+		$out = \Elementor_MCP_Element_Factory::normalize_dimension_tree( $after, \Elementor_MCP_Element_Factory::settings_by_id( $before ), $resolver );
 
 		$this->assertSame( 5, $out[0]['settings']['padding']['top'], 'An untouched element keeps what it stored: rewriting it is collateral.' );
 		$this->assertSame( '7', $out[0]['elements'][0]['settings']['margin']['top'], 'A new child is normalised, under an untouched parent.' );
 		$this->assertSame( '9', $out[1]['settings']['padding']['top'], 'A changed element is normalised.' );
+	}
+
+	public function test_an_element_whose_controls_cannot_be_read_is_left_alone(): void {
+		$tree = array( array( 'id' => 'x', 'settings' => array( 'padding' => array( 'unit' => 'px', 'top' => 5 ) ) ) );
+
+		$out = \Elementor_MCP_Element_Factory::normalize_dimension_tree( $tree, array(), static function () {
+			return null;
+		} );
+
+		$this->assertSame( $tree, $out );
 	}
 
 	public function test_a_duplicated_stored_id_confers_no_untouched_status(): void {
@@ -210,7 +254,9 @@ class P71DataLossFixesTest extends TestCase {
 
 		$this->assertArrayHasKey( 'dup', $before );
 		$this->assertNull( $before['dup'] );
-		$out = \Elementor_MCP_Element_Factory::normalize_dimension_tree( array( $node ), $before );
+		$out = \Elementor_MCP_Element_Factory::normalize_dimension_tree( array( $node ), $before, static function () {
+			return array( 'keys' => array( 'padding' => true ), 'repeaters' => array() );
+		} );
 		$this->assertSame( '3', $out[0]['settings']['padding']['top'] );
 	}
 
@@ -224,7 +270,12 @@ class P71DataLossFixesTest extends TestCase {
 
 		$requested                                   = $stored;
 		$requested[1]['settings']['padding']['top']  = 30;
-		( new \Elementor_MCP_Data() )->save_page_data( 9, $requested );
+		$data = new class() extends \Elementor_MCP_Data {
+			protected function controls_for_type( string $type ): ?array {
+				return 'element:container' === $type ? array( 'padding' => array( 'name' => 'padding', 'type' => 'dimensions' ) ) : null;
+			}
+		};
+		$data->save_page_data( 9, $requested );
 
 		$this->assertNotEmpty( $this->saved );
 		$handed = $this->saved[0]['elements'];

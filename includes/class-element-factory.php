@@ -62,33 +62,74 @@ class Elementor_MCP_Element_Factory {
 	const DIMENSION_SIDES = array( 'top', 'right', 'bottom', 'left', 'column', 'row' );
 
 	/**
-	 * Cast numeric dimension sides to the strings the editor expects.
+	 * Registered control types whose values carry dimension sides.
 	 *
-	 * Only arrays shaped like a classic dimension value are touched: a `unit`
-	 * key plus at least one side, and no `$$type` (atomic props have their own
-	 * typed shape and are never rewritten here). A slider's `size` stays
-	 * numeric, as the editor keeps it. Nested arrays (repeaters) are walked.
+	 * @since 1.40.0
+	 */
+	const DIMENSION_CONTROL_TYPES = array( 'dimensions', 'gaps' );
+
+	/**
+	 * Which setting keys of an element's control stack hold dimension values.
+	 *
+	 * Read from the REGISTERED control types, never from a value's shape: a
+	 * custom widget may keep `{ unit, top }` in a control that is not a
+	 * dimension control and read its numbers strictly (Codex r1 on #85).
+	 * Repeater fields are mapped under their repeater's key.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $controls A control stack (`get_controls()`), keyed by control name.
+	 * @return array{keys: array<string, true>, repeaters: array<string, array<string, true>>}
+	 */
+	public static function dimension_keys_from_controls( array $controls ): array {
+		$map = array( 'keys' => array(), 'repeaters' => array() );
+		foreach ( $controls as $name => $control ) {
+			if ( ! is_array( $control ) ) {
+				continue;
+			}
+			$name = isset( $control['name'] ) && is_string( $control['name'] ) ? $control['name'] : (string) $name;
+			$type = isset( $control['type'] ) ? (string) $control['type'] : '';
+			if ( in_array( $type, self::DIMENSION_CONTROL_TYPES, true ) ) {
+				$map['keys'][ $name ] = true;
+			} elseif ( 'repeater' === $type && ! empty( $control['fields'] ) && is_array( $control['fields'] ) ) {
+				$fields = self::dimension_keys_from_controls( $control['fields'] );
+				if ( $fields['keys'] ) {
+					$map['repeaters'][ $name ] = $fields['keys'];
+				}
+			}
+		}
+		return $map;
+	}
+
+	/**
+	 * Cast numeric sides to strings in the settings the control map names.
+	 *
+	 * Only keys the map lists as dimension controls are touched, and only when
+	 * the value is a plain side array (no `$$type` — atomic props have their
+	 * own typed shape). Every other key, a slider's `size` included, is left
+	 * exactly as given.
 	 *
 	 * @since 1.40.0
 	 *
 	 * @param array $settings Element settings.
+	 * @param array $map      dimension_keys_from_controls() of the element's stack.
 	 * @return array
 	 */
-	public static function normalize_dimension_settings( array $settings ): array {
+	public static function normalize_dimension_settings( array $settings, array $map ): array {
 		foreach ( $settings as $key => $value ) {
-			if ( ! is_array( $value ) || isset( $value['$$type'] ) ) {
+			if ( ! is_string( $key ) || ! is_array( $value ) ) {
 				continue;
 			}
-			if ( self::looks_like_dimensions( $value ) ) {
-				foreach ( self::DIMENSION_SIDES as $side ) {
-					if ( isset( $value[ $side ] ) && ( is_int( $value[ $side ] ) || is_float( $value[ $side ] ) ) ) {
-						$value[ $side ] = (string) $value[ $side ];
+			if ( isset( $map['keys'][ $key ] ) ) {
+				$settings[ $key ] = self::stringify_sides( $value );
+			} elseif ( isset( $map['repeaters'][ $key ] ) ) {
+				foreach ( $value as $index => $item ) {
+					if ( is_array( $item ) ) {
+						$value[ $index ] = self::normalize_dimension_settings( $item, array( 'keys' => $map['repeaters'][ $key ], 'repeaters' => array() ) );
 					}
 				}
 				$settings[ $key ] = $value;
-				continue;
 			}
-			$settings[ $key ] = self::normalize_dimension_settings( $value );
 		}
 		return $settings;
 	}
@@ -99,15 +140,19 @@ class Elementor_MCP_Element_Factory {
 	 *
 	 * An element whose id is in $before with identical settings is left as it
 	 * is stored: normalising it would rewrite a node the write never touched,
-	 * which the collateral diff reports as damage. Children are always walked.
+	 * which the collateral diff reports as damage. An element whose control
+	 * stack $controls_for cannot name (null) is left alone. Children are
+	 * always walked.
 	 *
 	 * @since 1.40.0
 	 *
-	 * @param array $elements Element tree about to be saved.
-	 * @param array $before   Settings of the stored tree by element id (settings_by_id()).
+	 * @param array    $elements     Element tree about to be saved.
+	 * @param array    $before       Settings of the stored tree by element id (settings_by_id()).
+	 * @param callable $controls_for fn( array $element ): ?array — the element's
+	 *                               dimension_keys_from_controls() map, or null.
 	 * @return array
 	 */
-	public static function normalize_dimension_tree( array $elements, array $before = array() ): array {
+	public static function normalize_dimension_tree( array $elements, array $before, callable $controls_for ): array {
 		foreach ( $elements as $index => $element ) {
 			if ( ! is_array( $element ) ) {
 				continue;
@@ -116,11 +161,14 @@ class Elementor_MCP_Element_Factory {
 				$id        = isset( $element['id'] ) && is_scalar( $element['id'] ) ? (string) $element['id'] : null;
 				$untouched = null !== $id && array_key_exists( $id, $before ) && $before[ $id ] === $element['settings'];
 				if ( ! $untouched ) {
-					$element['settings'] = self::normalize_dimension_settings( $element['settings'] );
+					$map = $controls_for( $element );
+					if ( is_array( $map ) && ( ! empty( $map['keys'] ) || ! empty( $map['repeaters'] ) ) ) {
+						$element['settings'] = self::normalize_dimension_settings( $element['settings'], $map );
+					}
 				}
 			}
 			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
-				$element['elements'] = self::normalize_dimension_tree( $element['elements'], $before );
+				$element['elements'] = self::normalize_dimension_tree( $element['elements'], $before, $controls_for );
 			}
 			$elements[ $index ] = $element;
 		}
@@ -165,21 +213,21 @@ class Elementor_MCP_Element_Factory {
 	}
 
 	/**
-	 * Does this array look like a classic dimension/gap value?
+	 * Numeric sides of one dimension value as strings; anything else unchanged.
 	 *
-	 * @param array $value Candidate.
-	 * @return bool
+	 * @param array $value A dimension control's value.
+	 * @return array
 	 */
-	private static function looks_like_dimensions( array $value ): bool {
-		if ( ! array_key_exists( 'unit', $value ) ) {
-			return false;
+	private static function stringify_sides( array $value ): array {
+		if ( isset( $value['$$type'] ) ) {
+			return $value;
 		}
 		foreach ( self::DIMENSION_SIDES as $side ) {
-			if ( array_key_exists( $side, $value ) ) {
-				return true;
+			if ( isset( $value[ $side ] ) && ( is_int( $value[ $side ] ) || is_float( $value[ $side ] ) ) ) {
+				$value[ $side ] = (string) $value[ $side ];
 			}
 		}
-		return false;
+		return $value;
 	}
 
 	/**

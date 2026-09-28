@@ -21,6 +21,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_MCP_Data {
 
 	/**
+	 * dimension_control_map() results by `widget:<name>` / `element:<elType>`.
+	 *
+	 * @since 1.40.0
+	 * @var array<string, array|null>
+	 */
+	private $dimension_maps = array();
+
+	/**
 	 * Gets the Elementor document for a post.
 	 *
 	 * @since 1.0.0
@@ -257,10 +265,13 @@ class Elementor_MCP_Data {
 		// older build wrote with numeric sides is not rewritten by an unrelated
 		// edit (the collateral diff would rightly report that as damage). After
 		// the pre-save capture, so $data stays exactly what is handed to Elementor.
+		// Which keys are dimension controls comes from each element's REGISTERED
+		// control stack, never from a value's shape (Codex r1 on #85).
 		if ( class_exists( 'Elementor_MCP_Element_Factory' ) ) {
 			$data = Elementor_MCP_Element_Factory::normalize_dimension_tree(
 				$data,
-				is_array( $pre_tree ) ? Elementor_MCP_Element_Factory::settings_by_id( $pre_tree ) : array()
+				is_array( $pre_tree ) ? Elementor_MCP_Element_Factory::settings_by_id( $pre_tree ) : array(),
+				array( $this, 'dimension_control_map' )
 			);
 		}
 
@@ -420,6 +431,66 @@ class Elementor_MCP_Data {
 		}
 
 		return true;
+	}
+
+	/**
+	 * The dimension-control map of one element's registered control stack.
+	 *
+	 * Widgets resolve through the widgets manager, other element types
+	 * (container, section, column) through the elements manager. Anything
+	 * that cannot be resolved — an unregistered widget, a manager that throws —
+	 * answers null, and the element's settings are then left as given.
+	 * Cached per type for the request.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $element One element of a tree.
+	 * @return array|null dimension_keys_from_controls() map, or null.
+	 */
+	public function dimension_control_map( array $element ): ?array {
+		$el_type = isset( $element['elType'] ) && is_string( $element['elType'] ) ? $element['elType'] : '';
+		$type    = 'widget' === $el_type
+			? ( isset( $element['widgetType'] ) && is_string( $element['widgetType'] ) ? 'widget:' . $element['widgetType'] : '' )
+			: ( '' !== $el_type ? 'element:' . $el_type : '' );
+		if ( '' === $type ) {
+			return null;
+		}
+		if ( array_key_exists( $type, $this->dimension_maps ) ) {
+			return $this->dimension_maps[ $type ];
+		}
+		$map = null;
+		try {
+			$controls = $this->controls_for_type( $type );
+			if ( is_array( $controls ) ) {
+				$map = Elementor_MCP_Element_Factory::dimension_keys_from_controls( $controls );
+			}
+		} catch ( \Throwable $e ) {
+			$map = null;
+		}
+		$this->dimension_maps[ $type ] = $map;
+		return $map;
+	}
+
+	/**
+	 * The registered control stack for `widget:<name>` or `element:<elType>`.
+	 * A seam: tests override it rather than stub Elementor's managers.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param string $type Prefixed type.
+	 * @return array|null
+	 */
+	protected function controls_for_type( string $type ): ?array {
+		if ( 0 === strpos( $type, 'widget:' ) ) {
+			$controls = $this->get_widget_controls( substr( $type, 7 ) );
+			return is_array( $controls ) ? $controls : null;
+		}
+		$manager = \Elementor\Plugin::$instance->elements_manager ?? null;
+		if ( ! is_object( $manager ) || ! method_exists( $manager, 'get_element_types' ) ) {
+			return null;
+		}
+		$element = $manager->get_element_types( substr( $type, 8 ) );
+		return is_object( $element ) && method_exists( $element, 'get_controls' ) ? $element->get_controls() : null;
 	}
 
 	/**

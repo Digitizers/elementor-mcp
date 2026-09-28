@@ -30,10 +30,23 @@ name: Release ZIP
 # `release: [published]` stays as a safety net for a release created public by
 # hand: that window is not closed, but the asset arrives within a minute rather
 # than never.
+#
+# THE TAG IS CUT HERE WHEN A VERSION BUMP LANDS ON MAIN
+#
+# A push to main that touches elementor-mcp.php reads the header version; when
+# no tag `v<version>` exists yet, this job creates it on the pushed commit and
+# builds exactly as for a pushed tag, ending at the same DRAFT. So merging a
+# release PR is the whole release up to "publish". A push that changes the file
+# without bumping the version finds its tag already there and does nothing, and
+# a tag pushed by hand first wins the same way. The tag is created by this job,
+# with GITHUB_TOKEN — which, by GitHub's design, does not start another run —
+# so nothing builds twice.
 
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths: [elementor-mcp.php]
   release:
     types: [published]
   workflow_dispatch:
@@ -52,19 +65,43 @@ jobs:
     steps:
       - name: Resolve the tag
         id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="${{ github.event.release.tag_name || inputs.tag || github.ref_name }}"
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "branch" ]; then
+            # A push to main: the tag is the header version, cut here when new.
+            version="$(gh api "repos/$GITHUB_REPOSITORY/contents/elementor-mcp.php?ref=$GITHUB_SHA" --jq .content \
+              | base64 -d | grep -m1 '^ \* Version:' | tr -d ' ' | cut -d: -f2)"
+            if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "could not read a version from elementor-mcp.php at $GITHUB_SHA: '$version'" >&2
+              exit 1
+            fi
+            tag="v$version"
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "$tag already exists — no version bump in this push; nothing to release." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
+              -f tag="$tag" -f message="elementor-mcp $version" -f object="$GITHUB_SHA" -f type=commit --jq .sha)"
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$object" >/dev/null
+            echo "Cut $tag on $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+          else
+            tag="${{ github.event.release.tag_name || inputs.tag || github.ref_name }}"
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       # The plugin sources come from the tag. The builder does NOT: a tag cut
       # before this workflow existed has no bin/build-zip.sh, which is exactly
       # the case workflow_dispatch is meant to backfill.
       - name: Checkout the tag
+        if: steps.tag.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.tag.outputs.tag }}
 
       - name: Check out the builder from the default branch
+        if: steps.tag.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -76,6 +113,7 @@ jobs:
       # from its location, so it has to sit inside that tree — and it excludes
       # itself from the ZIP either way.
       - name: Build the ZIP
+        if: steps.tag.outputs.skip != 'true'
         run: |
           mkdir -p bin
           cp .builder/bin/build-zip.sh bin/build-zip.sh
@@ -87,6 +125,7 @@ jobs:
       # was cut without the version bump — the update would install a plugin
       # that reports an older version and offers itself the same update forever.
       - name: Check the built version matches the tag
+        if: steps.tag.outputs.skip != 'true'
         run: |
           tag="${{ steps.tag.outputs.tag }}"
           built="$(grep -m1 '^ \* Version:' elementor-mcp.php | tr -d ' ' | cut -d: -f2)"
@@ -99,6 +138,7 @@ jobs:
       # carrying the ZIP when none does. Never publishes: a release becomes
       # visible when a human says so, by which point the asset is on it.
       - name: Attach the ZIP to the release
+        if: steps.tag.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}

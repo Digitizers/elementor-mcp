@@ -21,6 +21,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_MCP_Data {
 
 	/**
+	 * dimension_control_map() results by `widget:<name>` / `element:<elType>`.
+	 *
+	 * @since 1.40.0
+	 * @var array<string, array|null>
+	 */
+	private $dimension_maps = array();
+
+	/**
 	 * Gets the Elementor document for a post.
 	 *
 	 * @since 1.0.0
@@ -250,6 +258,23 @@ class Elementor_MCP_Data {
 		$pre_tree = ( is_string( $pre_raw ) && '' !== $pre_raw ) ? json_decode( $pre_raw, true ) : null;
 		$pre_seq  = is_array( $pre_tree ) ? $this->element_id_sequence( $pre_tree ) : array();
 
+		// Classic dimension/gap sides as the strings the editor reads (P7.1,
+		// EMCP 3.17.1 #146): a numeric side renders correctly but the Layout
+		// panel shows 0. Only for elements this write adds or whose settings it
+		// changes — an untouched element keeps whatever it stored, so a page an
+		// older build wrote with numeric sides is not rewritten by an unrelated
+		// edit (the collateral diff would rightly report that as damage). After
+		// the pre-save capture, so $data stays exactly what is handed to Elementor.
+		// Which keys are dimension controls comes from each element's REGISTERED
+		// control stack, never from a value's shape (Codex r1 on #85).
+		if ( class_exists( 'Elementor_MCP_Element_Factory' ) ) {
+			$data = Elementor_MCP_Element_Factory::normalize_dimension_tree(
+				$data,
+				is_array( $pre_tree ) ? Elementor_MCP_Element_Factory::settings_by_id( $pre_tree ) : array(),
+				array( $this, 'dimension_control_map' )
+			);
+		}
+
 		// Attempt native Elementor save (handles CSS regen, cache busting).
 		// Elementor 4.0 atomic widgets THROW on invalid settings instead of
 		// returning false, so catch it and return a clean error rather than
@@ -409,6 +434,66 @@ class Elementor_MCP_Data {
 	}
 
 	/**
+	 * The dimension-control map of one element's registered control stack.
+	 *
+	 * Widgets resolve through the widgets manager, other element types
+	 * (container, section, column) through the elements manager. Anything
+	 * that cannot be resolved — an unregistered widget, a manager that throws —
+	 * answers null, and the element's settings are then left as given.
+	 * Cached per type for the request.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $element One element of a tree.
+	 * @return array|null dimension_keys_from_controls() map, or null.
+	 */
+	public function dimension_control_map( array $element ): ?array {
+		$el_type = isset( $element['elType'] ) && is_string( $element['elType'] ) ? $element['elType'] : '';
+		$type    = 'widget' === $el_type
+			? ( isset( $element['widgetType'] ) && is_string( $element['widgetType'] ) ? 'widget:' . $element['widgetType'] : '' )
+			: ( '' !== $el_type ? 'element:' . $el_type : '' );
+		if ( '' === $type ) {
+			return null;
+		}
+		if ( array_key_exists( $type, $this->dimension_maps ) ) {
+			return $this->dimension_maps[ $type ];
+		}
+		$map = null;
+		try {
+			$controls = $this->controls_for_type( $type );
+			if ( is_array( $controls ) ) {
+				$map = Elementor_MCP_Element_Factory::dimension_keys_from_controls( $controls );
+			}
+		} catch ( \Throwable $e ) {
+			$map = null;
+		}
+		$this->dimension_maps[ $type ] = $map;
+		return $map;
+	}
+
+	/**
+	 * The registered control stack for `widget:<name>` or `element:<elType>`.
+	 * A seam: tests override it rather than stub Elementor's managers.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param string $type Prefixed type.
+	 * @return array|null
+	 */
+	protected function controls_for_type( string $type ): ?array {
+		if ( 0 === strpos( $type, 'widget:' ) ) {
+			$controls = $this->get_widget_controls( substr( $type, 7 ) );
+			return is_array( $controls ) ? $controls : null;
+		}
+		$manager = \Elementor\Plugin::$instance->elements_manager ?? null;
+		if ( ! is_object( $manager ) || ! method_exists( $manager, 'get_element_types' ) ) {
+			return null;
+		}
+		$element = $manager->get_element_types( substr( $type, 8 ) );
+		return is_object( $element ) && method_exists( $element, 'get_controls' ) ? $element->get_controls() : null;
+	}
+
+	/**
 	 * Saves page-level settings.
 	 *
 	 * Tries native Elementor save first, falls back to direct meta for
@@ -437,17 +522,24 @@ class Elementor_MCP_Data {
 			return $document;
 		}
 
-		$result = $document->save( array( 'settings' => $settings ) );
+		// A PATCH, not a replacement. Elementor's page-settings manager writes
+		// `_elementor_page_settings` verbatim (Settings\Page\Manager::save_settings_to_db(),
+		// reached from Document::save() → save_settings()), so handing it a
+		// one-key patch deleted every other stored setting — on the active kit,
+		// every custom color, typography preset and site-identity value (P7.1,
+		// found by EMCP 3.17.1 #145). The fallback below already merged; the
+		// native path now does the same, so both paths write the same thing.
+		$existing = get_post_meta( $post_id, '_elementor_page_settings', true );
+		if ( ! is_array( $existing ) ) {
+			$existing = array();
+		}
+		$merged = array_merge( $existing, $settings );
+
+		$result = $document->save( array( 'settings' => $merged ) );
 
 		if ( ! $result ) {
-			// Fallback: merge settings into existing page settings meta.
-			$existing = get_post_meta( $post_id, '_elementor_page_settings', true );
-			if ( ! is_array( $existing ) ) {
-				$existing = array();
-			}
-
-			$merged = array_merge( $existing, $settings );
-			update_post_meta( $post_id, '_elementor_page_settings', $merged );
+			// Fallback: direct meta write of the same merged settings.
+			update_post_meta( $post_id, '_elementor_page_settings', wp_slash( $merged ) );
 
 			// Invalidate CSS + rendered-HTML caches (see save_page_data()).
 			delete_post_meta( $post_id, '_elementor_css' );

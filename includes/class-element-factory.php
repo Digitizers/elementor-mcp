@@ -52,6 +52,185 @@ class Elementor_MCP_Element_Factory {
 	}
 
 	/**
+	 * Sub-keys of a classic `dimensions` / `gaps` value. Elementor's editor
+	 * serialises every side as a string ("40", not 40); the CSS is the same
+	 * either way, but the Layout panel hydrates strictly and shows 0 for a
+	 * numeric side (P7.1, EMCP 3.17.1 #146).
+	 *
+	 * @since 1.40.0
+	 */
+	const DIMENSION_SIDES = array( 'top', 'right', 'bottom', 'left', 'column', 'row' );
+
+	/**
+	 * Registered control types whose values carry dimension sides.
+	 *
+	 * @since 1.40.0
+	 */
+	const DIMENSION_CONTROL_TYPES = array( 'dimensions', 'gaps' );
+
+	/**
+	 * Which setting keys of an element's control stack hold dimension values.
+	 *
+	 * Read from the REGISTERED control types, never from a value's shape: a
+	 * custom widget may keep `{ unit, top }` in a control that is not a
+	 * dimension control and read its numbers strictly (Codex r1 on #85).
+	 * Repeater fields are mapped under their repeater's key.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $controls A control stack (`get_controls()`), keyed by control name.
+	 * @return array{keys: array<string, true>, repeaters: array<string, array<string, true>>}
+	 */
+	public static function dimension_keys_from_controls( array $controls ): array {
+		$map = array( 'keys' => array(), 'repeaters' => array() );
+		foreach ( $controls as $name => $control ) {
+			if ( ! is_array( $control ) ) {
+				continue;
+			}
+			$name = isset( $control['name'] ) && is_string( $control['name'] ) ? $control['name'] : (string) $name;
+			$type = isset( $control['type'] ) ? (string) $control['type'] : '';
+			if ( in_array( $type, self::DIMENSION_CONTROL_TYPES, true ) ) {
+				$map['keys'][ $name ] = true;
+			} elseif ( 'repeater' === $type && ! empty( $control['fields'] ) && is_array( $control['fields'] ) ) {
+				$fields = self::dimension_keys_from_controls( $control['fields'] );
+				if ( $fields['keys'] ) {
+					$map['repeaters'][ $name ] = $fields['keys'];
+				}
+			}
+		}
+		return $map;
+	}
+
+	/**
+	 * Cast numeric sides to strings in the settings the control map names.
+	 *
+	 * Only keys the map lists as dimension controls are touched, and only when
+	 * the value is a plain side array (no `$$type` — atomic props have their
+	 * own typed shape). Every other key, a slider's `size` included, is left
+	 * exactly as given.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $settings Element settings.
+	 * @param array $map      dimension_keys_from_controls() of the element's stack.
+	 * @return array
+	 */
+	public static function normalize_dimension_settings( array $settings, array $map ): array {
+		foreach ( $settings as $key => $value ) {
+			if ( ! is_string( $key ) || ! is_array( $value ) ) {
+				continue;
+			}
+			if ( isset( $map['keys'][ $key ] ) ) {
+				$settings[ $key ] = self::stringify_sides( $value );
+			} elseif ( isset( $map['repeaters'][ $key ] ) ) {
+				foreach ( $value as $index => $item ) {
+					if ( is_array( $item ) ) {
+						$value[ $index ] = self::normalize_dimension_settings( $item, array( 'keys' => $map['repeaters'][ $key ], 'repeaters' => array() ) );
+					}
+				}
+				$settings[ $key ] = $value;
+			}
+		}
+		return $settings;
+	}
+
+	/**
+	 * Apply normalize_dimension_settings() to the elements of a tree that a
+	 * write adds or changes.
+	 *
+	 * An element whose id is in $before with identical settings is left as it
+	 * is stored: normalising it would rewrite a node the write never touched,
+	 * which the collateral diff reports as damage. An element whose control
+	 * stack $controls_for cannot name (null) is left alone. Children are
+	 * always walked.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array    $elements     Element tree about to be saved.
+	 * @param array    $before       Settings of the stored tree by element id (settings_by_id()).
+	 * @param callable $controls_for fn( array $element ): ?array — the element's
+	 *                               dimension_keys_from_controls() map, or null.
+	 * @return array
+	 */
+	public static function normalize_dimension_tree( array $elements, array $before, callable $controls_for ): array {
+		foreach ( $elements as $index => $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+			if ( ! empty( $element['settings'] ) && is_array( $element['settings'] ) ) {
+				$id        = isset( $element['id'] ) && is_scalar( $element['id'] ) ? (string) $element['id'] : null;
+				$untouched = null !== $id && array_key_exists( $id, $before ) && $before[ $id ] === $element['settings'];
+				if ( ! $untouched ) {
+					$map = $controls_for( $element );
+					if ( is_array( $map ) && ( ! empty( $map['keys'] ) || ! empty( $map['repeaters'] ) ) ) {
+						$element['settings'] = self::normalize_dimension_settings( $element['settings'], $map );
+					}
+				}
+			}
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				$element['elements'] = self::normalize_dimension_tree( $element['elements'], $before, $controls_for );
+			}
+			$elements[ $index ] = $element;
+		}
+		return $elements;
+	}
+
+	/**
+	 * Settings of every element in a tree, keyed by element id. An id that
+	 * occurs more than once maps to null, so none of its copies counts as
+	 * untouched.
+	 *
+	 * @since 1.40.0
+	 *
+	 * @param array $elements Element tree.
+	 * @return array<string, array|null>
+	 */
+	public static function settings_by_id( array $elements ): array {
+		$map = array();
+		self::collect_settings_by_id( $elements, $map );
+		return $map;
+	}
+
+	/**
+	 * @param array $elements Element tree.
+	 * @param array $map      Accumulator.
+	 * @return void
+	 */
+	private static function collect_settings_by_id( array $elements, array &$map ): void {
+		foreach ( $elements as $element ) {
+			if ( ! is_array( $element ) ) {
+				continue;
+			}
+			if ( isset( $element['id'] ) && is_scalar( $element['id'] ) ) {
+				$id         = (string) $element['id'];
+				$settings   = isset( $element['settings'] ) && is_array( $element['settings'] ) ? $element['settings'] : array();
+				$map[ $id ] = array_key_exists( $id, $map ) ? null : $settings;
+			}
+			if ( ! empty( $element['elements'] ) && is_array( $element['elements'] ) ) {
+				self::collect_settings_by_id( $element['elements'], $map );
+			}
+		}
+	}
+
+	/**
+	 * Numeric sides of one dimension value as strings; anything else unchanged.
+	 *
+	 * @param array $value A dimension control's value.
+	 * @return array
+	 */
+	private static function stringify_sides( array $value ): array {
+		if ( isset( $value['$$type'] ) ) {
+			return $value;
+		}
+		foreach ( self::DIMENSION_SIDES as $side ) {
+			if ( isset( $value[ $side ] ) && ( is_int( $value[ $side ] ) || is_float( $value[ $side ] ) ) ) {
+				$value[ $side ] = (string) $value[ $side ];
+			}
+		}
+		return $value;
+	}
+
+	/**
 	 * Warnings about settings that PERSIST but will probably not do what the
 	 * agent meant — a channel beside success, never a refusal, never a
 	 * coercion (mirrors EMCP 3.16.x; P6.2 of the 2026-09-18 reverification).

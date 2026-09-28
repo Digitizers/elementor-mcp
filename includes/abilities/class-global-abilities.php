@@ -21,6 +21,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_MCP_Global_Abilities {
 
 	/**
+	 * The four `system_colors` slot ids. Writing them into `custom_colors`
+	 * shadows the system variable instead of changing it (P7.1).
+	 *
+	 * @since 1.40.0
+	 */
+	const SYSTEM_COLOR_IDS = array( 'primary', 'secondary', 'text', 'accent' );
+
+	/**
 	 * @var Elementor_MCP_Data
 	 */
 	private $data;
@@ -95,7 +103,7 @@ class Elementor_MCP_Global_Abilities {
 								'properties' => array(
 									'_id'   => array(
 										'type'        => 'string',
-										'description' => __( 'Unique color ID (e.g. "primary").', 'elementor-mcp' ),
+										'description' => __( 'Unique custom color ID (e.g. "brand_teal"). The system slot ids primary, secondary, text and accent are refused.', 'elementor-mcp' ),
 									),
 									'title' => array(
 										'type'        => 'string',
@@ -144,6 +152,30 @@ class Elementor_MCP_Global_Abilities {
 
 		if ( empty( $colors ) || ! is_array( $colors ) ) {
 			return new \WP_Error( 'missing_colors', __( 'The colors parameter is required and must be an array.', 'elementor-mcp' ) );
+		}
+
+		// The four system slots live in `system_colors`. Upserting one of their
+		// ids into `custom_colors` appended a shadow entry that never changed the
+		// real color and still returned success (P7.1, EMCP 3.17.1 #145). Refuse
+		// the whole call before anything is read or written.
+		$reserved = array();
+		foreach ( $colors as $color ) {
+			$id = is_array( $color ) ? sanitize_text_field( (string) ( $color['_id'] ?? '' ) ) : '';
+			if ( in_array( $id, self::SYSTEM_COLOR_IDS, true ) ) {
+				$reserved[] = $id;
+			}
+		}
+		if ( $reserved ) {
+			$reserved = array_values( array_unique( $reserved ) );
+			return new \WP_Error(
+				'reserved_color_id',
+				sprintf(
+					/* translators: %s: comma-separated list of reserved ids */
+					__( 'These ids are Elementor system color slots and cannot be written as custom colors: %s. Nothing was written. Use replace-system-colors to change the system colors.', 'elementor-mcp' ),
+					implode( ', ', $reserved )
+				),
+				array( 'reserved' => $reserved )
+			);
 		}
 
 		$kit = \Elementor\Plugin::$instance->kits_manager->get_active_kit();

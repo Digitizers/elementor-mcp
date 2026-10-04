@@ -124,9 +124,10 @@ class Elementor_MCP_Plugin {
 		add_action( 'wp_abilities_api_init', array( $this, 'register_abilities' ) );
 
 		// The Abilities API is lazy-loaded: wp_abilities_api_init fires on first
-		// wp_get_ability() call. The default MCP server's tool registration triggers
-		// this during mcp_adapter_init at priority 10. We hook at priority 20 so
-		// the Abilities API is initialized and our abilities are registered by then.
+		// registry access. The adapter's default server usually triggers that
+		// during mcp_adapter_init at priority 10, so we hook at 20 — after it,
+		// when it exists. It does not always exist: register_mcp_server() loads
+		// the abilities itself when nothing has by then.
 		add_action( 'mcp_adapter_init', array( $this, 'register_mcp_server' ), 20 );
 
 		// Apply the disabled-tools option from the admin settings page on every
@@ -548,6 +549,18 @@ class Elementor_MCP_Plugin {
 		// server endpoint is created — nothing is exposed to AI agents.
 		if ( ! self::is_server_enabled() ) {
 			return;
+		}
+
+		// The adapter's default server is optional. Elementor 4.3.3 suppresses it
+		// for every plugin on the site while its own MCP switch is off (the
+		// default), through the global mcp_adapter_create_default_server filter.
+		// It was the thing that touched the Abilities API first; without it
+		// nothing has fired wp_abilities_api_init by now, our abilities are not
+		// registered, and the early return below would drop the endpoint — a 404
+		// while the settings screen still says the server is on. Core fires the
+		// init on first registry access, so ask for it ourselves.
+		if ( empty( $this->ability_names ) && function_exists( 'wp_get_abilities' ) ) {
+			wp_get_abilities();
 		}
 
 		if ( empty( $this->ability_names ) ) {

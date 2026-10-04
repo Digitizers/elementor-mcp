@@ -42,6 +42,13 @@ class Elementor_MCP_Widget_Abilities {
 	private $validator;
 
 	/**
+	 * Convenience tools by ability name. See convenience_tools().
+	 *
+	 * @var array<string, array>
+	 */
+	private $convenience_tools = array();
+
+	/**
 	 * Tracked ability names.
 	 *
 	 * @var string[]
@@ -326,7 +333,14 @@ class Elementor_MCP_Widget_Abilities {
 			// Judged by the TYPE (Elementor_MCP_Atomic_Widget_Map, the same
 			// test build-page uses), not by the created array: create_widget()
 			// builds a classic-shaped node whatever the type name says.
-			'settings_warnings' => ( class_exists( 'Elementor_MCP_Atomic_Widget_Map' ) && Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type ) ) || Elementor_MCP_Data::is_atomic_element( $widget ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+			// …and, since 1.41.0, names a setting that is not a control of the
+			// widget at all — saved, ignored, reported as success (P9.2).
+			'settings_warnings' => ( class_exists( 'Elementor_MCP_Atomic_Widget_Map' ) && Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type ) ) || Elementor_MCP_Data::is_atomic_element( $widget )
+				? array()
+				: array_merge(
+					Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+					$this->validator->unknown_setting_warnings( $widget_type, is_array( $settings ) ? $settings : array() )
+				),
 		);
 	}
 
@@ -439,13 +453,33 @@ class Elementor_MCP_Widget_Abilities {
 			// The same write through update-element carries this channel;
 			// the dedicated widget path must not be the silent one (Codex
 			// round-7 P2 on #74). See Elementor_MCP_Element_Factory::settings_warnings().
-			'settings_warnings' => Elementor_MCP_Data::is_atomic_element( $element ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+			'settings_warnings' => Elementor_MCP_Data::is_atomic_element( $element )
+				? array()
+				: array_merge(
+					Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+					$this->validator->unknown_setting_warnings( (string) ( $element['widgetType'] ?? '' ), is_array( $settings ) ? $settings : array() )
+				),
 		);
 	}
 
 	// =========================================================================
 	// Convenience tool helper
 	// =========================================================================
+
+	/**
+	 * Every convenience tool registered so far: the widget it creates, the
+	 * setting names it advertises, the values it offers for them and the
+	 * defaults it applies. A parameter here that is not a control of that
+	 * widget is saved and ignored — success reported, page unchanged — which
+	 * is what `ConvenienceToolControlsTest` holds this list against.
+	 *
+	 * @since 1.41.0
+	 *
+	 * @return array<string, array{widget_type: string, params: string[], enums: array<string, string[]>, defaults: array}>
+	 */
+	public function convenience_tools(): array {
+		return $this->convenience_tools;
+	}
 
 	/**
 	 * Registers a convenience widget tool and adds it to ability_names.
@@ -469,6 +503,25 @@ class Elementor_MCP_Widget_Abilities {
 	): void {
 		$full_name             = 'elementor-mcp/' . $name;
 		$this->ability_names[] = $full_name;
+
+		// What this tool promises about its widget, kept so the promise can be
+		// checked against the widget's real controls (convenience_tools()).
+		$this->convenience_tools[ $full_name ] = array(
+			'widget_type' => $widget_type,
+			'params'      => array_map( 'strval', array_keys( $extra_props ) ),
+			'enums'       => array_map(
+				static function ( $prop ) {
+					return array_map( 'strval', (array) $prop['enum'] );
+				},
+				array_filter(
+					$extra_props,
+					static function ( $prop ) {
+						return is_array( $prop ) && isset( $prop['enum'] ) && is_array( $prop['enum'] );
+					}
+				)
+			),
+			'defaults'    => $defaults,
+		);
 
 		$base_props = array(
 			'post_id'   => array(
@@ -658,12 +711,13 @@ class Elementor_MCP_Widget_Abilities {
 				'typography_line_height'       => array( 'type' => 'object', 'description' => __( 'Line height: {size, unit}. Units: px, em.', 'elementor-mcp' ) ),
 				'typography_letter_spacing'    => array( 'type' => 'object', 'description' => __( 'Letter spacing: {size, unit}. Units: px, em.', 'elementor-mcp' ) ),
 				'typography_word_spacing'      => array( 'type' => 'object', 'description' => __( 'Word spacing: {size, unit}.', 'elementor-mcp' ) ),
-				// Text stroke — set text_stroke_text_stroke=yes to activate.
-				'text_stroke_text_stroke'      => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Enable text stroke.', 'elementor-mcp' ) ),
-				'text_stroke_stroke_width'     => array( 'type' => 'object', 'description' => __( 'Stroke width: {size, unit}.', 'elementor-mcp' ) ),
+				// Text stroke — set text_stroke_text_stroke_type=yes to activate.
+				'text_stroke_text_stroke_type' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Set to "yes" to enable text stroke.', 'elementor-mcp' ) ),
+				'text_stroke_text_stroke' => array( 'type' => 'object', 'description' => __( 'Stroke width: {size, unit}. Needs text_stroke_text_stroke_type: "yes".', 'elementor-mcp' ) ),
 				'text_stroke_stroke_color'     => array( 'type' => 'string', 'description' => __( 'Stroke color (hex/rgba).', 'elementor-mcp' ) ),
 				// Text shadow.
-				'title_text_shadow_text_shadow' => array( 'type' => 'object', 'description' => __( 'Text shadow: {horizontal, vertical, blur, color}.', 'elementor-mcp' ) ),
+				'text_shadow_text_shadow_type' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Set to "yes" to enable text shadow.', 'elementor-mcp' ) ),
+				'text_shadow_text_shadow' => array( 'type' => 'object', 'description' => __( 'Text shadow: {horizontal, vertical, blur, color}. Needs text_shadow_text_shadow_type: "yes".', 'elementor-mcp' ) ),
 			),
 			array( 'title' ),
 			'heading',
@@ -714,13 +768,13 @@ class Elementor_MCP_Widget_Abilities {
 				'link'           => array( 'type' => 'object', 'description' => __( 'Link: {url, is_external, nofollow}.', 'elementor-mcp' ) ),
 				// Sizing.
 				'width'          => array( 'type' => 'object', 'description' => __( 'Image width: {size, unit}. Units: px, %, vw.', 'elementor-mcp' ) ),
-				'max_width'      => array( 'type' => 'object', 'description' => __( 'Max width: {size, unit}.', 'elementor-mcp' ) ),
+				'space' => array( 'type' => 'object', 'description' => __( 'Max width: {size, unit}. Units: px, %, vw.', 'elementor-mcp' ) ),
 				'height'         => array( 'type' => 'object', 'description' => __( 'Image height: {size, unit}.', 'elementor-mcp' ) ),
-				'object_fit'     => array( 'type' => 'string', 'enum' => array( '', 'fill', 'cover', 'contain' ), 'description' => __( 'Object fit when height is set.', 'elementor-mcp' ) ),
+				'object-fit' => array( 'type' => 'string', 'enum' => array( '', 'fill', 'cover', 'contain', 'scale-down' ), 'description' => __( 'Object fit. Hyphenated key. Applies only when height is set.', 'elementor-mcp' ) ),
 				// Style.
 				'opacity'        => array( 'type' => 'object', 'description' => __( 'Image opacity: {size, unit}. 0-1 range.', 'elementor-mcp' ) ),
 				'hover_animation' => array( 'type' => 'string', 'description' => __( 'Hover animation (grow, shrink, pulse, push, etc).', 'elementor-mcp' ) ),
-				'hover_opacity'  => array( 'type' => 'object', 'description' => __( 'Hover opacity: {size, unit}. 0-1 range.', 'elementor-mcp' ) ),
+				'opacity_hover' => array( 'type' => 'object', 'description' => __( 'Hover opacity: {size, unit}. 0-1 range.', 'elementor-mcp' ) ),
 				// CSS Filters.
 				'css_filters_css_filter' => array( 'type' => 'string', 'enum' => array( 'custom', '' ), 'description' => __( 'Set to "custom" to enable CSS filter controls.', 'elementor-mcp' ) ),
 				'css_filters_blur'       => array( 'type' => 'object', 'description' => __( 'Blur: {size, unit}. px.', 'elementor-mcp' ) ),
@@ -781,7 +835,7 @@ class Elementor_MCP_Widget_Abilities {
 				// Text shadow.
 				'text_shadow_text_shadow'  => array( 'type' => 'object', 'description' => __( 'Text shadow: {horizontal, vertical, blur, color}.', 'elementor-mcp' ) ),
 				// Padding.
-				'button_padding'          => array( 'type' => 'object', 'description' => __( 'Button padding: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
+				'text_padding' => array( 'type' => 'object', 'description' => __( 'Button padding: {top, right, bottom, left, unit, isLinked}. Responsive: text_padding_tablet, text_padding_mobile.', 'elementor-mcp' ) ),
 			),
 			array( 'text' ),
 			'button',
@@ -809,7 +863,6 @@ class Elementor_MCP_Widget_Abilities {
 				'yt_privacy'     => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'YouTube privacy-enhanced mode.', 'elementor-mcp' ) ),
 				'lazy_load'      => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Lazy load the video.', 'elementor-mcp' ) ),
 				'rel'            => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Show related videos at end (YouTube).', 'elementor-mcp' ) ),
-				'modestbranding' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Modest branding (YouTube).', 'elementor-mcp' ) ),
 				// Image overlay.
 				'show_image_overlay' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Show image overlay (poster).', 'elementor-mcp' ) ),
 				'image_overlay'      => array( 'type' => 'object', 'description' => __( 'Overlay image: {url, id}.', 'elementor-mcp' ) ),
@@ -957,7 +1010,6 @@ class Elementor_MCP_Widget_Abilities {
 				'title_color'          => array( 'type' => 'string', 'description' => __( 'Title text color.', 'elementor-mcp' ) ),
 				'title_background'     => array( 'type' => 'string', 'description' => __( 'Title background color.', 'elementor-mcp' ) ),
 				'tab_active_color'     => array( 'type' => 'string', 'description' => __( 'Active title text color.', 'elementor-mcp' ) ),
-				'tab_active_background' => array( 'type' => 'string', 'description' => __( 'Active title background color.', 'elementor-mcp' ) ),
 				'title_padding'        => array( 'type' => 'object', 'description' => __( 'Title padding: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
 				// Style - Icon.
 				'icon_color'           => array( 'type' => 'string', 'description' => __( 'Icon color.', 'elementor-mcp' ) ),
@@ -1121,12 +1173,12 @@ class Elementor_MCP_Widget_Abilities {
 				'title'              => array( 'type' => 'string', 'description' => __( 'Progress bar label.', 'elementor-mcp' ) ),
 				'progress_type'      => array( 'type' => 'string', 'enum' => array( '', 'info', 'success', 'warning', 'danger' ), 'description' => __( 'Color preset type.', 'elementor-mcp' ) ),
 				'percent'            => array( 'type' => 'object', 'description' => __( 'Progress percentage: { "size": 50, "unit": "%" }.', 'elementor-mcp' ) ),
-				'display_percentage' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Show percentage value. Default: yes.', 'elementor-mcp' ) ),
+				'display_percentage' => array( 'type' => 'string', 'enum' => array( 'show', '' ), 'description' => __( 'Show percentage value. The on value is "show" (not "yes"); "" hides it. Default: show.', 'elementor-mcp' ) ),
 				'inner_text'         => array( 'type' => 'string', 'description' => __( 'Text inside the progress bar.', 'elementor-mcp' ) ),
 			),
 			array(),
 			'progress',
-			array( 'percent' => array( 'size' => 50, 'unit' => '%' ), 'display_percentage' => 'yes' )
+			array( 'percent' => array( 'size' => 50, 'unit' => '%' ), 'display_percentage' => 'show' )
 		);
 	}
 
@@ -1241,7 +1293,6 @@ class Elementor_MCP_Widget_Abilities {
 				'title_color'          => array( 'type' => 'string', 'description' => __( 'Title text color.', 'elementor-mcp' ) ),
 				'title_background'     => array( 'type' => 'string', 'description' => __( 'Title background color.', 'elementor-mcp' ) ),
 				'tab_active_color'     => array( 'type' => 'string', 'description' => __( 'Active title text color.', 'elementor-mcp' ) ),
-				'tab_active_background' => array( 'type' => 'string', 'description' => __( 'Active title background color.', 'elementor-mcp' ) ),
 				'title_padding'        => array( 'type' => 'object', 'description' => __( 'Title padding: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
 				// Style - Icon.
 				'icon_color'           => array( 'type' => 'string', 'description' => __( 'Icon color.', 'elementor-mcp' ) ),
@@ -1342,12 +1393,12 @@ class Elementor_MCP_Widget_Abilities {
 				'required_field_message' => array( 'type' => 'string', 'description' => __( 'Required field validation message.', 'elementor-mcp' ) ),
 				// Style.
 				'input_size'    => array( 'type' => 'string', 'enum' => array( 'xs', 'sm', 'md', 'lg', 'xl' ), 'description' => __( 'Input field size.', 'elementor-mcp' ) ),
-				'show_labels'   => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Show field labels. Default: yes.', 'elementor-mcp' ) ),
+				'show_labels' => array( 'type' => 'string', 'enum' => array( 'true', '' ), 'description' => __( 'Show field labels. The on value is "true" (not "yes"); "" hides them. Default: true.', 'elementor-mcp' ) ),
 				'mark_required' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Show asterisk on required fields. Default: yes.', 'elementor-mcp' ) ),
 				// Button colors.
 				'button_background_color'       => array( 'type' => 'string', 'description' => __( 'Button background color.', 'elementor-mcp' ) ),
 				'button_text_color'             => array( 'type' => 'string', 'description' => __( 'Button text color.', 'elementor-mcp' ) ),
-				'button_hover_background_color' => array( 'type' => 'string', 'description' => __( 'Button hover background color.', 'elementor-mcp' ) ),
+				'button_background_hover_color' => array( 'type' => 'string', 'description' => __( 'Button hover background color.', 'elementor-mcp' ) ),
 				'button_hover_color'            => array( 'type' => 'string', 'description' => __( 'Button hover text color.', 'elementor-mcp' ) ),
 				// Button typography.
 				'button_typography_typography'   => array( 'type' => 'string', 'description' => __( 'Set to "custom" to enable button typography.', 'elementor-mcp' ) ),
@@ -1368,13 +1419,14 @@ class Elementor_MCP_Widget_Abilities {
 			__( 'Adds an Elementor Pro posts grid widget to display a grid of posts.', 'elementor-mcp' ),
 			array(
 				'posts_post_type' => array( 'type' => 'string', 'enum' => array( 'post', 'page', 'any' ), 'description' => __( 'Post type to query.', 'elementor-mcp' ) ),
-				'posts_per_page'  => array( 'type' => 'integer', 'description' => __( 'Number of posts to show.', 'elementor-mcp' ) ),
-				'columns'         => array( 'type' => 'integer', 'description' => __( 'Number of grid columns.', 'elementor-mcp' ) ),
+				'_skin' => array( 'type' => 'string', 'enum' => array( 'classic', 'cards', 'full_content' ), 'description' => __( 'Skin. Default: classic. Layout controls are prefixed with the skin id (classic_columns, cards_columns, full_content_posts_per_page).', 'elementor-mcp' ) ),
+				'classic_posts_per_page' => array( 'type' => 'integer', 'description' => __( 'Number of posts to show (classic skin, the default). Cards skin: cards_posts_per_page.', 'elementor-mcp' ) ),
+				'classic_columns' => array( 'type' => 'string', 'enum' => array( '1', '2', '3', '4', '5', '6' ), 'description' => __( 'Number of grid columns (classic skin, the default), as a string. Responsive: classic_columns_tablet, classic_columns_mobile. Cards skin: cards_columns.', 'elementor-mcp' ) ),
 				'pagination_type' => array( 'type' => 'string', 'enum' => array( '', 'numbers', 'prev_next', 'numbers_and_prev_next', 'load_more_on_click' ), 'description' => __( 'Pagination type.', 'elementor-mcp' ) ),
 			),
 			array(),
 			'posts',
-			array( 'posts_post_type' => 'post', 'posts_per_page' => 6, 'columns' => 3 )
+			array( 'posts_post_type' => 'post', 'classic_posts_per_page' => 6, 'classic_columns' => '3' )
 		);
 	}
 
@@ -1407,7 +1459,7 @@ class Elementor_MCP_Widget_Abilities {
 				'expire_redirect_url'    => array( 'type' => 'string', 'description' => __( 'Redirect URL after expire.', 'elementor-mcp' ) ),
 				// Style - Digits.
 				'digits_color'           => array( 'type' => 'string', 'description' => __( 'Digit text color.', 'elementor-mcp' ) ),
-				'digits_background_color' => array( 'type' => 'string', 'description' => __( 'Digit background color.', 'elementor-mcp' ) ),
+				'box_background_color' => array( 'type' => 'string', 'description' => __( 'Background color of each countdown box (the box holding a digit and its label).', 'elementor-mcp' ) ),
 				// Style - Labels.
 				'label_color'            => array( 'type' => 'string', 'description' => __( 'Label text color.', 'elementor-mcp' ) ),
 				// Typography.
@@ -1463,7 +1515,6 @@ class Elementor_MCP_Widget_Abilities {
 				// Button.
 				'button_text'            => array( 'type' => 'string', 'description' => __( 'CTA button text.', 'elementor-mcp' ) ),
 				'link'                   => array( 'type' => 'object', 'description' => __( 'Button link: {url, is_external, nofollow}.', 'elementor-mcp' ) ),
-				'button_css_id'          => array( 'type' => 'string', 'description' => __( 'Button CSS ID for tracking.', 'elementor-mcp' ) ),
 				'button_size'            => array( 'type' => 'string', 'enum' => array( 'xs', 'sm', 'md', 'lg', 'xl' ), 'description' => __( 'Button size.', 'elementor-mcp' ) ),
 				// Footer.
 				'footer_additional_info' => array( 'type' => 'string', 'description' => __( 'Footer text below button (e.g. "30-day money back").', 'elementor-mcp' ) ),
@@ -1481,7 +1532,7 @@ class Elementor_MCP_Widget_Abilities {
 				// Style - Button.
 				'button_background_color'       => array( 'type' => 'string', 'description' => __( 'Button background color.', 'elementor-mcp' ) ),
 				'button_text_color'             => array( 'type' => 'string', 'description' => __( 'Button text color.', 'elementor-mcp' ) ),
-				'button_hover_background_color' => array( 'type' => 'string', 'description' => __( 'Button hover background color.', 'elementor-mcp' ) ),
+				'button_background_hover_color' => array( 'type' => 'string', 'description' => __( 'Button hover background color.', 'elementor-mcp' ) ),
 				'button_hover_color'            => array( 'type' => 'string', 'description' => __( 'Button hover text color.', 'elementor-mcp' ) ),
 				// Style - Ribbon.
 				'ribbon_bg_color'        => array( 'type' => 'string', 'description' => __( 'Ribbon background color.', 'elementor-mcp' ) ),
@@ -1506,28 +1557,28 @@ class Elementor_MCP_Widget_Abilities {
 				'graphic_element'    => array( 'type' => 'string', 'enum' => array( 'none', 'image', 'icon' ), 'description' => __( 'Front graphic type.', 'elementor-mcp' ) ),
 				'selected_icon'      => array( 'type' => 'object', 'description' => __( 'Front icon: {value, library}.', 'elementor-mcp' ) ),
 				'image'              => array( 'type' => 'object', 'description' => __( 'Front image: {url, id}.', 'elementor-mcp' ) ),
-				'graphic_element_b'  => array( 'type' => 'string', 'enum' => array( 'none', 'image', 'icon' ), 'description' => __( 'Back graphic type.', 'elementor-mcp' ) ),
-				'selected_icon_b'    => array( 'type' => 'object', 'description' => __( 'Back icon: {value, library}.', 'elementor-mcp' ) ),
 				'button_text'        => array( 'type' => 'string', 'description' => __( 'Back button text.', 'elementor-mcp' ) ),
 				'link'               => array( 'type' => 'object', 'description' => __( 'Link: {url, is_external, nofollow}.', 'elementor-mcp' ) ),
 				'flip_effect'        => array( 'type' => 'string', 'enum' => array( 'flip', 'slide', 'push', 'zoom-in', 'zoom-out', 'fade' ), 'description' => __( 'Flip animation.', 'elementor-mcp' ) ),
 				'flip_direction'     => array( 'type' => 'string', 'enum' => array( 'left', 'right', 'up', 'down' ), 'description' => __( 'Flip direction.', 'elementor-mcp' ) ),
-				'flip_3d'            => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Enable 3D depth effect.', 'elementor-mcp' ) ),
+				'flip_3d' => array( 'type' => 'string', 'enum' => array( 'elementor-flip-box--3d', '' ), 'description' => __( '3D depth effect. The on value is "elementor-flip-box--3d" (not "yes"); "" turns it off.', 'elementor-mcp' ) ),
 				// Height.
 				'height'             => array( 'type' => 'object', 'description' => __( 'Box height: {size, unit}.', 'elementor-mcp' ) ),
 				'border_radius'      => array( 'type' => 'object', 'description' => __( 'Border radius: {size, unit}.', 'elementor-mcp' ) ),
 				// Front style.
-				'background_color_a' => array( 'type' => 'string', 'description' => __( 'Front background color.', 'elementor-mcp' ) ),
+				'background_a_background' => array( 'type' => 'string', 'enum' => array( 'classic', 'gradient' ), 'description' => __( 'Front background type. Set to "classic" for background_a_color to apply.', 'elementor-mcp' ) ),
+				'background_a_color' => array( 'type' => 'string', 'description' => __( 'Front background color. Needs background_a_background: "classic".', 'elementor-mcp' ) ),
 				'title_color_a'      => array( 'type' => 'string', 'description' => __( 'Front title color.', 'elementor-mcp' ) ),
 				'description_color_a' => array( 'type' => 'string', 'description' => __( 'Front description color.', 'elementor-mcp' ) ),
-				'icon_color_a'       => array( 'type' => 'string', 'description' => __( 'Front icon color.', 'elementor-mcp' ) ),
+				'icon_primary_color' => array( 'type' => 'string', 'description' => __( 'Front icon color (primary color; the fill in stacked view).', 'elementor-mcp' ) ),
 				// Back style.
-				'background_color_b' => array( 'type' => 'string', 'description' => __( 'Back background color.', 'elementor-mcp' ) ),
+				'background_b_background' => array( 'type' => 'string', 'enum' => array( 'classic', 'gradient' ), 'description' => __( 'Back background type. Set to "classic" for background_b_color to apply.', 'elementor-mcp' ) ),
+				'background_b_color' => array( 'type' => 'string', 'description' => __( 'Back background color. Needs background_b_background: "classic".', 'elementor-mcp' ) ),
 				'title_color_b'      => array( 'type' => 'string', 'description' => __( 'Back title color.', 'elementor-mcp' ) ),
 				'description_color_b' => array( 'type' => 'string', 'description' => __( 'Back description color.', 'elementor-mcp' ) ),
 				// Button style.
 				'button_background_color' => array( 'type' => 'string', 'description' => __( 'Back button background color.', 'elementor-mcp' ) ),
-				'button_color'       => array( 'type' => 'string', 'description' => __( 'Back button text color.', 'elementor-mcp' ) ),
+				'button_text_color' => array( 'type' => 'string', 'description' => __( 'Back button text color.', 'elementor-mcp' ) ),
 				'button_size'        => array( 'type' => 'string', 'enum' => array( 'xs', 'sm', 'md', 'lg', 'xl' ), 'description' => __( 'Button size.', 'elementor-mcp' ) ),
 			),
 			array( 'title_text_a' ),
@@ -1640,7 +1691,7 @@ class Elementor_MCP_Widget_Abilities {
 				'description_typography_font_size'   => array( 'type' => 'object', 'description' => __( 'Description font size: {size, unit}.', 'elementor-mcp' ) ),
 				// Style - Button.
 				'button_size'      => array( 'type' => 'string', 'enum' => array( 'xs', 'sm', 'md', 'lg', 'xl' ), 'description' => __( 'Button size.', 'elementor-mcp' ) ),
-				'button_color'     => array( 'type' => 'string', 'description' => __( 'Button text color.', 'elementor-mcp' ) ),
+				'button_text_color' => array( 'type' => 'string', 'description' => __( 'Button text color.', 'elementor-mcp' ) ),
 				'button_background_color' => array( 'type' => 'string', 'description' => __( 'Button background color.', 'elementor-mcp' ) ),
 				'button_border_width' => array( 'type' => 'integer', 'description' => __( 'Button border width in px.', 'elementor-mcp' ) ),
 				'button_border_color' => array( 'type' => 'string', 'description' => __( 'Button border color.', 'elementor-mcp' ) ),
@@ -1686,8 +1737,9 @@ class Elementor_MCP_Widget_Abilities {
 				'autoplay'        => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Autoplay. Default: yes.', 'elementor-mcp' ) ),
 				'autoplay_speed'  => array( 'type' => 'integer', 'description' => __( 'Autoplay interval in ms.', 'elementor-mcp' ) ),
 				// Navigation.
-				'navigation'      => array( 'type' => 'string', 'enum' => array( 'both', 'arrows', 'dots', 'none' ), 'description' => __( 'Navigation type.', 'elementor-mcp' ) ),
-				'infinite'        => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Infinite loop.', 'elementor-mcp' ) ),
+				'show_arrows' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Show prev/next arrows. Default: yes.', 'elementor-mcp' ) ),
+				'pagination' => array( 'type' => 'string', 'enum' => array( '', 'bullets', 'fraction', 'progressbar' ), 'description' => __( 'Pagination: bullets (dots), fraction, progressbar, or "" for none. Default: bullets.', 'elementor-mcp' ) ),
+				'loop' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Infinite loop. Default: yes.', 'elementor-mcp' ) ),
 				'speed'           => array( 'type' => 'integer', 'description' => __( 'Transition speed in ms.', 'elementor-mcp' ) ),
 				// Slide spacing.
 				'space_between'   => array( 'type' => 'object', 'description' => __( 'Space between slides: {size, unit}.', 'elementor-mcp' ) ),
@@ -1695,8 +1747,7 @@ class Elementor_MCP_Widget_Abilities {
 				'slide_background_color' => array( 'type' => 'string', 'description' => __( 'Slide background color.', 'elementor-mcp' ) ),
 				'slide_padding'   => array( 'type' => 'object', 'description' => __( 'Slide padding: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
 				'slide_border_radius' => array( 'type' => 'object', 'description' => __( 'Slide border radius: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
-				'slide_border_border' => array( 'type' => 'string', 'enum' => array( '', 'solid', 'double', 'dotted', 'dashed' ), 'description' => __( 'Slide border style.', 'elementor-mcp' ) ),
-				'slide_border_width'  => array( 'type' => 'object', 'description' => __( 'Slide border width.', 'elementor-mcp' ) ),
+				'slide_border_size' => array( 'type' => 'object', 'description' => __( 'Slide border width: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
 				'slide_border_color'  => array( 'type' => 'string', 'description' => __( 'Slide border color.', 'elementor-mcp' ) ),
 				// Style - Content.
 				'content_color'   => array( 'type' => 'string', 'description' => __( 'Content/quote text color.', 'elementor-mcp' ) ),
@@ -1795,7 +1846,6 @@ class Elementor_MCP_Widget_Abilities {
 				'open_lightbox'  => array( 'type' => 'string', 'enum' => array( 'default', 'yes', 'no' ), 'description' => __( 'Open in lightbox.', 'elementor-mcp' ) ),
 				// Image style.
 				'image_border_radius' => array( 'type' => 'object', 'description' => __( 'Image border radius: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
-				'image_border_border' => array( 'type' => 'string', 'enum' => array( '', 'solid', 'double', 'dotted', 'dashed' ), 'description' => __( 'Image border style.', 'elementor-mcp' ) ),
 				'image_border_width'  => array( 'type' => 'object', 'description' => __( 'Image border width: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
 				'image_border_color'  => array( 'type' => 'string', 'description' => __( 'Image border color.', 'elementor-mcp' ) ),
 			),
@@ -1885,9 +1935,9 @@ class Elementor_MCP_Widget_Abilities {
 				'border_gap'         => array( 'type' => 'object', 'description' => __( 'Gap between border and content: {size, unit}.', 'elementor-mcp' ) ),
 				'quote_size'         => array( 'type' => 'object', 'description' => __( 'Quotation mark size (quotation skin): {size, unit}.', 'elementor-mcp' ) ),
 				// Style - Box (boxed skin).
-				'box_color'          => array( 'type' => 'string', 'description' => __( 'Box background color (boxed skin).', 'elementor-mcp' ) ),
+				'box_background_color' => array( 'type' => 'string', 'description' => __( 'Box background color (boxed skin).', 'elementor-mcp' ) ),
 				// Tweet button style.
-				'button_color'       => array( 'type' => 'string', 'description' => __( 'Tweet button text/icon color.', 'elementor-mcp' ) ),
+				'button_background_color' => array( 'type' => 'string', 'description' => __( 'Tweet button background color.', 'elementor-mcp' ) ),
 				'button_text_color'  => array( 'type' => 'string', 'description' => __( 'Tweet button background color.', 'elementor-mcp' ) ),
 			),
 			array( 'blockquote_content' ),
@@ -1919,8 +1969,7 @@ class Elementor_MCP_Widget_Abilities {
 				'link_to'             => array( 'type' => 'string', 'enum' => array( 'none', 'custom' ), 'description' => __( 'Link type.', 'elementor-mcp' ) ),
 				'custom_link'         => array( 'type' => 'object', 'description' => __( 'Link object: {url, is_external, nofollow}.', 'elementor-mcp' ) ),
 				// Viewport trigger settings.
-				'viewport_start'      => array( 'type' => 'string', 'description' => __( 'Viewport offset start (e.g. "bottom").', 'elementor-mcp' ) ),
-				'viewport_end'        => array( 'type' => 'string', 'description' => __( 'Viewport offset end.', 'elementor-mcp' ) ),
+				'viewport' => array( 'type' => 'object', 'description' => __( 'Viewport range in % for the arriving_to_viewport and bind_to_scroll triggers: {unit: "%", sizes: {start, end}} with start and end 0-100. Default: start 0, end 100.', 'elementor-mcp' ) ),
 				// Caption.
 				'caption_source'      => array( 'type' => 'string', 'enum' => array( 'none', 'title', 'caption', 'custom' ), 'description' => __( 'Caption source.', 'elementor-mcp' ) ),
 				'caption'             => array( 'type' => 'string', 'description' => __( 'Custom caption text.', 'elementor-mcp' ) ),
@@ -1981,26 +2030,26 @@ class Elementor_MCP_Widget_Abilities {
 				'hotspot_animation'   => array( 'type' => 'string', 'enum' => array( 'none', 'soft-beat', 'expand', 'shadow' ), 'description' => __( 'Hotspot point animation.', 'elementor-mcp' ) ),
 				'hotspot_sequenced_animation' => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Staggered animation sequence.', 'elementor-mcp' ) ),
 				// Style - Image.
-				'image_width'         => array( 'type' => 'object', 'description' => __( 'Image width: {size, unit}.', 'elementor-mcp' ) ),
-				'image_opacity'       => array( 'type' => 'object', 'description' => __( 'Image opacity (0-1): {size, unit}.', 'elementor-mcp' ) ),
+				'width' => array( 'type' => 'object', 'description' => __( 'Image width: {size, unit}.', 'elementor-mcp' ) ),
+				'opacity' => array( 'type' => 'object', 'description' => __( 'Image opacity (0-1): {size, unit}.', 'elementor-mcp' ) ),
 				'image_border_radius' => array( 'type' => 'object', 'description' => __( 'Image border radius: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
 				// Style - Hotspot.
-				'hotspot_color'       => array( 'type' => 'string', 'description' => __( 'Hotspot label/icon color.', 'elementor-mcp' ) ),
-				'hotspot_background_color' => array( 'type' => 'string', 'description' => __( 'Hotspot background color.', 'elementor-mcp' ) ),
-				'hotspot_size'        => array( 'type' => 'object', 'description' => __( 'Hotspot point size: {size, unit}.', 'elementor-mcp' ) ),
-				'hotspot_padding'     => array( 'type' => 'object', 'description' => __( 'Hotspot padding: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
-				'hotspot_border_radius' => array( 'type' => 'object', 'description' => __( 'Hotspot border radius: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
-				'hotspot_box_shadow_box_shadow_type' => array( 'type' => 'string', 'description' => __( 'Set to "yes" for hotspot box shadow.', 'elementor-mcp' ) ),
-				'hotspot_box_shadow_box_shadow' => array( 'type' => 'object', 'description' => __( 'Hotspot box shadow: {horizontal, vertical, blur, spread, color}.', 'elementor-mcp' ) ),
+				'style_hotspot_color' => array( 'type' => 'string', 'description' => __( 'Hotspot label/icon color.', 'elementor-mcp' ) ),
+				'style_hotspot_box_color' => array( 'type' => 'string', 'description' => __( 'Hotspot background (box) color.', 'elementor-mcp' ) ),
+				'style_hotspot_size' => array( 'type' => 'object', 'description' => __( 'Hotspot point size: {size, unit}.', 'elementor-mcp' ) ),
+				'style_hotspot_padding' => array( 'type' => 'object', 'description' => __( 'Hotspot padding: {size, unit}.', 'elementor-mcp' ) ),
+				'style_hotspot_border_radius' => array( 'type' => 'object', 'description' => __( 'Hotspot border radius: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
+				'style_hotspot_box_shadow_box_shadow_type' => array( 'type' => 'string', 'description' => __( 'Set to "yes" for hotspot box shadow.', 'elementor-mcp' ) ),
+				'style_hotspot_box_shadow_box_shadow' => array( 'type' => 'object', 'description' => __( 'Hotspot box shadow: {horizontal, vertical, blur, spread, color}.', 'elementor-mcp' ) ),
 				// Style - Tooltip.
-				'tooltip_text_color'  => array( 'type' => 'string', 'description' => __( 'Tooltip text color.', 'elementor-mcp' ) ),
-				'tooltip_background_color' => array( 'type' => 'string', 'description' => __( 'Tooltip background color.', 'elementor-mcp' ) ),
-				'tooltip_border_radius' => array( 'type' => 'object', 'description' => __( 'Tooltip border radius: {size, unit}.', 'elementor-mcp' ) ),
-				'tooltip_padding'     => array( 'type' => 'object', 'description' => __( 'Tooltip padding: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
-				'tooltip_width'       => array( 'type' => 'object', 'description' => __( 'Tooltip width: {size, unit}.', 'elementor-mcp' ) ),
-				'tooltip_typography_typography'  => array( 'type' => 'string', 'description' => __( 'Set to "custom" for tooltip typography.', 'elementor-mcp' ) ),
-				'tooltip_typography_font_family' => array( 'type' => 'string', 'description' => __( 'Tooltip font family.', 'elementor-mcp' ) ),
-				'tooltip_typography_font_size'   => array( 'type' => 'object', 'description' => __( 'Tooltip font size: {size, unit}.', 'elementor-mcp' ) ),
+				'style_tooltip_text_color' => array( 'type' => 'string', 'description' => __( 'Tooltip text color.', 'elementor-mcp' ) ),
+				'style_tooltip_color' => array( 'type' => 'string', 'description' => __( 'Tooltip background color.', 'elementor-mcp' ) ),
+				'style_tooltip_border_radius' => array( 'type' => 'object', 'description' => __( 'Tooltip border radius: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
+				'style_tooltip_padding' => array( 'type' => 'object', 'description' => __( 'Tooltip padding: {top, right, bottom, left, unit, isLinked}.', 'elementor-mcp' ) ),
+				'style_tooltip_width' => array( 'type' => 'object', 'description' => __( 'Tooltip width: {size, unit}.', 'elementor-mcp' ) ),
+				'style_tooltip_typography_typography' => array( 'type' => 'string', 'description' => __( 'Set to "custom" for tooltip typography.', 'elementor-mcp' ) ),
+				'style_tooltip_typography_font_family' => array( 'type' => 'string', 'description' => __( 'Tooltip font family.', 'elementor-mcp' ) ),
+				'style_tooltip_typography_font_size' => array( 'type' => 'object', 'description' => __( 'Tooltip font size: {size, unit}.', 'elementor-mcp' ) ),
 			),
 			array( 'image', 'hotspot' ),
 			'hotspot',
@@ -2071,7 +2120,7 @@ class Elementor_MCP_Widget_Abilities {
 				'link'                => array( 'type' => 'object', 'description' => __( 'Link object: { "url": "...", "is_external": true }.', 'elementor-mcp' ) ),
 				'align'               => array( 'type' => 'string', 'enum' => array( 'left', 'center', 'right' ), 'description' => __( 'Text alignment.', 'elementor-mcp' ) ),
 				'text_path_direction' => array( 'type' => 'string', 'enum' => array( '', 'rtl', 'ltr' ), 'description' => __( 'Text direction.', 'elementor-mcp' ) ),
-				'show_path'           => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Show the SVG path line.', 'elementor-mcp' ) ),
+				'show_path' => array( 'type' => 'string', 'enum' => array( '#E8178A', '' ), 'description' => __( 'Show the SVG path line. The on value is "#E8178A" (Elementor stores the path colour as the switch value); "" hides it.', 'elementor-mcp' ) ),
 				'size'                => array( 'type' => 'object', 'description' => __( 'Path size: { "size": 500, "unit": "px" }.', 'elementor-mcp' ) ),
 				'rotation'            => array( 'type' => 'object', 'description' => __( 'Rotation: { "size": 0, "unit": "px" }.', 'elementor-mcp' ) ),
 				'start_point'         => array( 'type' => 'object', 'description' => __( 'Starting point (%): { "size": 0, "unit": "px" }.', 'elementor-mcp' ) ),
@@ -2150,7 +2199,7 @@ class Elementor_MCP_Widget_Abilities {
 				'pointer'       => array( 'type' => 'string', 'enum' => array( 'none', 'underline', 'overline', 'double-line', 'framed', 'background', 'text' ), 'description' => __( 'Hover pointer style. Default: underline.', 'elementor-mcp' ) ),
 				'animation_line' => array( 'type' => 'string', 'enum' => array( 'fade', 'slide', 'grow', 'drop-in', 'drop-out', 'none' ), 'description' => __( 'Line pointer animation.', 'elementor-mcp' ) ),
 				'dropdown'      => array( 'type' => 'string', 'enum' => array( 'mobile', 'tablet', 'none' ), 'description' => __( 'Breakpoint for dropdown toggle. Default: tablet.', 'elementor-mcp' ) ),
-				'full_width'    => array( 'type' => 'string', 'enum' => array( 'yes', '' ), 'description' => __( 'Full width dropdown.', 'elementor-mcp' ) ),
+				'full_width' => array( 'type' => 'string', 'enum' => array( 'stretch', '' ), 'description' => __( 'Full width dropdown. The on value is "stretch" (not "yes"); "" turns it off.', 'elementor-mcp' ) ),
 				'text_align'    => array( 'type' => 'string', 'enum' => array( 'aside', 'center' ), 'description' => __( 'Dropdown text alignment.', 'elementor-mcp' ) ),
 				'toggle'        => array( 'type' => 'string', 'enum' => array( '', 'burger' ), 'description' => __( 'Toggle button type.', 'elementor-mcp' ) ),
 				'toggle_align'  => array( 'type' => 'string', 'enum' => array( 'left', 'center', 'right' ), 'description' => __( 'Toggle button alignment.', 'elementor-mcp' ) ),
@@ -2288,10 +2337,10 @@ class Elementor_MCP_Widget_Abilities {
 				'tabs_title_spacing'       => array( 'type' => 'object', 'description' => __( 'Distance from content: { "size": 0, "unit": "px" }.', 'elementor-mcp' ) ),
 				'tabs_title_background_color_background' => array( 'type' => 'string', 'enum' => array( 'classic', 'gradient' ), 'description' => __( 'Tab background type.', 'elementor-mcp' ) ),
 				'tabs_title_background_color_color'      => array( 'type' => 'string', 'description' => __( 'Tab background color (hex).', 'elementor-mcp' ) ),
-				'tabs_title_typography_typography'  => array( 'type' => 'string', 'description' => __( 'Set to "yes" for custom tab typography.', 'elementor-mcp' ) ),
-				'tabs_title_typography_font_family' => array( 'type' => 'string', 'description' => __( 'Tab font family.', 'elementor-mcp' ) ),
-				'tabs_title_typography_font_size'   => array( 'type' => 'object', 'description' => __( 'Tab font size: { "size": 16, "unit": "px" }.', 'elementor-mcp' ) ),
-				'tabs_title_typography_font_weight' => array( 'type' => 'string', 'description' => __( 'Tab font weight.', 'elementor-mcp' ) ),
+				'title_typography_typography' => array( 'type' => 'string', 'description' => __( 'Set to "custom" for custom tab title typography.', 'elementor-mcp' ) ),
+				'title_typography_font_family' => array( 'type' => 'string', 'description' => __( 'Tab title font family.', 'elementor-mcp' ) ),
+				'title_typography_font_size' => array( 'type' => 'object', 'description' => __( 'Tab title font size: { "size": 16, "unit": "px" }.', 'elementor-mcp' ) ),
+				'title_typography_font_weight' => array( 'type' => 'string', 'description' => __( 'Tab title font weight.', 'elementor-mcp' ) ),
 			),
 			array(),
 			'nested-tabs',
@@ -2425,8 +2474,8 @@ class Elementor_MCP_Widget_Abilities {
 				'code'              => array( 'type' => 'string', 'description' => __( 'The code content to display.', 'elementor-mcp' ) ),
 				'language'          => array( 'type' => 'string', 'enum' => array( 'php', 'javascript', 'css', 'html', 'python', 'bash' ), 'description' => __( 'Syntax language. Default: php.', 'elementor-mcp' ) ),
 				'theme'             => array( 'type' => 'string', 'enum' => array( 'default', 'dark', 'funky', 'okaidia', 'twilight', 'coy' ), 'description' => __( 'Color theme. Default: default.', 'elementor-mcp' ) ),
-				'line_numbers'      => array( 'type' => 'string', 'enum' => array( 'yes', 'no' ), 'description' => __( 'Show line numbers. Default: yes.', 'elementor-mcp' ) ),
-				'copy_to_clipboard' => array( 'type' => 'string', 'enum' => array( 'yes', 'no' ), 'description' => __( 'Show copy-to-clipboard button. Default: yes.', 'elementor-mcp' ) ),
+				'line_numbers' => array( 'type' => 'string', 'enum' => array( 'line-numbers', '' ), 'description' => __( 'Show line numbers. The on value is "line-numbers" (not "yes"); "" hides them. Default: line-numbers.', 'elementor-mcp' ) ),
+				'copy_to_clipboard' => array( 'type' => 'string', 'enum' => array( 'copy-to-clipboard', '' ), 'description' => __( 'Show the copy button. The on value is "copy-to-clipboard" (not "yes"); "" hides it. Default: copy-to-clipboard.', 'elementor-mcp' ) ),
 			),
 			array(),
 			'code-highlight',
@@ -2434,8 +2483,8 @@ class Elementor_MCP_Widget_Abilities {
 				'code'              => '',
 				'language'          => 'php',
 				'theme'             => 'default',
-				'line_numbers'      => 'yes',
-				'copy_to_clipboard' => 'yes',
+				'line_numbers'      => 'line-numbers',
+				'copy_to_clipboard' => 'copy-to-clipboard',
 			)
 		);
 	}

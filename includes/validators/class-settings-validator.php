@@ -188,6 +188,84 @@ class Elementor_MCP_Settings_Validator {
 	}
 
 	/**
+	 * Settings Elementor honours on a widget without a control of that name:
+	 * the Navigator label. Internal `__`-prefixed keys (`__globals__`,
+	 * `__dynamic__`) are skipped by prefix.
+	 *
+	 * @var string[]
+	 */
+	private static $non_control_settings = array( '_title' );
+
+	/**
+	 * Warnings for settings that are not a control of the widget.
+	 *
+	 * Elementor saves such a key and ignores it: the tool reports success and
+	 * the page does not change. 52 parameters our own convenience tools
+	 * advertised were that (EMCP #152; references 2026-10-05, P9.2) — so the
+	 * check is strict, by exact control name, and deliberately does NOT share
+	 * validate()'s group-prefix leniency: `text_stroke_stroke_width` passes
+	 * that heuristic and is not a control.
+	 *
+	 * Advisory only. Nothing is refused or rewritten, and when the widget's
+	 * control stack cannot be read there are no warnings at all.
+	 *
+	 * @since 1.41.0
+	 *
+	 * @param string $widget_type The widget type name.
+	 * @param array  $settings    The settings as sent.
+	 * @return string[] Human-readable warnings; empty when there is nothing to say.
+	 */
+	public function unknown_setting_warnings( string $widget_type, array $settings ): array {
+		$names = $this->schema_generator->control_names( $widget_type );
+		if ( null === $names ) {
+			return array();
+		}
+		$known    = array_fill_keys( $names, true );
+		$warnings = array();
+		foreach ( array_keys( $settings ) as $key ) {
+			if ( ! is_string( $key ) || isset( $known[ $key ] ) || 0 === strpos( $key, '__' ) || in_array( $key, self::$non_control_settings, true ) ) {
+				continue;
+			}
+			$nearest    = self::nearest_names( $key, $names );
+			$warnings[] = sprintf(
+				'%1$s is not a control of the %2$s widget: the value was saved and Elementor ignores it.%3$s',
+				$key,
+				$widget_type,
+				$nearest ? ' Did you mean: ' . implode( ', ', $nearest ) . '?' : ' Call get-widget-schema for the real names.'
+			);
+		}
+		return $warnings;
+	}
+
+	/**
+	 * Up to two control names close to a mistyped one.
+	 *
+	 * @param string   $key   The key as sent.
+	 * @param string[] $names The widget's control names.
+	 * @return string[]
+	 */
+	private static function nearest_names( string $key, array $names ): array {
+		$fold   = static function ( string $s ): string {
+			return str_replace( '-', '_', strtolower( $s ) );
+		};
+		$needle = $fold( $key );
+		$limit  = max( 2, (int) floor( strlen( $needle ) / 3 ) );
+		$scored = array();
+		foreach ( $names as $name ) {
+			$candidate = $fold( $name );
+			if ( strlen( $candidate ) > 255 || strlen( $needle ) > 255 ) {
+				continue;
+			}
+			$distance = levenshtein( $needle, $candidate );
+			if ( $distance <= $limit ) {
+				$scored[ $name ] = $distance;
+			}
+		}
+		asort( $scored );
+		return array_slice( array_keys( $scored ), 0, 2 );
+	}
+
+	/**
 	 * Checks if a key is a responsive variant of a valid schema key or common key.
 	 *
 	 * @param string   $key        The settings key to check.

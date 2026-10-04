@@ -138,6 +138,37 @@ class Elementor_MCP_Schema_Generator {
 	}
 
 	/**
+	 * The names of every control in a widget's COMPLETE stack — the same stack
+	 * get_full_controls() builds, so style, group and responsive controls are
+	 * all in it by their real names.
+	 *
+	 * Null when the stack cannot be read (unknown widget, a control stack that
+	 * throws or comes back empty): a caller comparing against this list must
+	 * say nothing then, never "unknown", because an unread list is not an
+	 * empty one.
+	 *
+	 * @since 1.41.0
+	 *
+	 * @param string $widget_type The widget type name.
+	 * @return string[]|null
+	 */
+	public function control_names( string $widget_type ): ?array {
+		try {
+			$widget = \Elementor\Plugin::$instance->widgets_manager->get_widget_types( $widget_type );
+			if ( ! is_object( $widget ) ) {
+				return null;
+			}
+			$controls = $this->get_full_controls( $widget );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+		if ( empty( $controls ) ) {
+			return null;
+		}
+		return array_map( 'strval', array_keys( $controls ) );
+	}
+
+	/**
 	 * Returns a widget's COMPLETE control set, including the style controls
 	 * (typography, colours, alignment, shadows…) that Elementor's "Optimized
 	 * Control Loading" strips from get_controls() outside the editor.

@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.40.0
+Stable tag: 1.40.1
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.40.1 =
+* Fix: the MCP endpoint stays available on sites running Elementor 4.3.3 with Elementor's own MCP feature switched off. On such sites the tools could disappear (a 404 for AI clients) while the settings page still showed the server as enabled.
 
 = 1.40.0 =
 * Fix: updating page settings (including page-level custom CSS and edits to the site kit) no longer deletes the page's other settings, such as custom colors and typography.
@@ -508,6 +511,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.40.1 =
+Recommended for every site on Elementor 4.3.3 or later: keeps the MCP endpoint available when Elementor's own MCP feature is off.
 
 = 1.40.0 =
 Recommended for every site. Page-settings updates no longer erase other settings. A global-colors call that names a system slot is now refused; switch it to replace-system-colors.

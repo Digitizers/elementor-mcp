@@ -230,58 +230,258 @@ class Elementor_MCP_Element_Factory {
 		return $value;
 	}
 
+	/** The four sides of a classic box dimension. */
+	private const SIDES = array( 'top', 'right', 'bottom', 'left' );
+
 	/**
-	 * Warnings about settings that PERSIST but will probably not do what the
-	 * agent meant — a channel beside success, never a refusal, never a
-	 * coercion (mirrors EMCP 3.16.x; P6.2 of the 2026-09-18 reverification).
-	 *
-	 * - Partial classic dimensions (`margin`, `padding`, `border_radius`,
-	 *   `border_width`, their `_`-prefixed variants and Elementor's own
-	 *   responsive suffixes — `_widescreen`, `_laptop`, `_tablet_extra`,
-	 *   `_tablet`, `_mobile_extra`, `_mobile` — and NOTHING else: the universal
-	 *   update tool reaches custom widgets whose controls have arbitrary
-	 *   names, and a `padding_config` control with a `top` member is not a
-	 *   dimension, so an open suffix produced false warnings, Codex round-4
-	 *   P2 on #74): when 1–3 of the four sides are blank or missing, Elementor
-	 *   may omit the ENTIRE CSS rule. The value is left exactly as sent — a
-	 *   blank side coerced to 0 would silently destroy inheritance, which is
-	 *   worse than the rule being dropped (upstream #134). A typed atomic prop
-	 *   (`$$type`) is a different data model and is not inspected.
-	 * - A grid container created without `grid_rows_grid` gets Elementor's
-	 *   two-row default; warned at creation only — an update never re-warns
-	 *   about a default the element already has (upstream #135).
-	 *
-	 * @param array $settings The settings as the agent sent them.
-	 * @param bool  $creating Whether this is element creation (add-container).
-	 * @return string[] Human-readable warnings; empty when there is nothing to say.
+	 * Setting keys treated as a classic box dimension when Elementor's own
+	 * control cannot be asked. Deliberately closed: the universal update tool
+	 * reaches custom widgets whose controls have arbitrary names, and a
+	 * `padding_config` control with a `top` member is not a dimension (Codex
+	 * round-4 P2 on #74).
 	 */
-	public static function settings_warnings( array $settings, bool $creating = false ): array {
+	private const CLASSIC_BOX_KEY = '/^_?(?:margin|padding|border_radius|border_width)(?:_(?:widescreen|laptop|tablet_extra|tablet|mobile_extra|mobile))?$/';
+
+	/**
+	 * Clean classic settings before they are written, and say what was done.
+	 *
+	 * Elementor's CSS generator drops the WHOLE rule for an element and
+	 * breakpoint when one side of a dimension is blank — the valid sides
+	 * included — and a blank side is never inherited. So a classic dimension
+	 * with some, but not all, of its required sides blank is never written as
+	 * sent (EMCP #151; references 2026-10-05 re-verification, P9.2):
+	 *
+	 * - Update (`$stored` is the element's current settings): the blank sides
+	 *   are filled from the stored value of the same key when that value is
+	 *   complete and in the same unit. Otherwise the key is not written and the
+	 *   stored value stays as it is.
+	 * - Create (`$stored` is null): there is nothing to fill from, so the key
+	 *   is not written.
+	 *
+	 * Either way the caller is told, in `warnings`. A value with EVERY required
+	 * side blank means "unset" and is written as sent; a complete value only
+	 * has a blank unit resolved to px. A typed atomic prop (`$$type`) is a
+	 * different data model and is not inspected, and neither is a slider.
+	 *
+	 * Until 1.40.x this was a warning beside a value left exactly as sent
+	 * (settings_warnings(), mirroring EMCP 3.16): the agent was told, and the
+	 * page still lost the rule. Owner decision 2026-10-05: fill or do not
+	 * write.
+	 *
+	 * Also here, unchanged: a grid container created without `grid_rows_grid`
+	 * gets Elementor's two-row default; warned at creation only.
+	 *
+	 * @since 1.41.0
+	 *
+	 * @param array      $settings The settings as the agent sent them.
+	 * @param array|null $stored   The element's current settings on an update; null on creation.
+	 * @param array      $context  The element, or its `elType` / `widgetType`.
+	 * @return array{settings: array, warnings: string[]}
+	 */
+	public static function guard_settings( array $settings, ?array $stored = null, array $context = array() ): array {
 		$warnings = array();
+		$creating = null === $stored;
+
 		foreach ( $settings as $key => $value ) {
-			if ( ! is_string( $key ) || ! preg_match( '/^_?(?:margin|padding|border_radius|border_width)(?:_(?:widescreen|laptop|tablet_extra|tablet|mobile_extra|mobile))?$/', $key ) ) {
+			if ( ! is_string( $key ) || ! is_array( $value ) || ! self::is_guarded_dimension( $key, $value, $context ) ) {
 				continue;
 			}
-			if ( ! is_array( $value ) || isset( $value['$$type'] ) ) {
+			$required = self::required_sides( $key, $context );
+			$blank    = self::blank_sides( $value, $required );
+			if ( count( $blank ) === count( $required ) ) {
+				continue; // Every required side blank: "unset", written as sent.
+			}
+			if ( 0 === count( $blank ) ) {
+				$settings[ $key ] = self::with_resolved_unit( $value );
 				continue;
 			}
-			$blank = array();
-			foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
-				if ( ! isset( $value[ $side ] ) || '' === $value[ $side ] ) {
-					$blank[] = $side;
+
+			$sides  = implode( ', ', $blank );
+			$supply = 4 === count( $required ) ? 'all four sides' : implode( ' and ', $required );
+			$saved  = $creating ? null : ( $stored[ $key ] ?? null );
+			$usable = is_array( $saved ) && ! isset( $saved['$$type'] ) && 0 === count( self::blank_sides( $saved, $required ) );
+
+			// Filling across units would change what the saved sides mean. A
+			// missing or blank unit is Elementor's default, px, on either side.
+			if ( $usable && self::dimension_unit( $saved ) === self::dimension_unit( $value ) ) {
+				foreach ( $blank as $side ) {
+					$value[ $side ] = $saved[ $side ];
 				}
+				$value = self::with_resolved_unit( $value );
+				if ( ! array_key_exists( 'isLinked', $value ) && array_key_exists( 'isLinked', $saved ) ) {
+					$value['isLinked'] = $saved['isLinked'];
+				}
+				$filled = array();
+				foreach ( $required as $side ) {
+					$filled[] = (string) $value[ $side ];
+				}
+				if ( count( array_unique( $filled ) ) > 1 ) {
+					$value['isLinked'] = false;
+				}
+				$settings[ $key ] = $value;
+				$warnings[]       = sprintf( '%1$s had blank sides (%2$s): filled from the saved value.', $key, $sides );
+				continue;
 			}
-			if ( count( $blank ) > 0 && count( $blank ) < 4 ) {
-				$warnings[] = sprintf(
-					'%s has blank or missing sides (%s). Elementor may omit the entire CSS rule. Supply all four sides (use 0 where intended); values were left unchanged to preserve inheritance.',
-					$key,
-					implode( ', ', $blank )
-				);
+
+			unset( $settings[ $key ] );
+			if ( $creating ) {
+				$warnings[] = sprintf( '%1$s had blank sides (%2$s) and was not written, because Elementor drops the whole CSS rule when a side is blank. Supply %3$s (use 0 where intended).', $key, $sides, $supply );
+			} elseif ( $usable ) {
+				$warnings[] = sprintf( '%1$s had blank sides (%2$s) and a different unit from the saved value (%3$s vs %4$s); it was not written and the saved value is unchanged. Supply %5$s (use 0 where intended).', $key, $sides, self::dimension_unit( $value ), self::dimension_unit( $saved ), $supply );
+			} elseif ( is_array( $saved ) && ! isset( $saved['$$type'] ) ) {
+				$warnings[] = sprintf( '%1$s had blank sides (%2$s) and the saved value has blank sides too; it was not written and the saved value is unchanged. Supply %3$s (use 0 where intended).', $key, $sides, $supply );
+			} else {
+				$warnings[] = sprintf( '%1$s had blank sides (%2$s) and no saved value to fill from; it was not written. Supply %3$s (use 0 where intended).', $key, $sides, $supply );
 			}
 		}
+
 		if ( $creating && 'grid' === ( $settings['container_type'] ?? '' ) && ! isset( $settings['grid_rows_grid'] ) ) {
 			$warnings[] = 'Elementor defaults grid_rows_grid to 2 rows. For a single-row grid, explicitly set grid_rows_grid: {"unit":"fr","size":1} inside settings.';
 		}
-		return $warnings;
+
+		return array(
+			'settings' => $settings,
+			'warnings' => $warnings,
+		);
+	}
+
+	/**
+	 * Whether a setting is a classic box dimension the guard applies to.
+	 *
+	 * Elementor's own control decides when it can be asked: a `dimensions`
+	 * control is one, any other control is not. When the control cannot be
+	 * found — outside the editor Elementor leaves style controls out of the
+	 * stack — the closed key list decides instead.
+	 *
+	 * @param string $key     Setting key.
+	 * @param array  $value   Setting value.
+	 * @param array  $context The element, or its `elType` / `widgetType`.
+	 * @return bool
+	 */
+	private static function is_guarded_dimension( string $key, array $value, array $context ): bool {
+		if ( isset( $value['$$type'] ) || array_key_exists( 'size', $value ) ) {
+			return false;
+		}
+		$control = self::live_control( $key, $context );
+		if ( is_array( $control ) ) {
+			return 'dimensions' === ( $control['type'] ?? '' );
+		}
+		return 1 === preg_match( self::CLASSIC_BOX_KEY, $key );
+	}
+
+	/**
+	 * Sides a control needs for Elementor to emit its CSS: the control's own
+	 * `allowed_dimensions` when it can be read, all four otherwise. A classic
+	 * section's margin is vertical-only.
+	 *
+	 * @param string $key     Setting key.
+	 * @param array  $context The element, or its `elType` / `widgetType`.
+	 * @return string[]
+	 */
+	private static function required_sides( string $key, array $context ): array {
+		$control = self::live_control( $key, $context );
+		$allowed = is_array( $control ) ? ( $control['allowed_dimensions'] ?? 'all' ) : null;
+		if ( null === $allowed && 'section' === ( $context['elType'] ?? '' ) && preg_match( '/^margin(?:_[a-z_]+)?$/', $key ) ) {
+			$allowed = 'vertical';
+		}
+		if ( 'vertical' === $allowed ) {
+			return array( 'top', 'bottom' );
+		}
+		if ( 'horizontal' === $allowed ) {
+			return array( 'right', 'left' );
+		}
+		if ( is_array( $allowed ) ) {
+			$sides = array_values( array_intersect( self::SIDES, $allowed ) );
+			if ( count( $sides ) > 0 ) {
+				return $sides;
+			}
+		}
+		return self::SIDES;
+	}
+
+	/**
+	 * The live Elementor control for a setting key, or null when Elementor, the
+	 * element type or the control is not available. A responsive key
+	 * (`margin_tablet`) falls back to its base control.
+	 *
+	 * @param string $key     Setting key.
+	 * @param array  $context The element, or its `elType` / `widgetType`.
+	 * @return array|null
+	 */
+	private static function live_control( string $key, array $context ): ?array {
+		$el_type = isset( $context['elType'] ) && is_string( $context['elType'] ) ? $context['elType'] : '';
+		if ( '' === $el_type || ! class_exists( '\\Elementor\\Plugin' ) || ! isset( \Elementor\Plugin::$instance ) ) {
+			return null;
+		}
+		try {
+			$plugin = \Elementor\Plugin::$instance;
+			$stack  = null;
+			if ( 'widget' === $el_type ) {
+				$type    = isset( $context['widgetType'] ) && is_string( $context['widgetType'] ) ? $context['widgetType'] : '';
+				$manager = $plugin->widgets_manager ?? null;
+				if ( '' !== $type && is_object( $manager ) && method_exists( $manager, 'get_widget_types' ) ) {
+					$stack = $manager->get_widget_types( $type );
+				}
+			} else {
+				$manager = $plugin->elements_manager ?? null;
+				if ( is_object( $manager ) && method_exists( $manager, 'get_element_types' ) ) {
+					$stack = $manager->get_element_types( $el_type );
+				}
+			}
+			if ( ! is_object( $stack ) || ! method_exists( $stack, 'get_controls' ) ) {
+				return null;
+			}
+			$control = $stack->get_controls( $key );
+			if ( ! is_array( $control ) || ! isset( $control['type'] ) ) {
+				$base    = preg_replace( '/_(?:widescreen|laptop|tablet_extra|tablet|mobile_extra|mobile)$/', '', $key );
+				$control = $base !== $key ? $stack->get_controls( $base ) : null;
+			}
+			return is_array( $control ) && isset( $control['type'] ) ? $control : null;
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+	}
+
+	/**
+	 * Unit of a classic dimension value; missing or blank means px.
+	 *
+	 * @param array $value Dimension value.
+	 * @return string
+	 */
+	private static function dimension_unit( array $value ): string {
+		$unit = isset( $value['unit'] ) && is_string( $value['unit'] ) ? trim( $value['unit'] ) : '';
+		return '' === $unit ? 'px' : $unit;
+	}
+
+	/**
+	 * The value with a missing or blank unit set to px; Elementor emits no
+	 * valid CSS for a blank unit.
+	 *
+	 * @param array $value Dimension value.
+	 * @return array
+	 */
+	private static function with_resolved_unit( array $value ): array {
+		$value['unit'] = self::dimension_unit( $value );
+		return $value;
+	}
+
+	/**
+	 * Sides that are missing or blank: null, false, an array, or a string that
+	 * is empty after trim(). 0 and "0" are values.
+	 *
+	 * @param array    $value Dimension value.
+	 * @param string[] $sides Sides to check.
+	 * @return string[]
+	 */
+	private static function blank_sides( array $value, array $sides ): array {
+		$blank = array();
+		foreach ( $sides as $side ) {
+			$v = $value[ $side ] ?? null;
+			if ( null === $v || false === $v || is_array( $v ) || ( is_string( $v ) && '' === trim( $v ) ) ) {
+				$blank[] = $side;
+			}
+		}
+		return $blank;
 	}
 
 	/**

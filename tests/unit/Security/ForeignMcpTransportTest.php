@@ -535,6 +535,24 @@ class ForeignMcpTransportTest extends TestCase {
 		$this->assertSame( array(), $result['uninspected'] );
 	}
 
+	public function test_the_uninspected_note_names_the_servers_and_promises_nothing_about_writes(): void {
+		// Codex round-1: on a site that opened writes through the exposure filter,
+		// a note saying "the write tools stay withheld" contradicts
+		// exposed_write_tools in the same response. The note carries no claim
+		// about writes at all; it sends the reader to the field that does.
+		$notes = \Elementor_MCP_Server_Info_Abilities::uninspected_notes( array( 'opaque-a', 'opaque-b' ) );
+
+		$this->assertCount( 1, $notes );
+		$this->assertStringContainsString( 'opaque-a, opaque-b', $notes[0] );
+		$this->assertStringContainsString( 'write_exposure', $notes[0] );
+		$this->assertStringNotContainsString( 'withheld', $notes[0] );
+		$this->assertStringNotContainsString( 'either way', $notes[0] );
+	}
+
+	public function test_no_uninspected_servers_means_no_note(): void {
+		$this->assertSame( array(), \Elementor_MCP_Server_Info_Abilities::uninspected_notes( array() ) );
+	}
+
 	// --- The fail-closed path must survive the class being absent ------------
 
 	public function test_denial_path_never_reaches_for_the_context_class_unguarded(): void {

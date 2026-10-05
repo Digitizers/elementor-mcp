@@ -557,6 +557,33 @@ class Elementor_MCP_Server_Info_Abilities {
 	}
 
 	/**
+	 * The note for MCP servers this plugin could not ask what they publish.
+	 *
+	 * Not a finding either way, and worded so it cannot be read as one. It makes
+	 * no claim about the write tools: whether those are withheld is what
+	 * `write_exposure` reports, and on a site that opened some through the
+	 * exposure filter the honest answer there is "not all of them" — a sentence
+	 * here saying otherwise would contradict the same response.
+	 *
+	 * @since 1.41.1
+	 *
+	 * @param string[] $server_ids Ids of the servers that could not be inspected.
+	 * @return string[]
+	 */
+	public static function uninspected_notes( array $server_ids ): array {
+		if ( empty( $server_ids ) ) {
+			return array();
+		}
+		return array(
+			sprintf(
+				/* translators: %s: comma-separated list of MCP server ids. */
+				__( 'This plugin could not read the tool list of these MCP servers (%s), so it cannot say whether they publish its tools. That is a gap in this report, not a clean result. Read write_exposure for which write tools, if any, are reachable from another server.', 'elementor-mcp' ),
+				implode( ', ', $server_ids )
+			),
+		);
+	}
+
+	/**
 	 * An ability name as the MCP adapter publishes it.
 	 *
 	 * `RegisterAbilityAsMcpTool` replaces "/" with "-", and the server keys its
@@ -758,17 +785,7 @@ class Elementor_MCP_Server_Info_Abilities {
 			);
 		}
 
-		if ( ! empty( $servers_unknown ) ) {
-			// Not a finding either way. The servers named here could not be asked
-			// what they publish, so the sentence above — "none of them lists this
-			// plugin's tools" — is withheld for the whole site rather than printed
-			// over a server nobody read.
-			$notes[] = sprintf(
-				/* translators: %s: comma-separated list of MCP server ids. */
-				__( 'This plugin could not read the tool list of these MCP servers (%s), so it cannot say whether they publish its tools. That is a gap in this report, not a clean result. The write tools stay withheld by their own metadata either way.', 'elementor-mcp' ),
-				implode( ', ', $servers_unknown )
-			);
-		}
+		$notes = array_merge( $notes, self::uninspected_notes( $servers_unknown ) );
 
 		// Operator rules (P4.1 plan 3). SiteAgent holds the ruleset and decides;
 		// this plugin only declares. The whole decision — what `rules` says AND

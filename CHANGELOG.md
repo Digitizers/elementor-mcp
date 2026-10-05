@@ -2,6 +2,12 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.41.1 — 2026-10-05
+
+- Fix: **`server-info` survives MCP Adapter 0.7.0** (elementor-mcp#94, part of #93). Adapter 0.7.0 gave `McpServer::get_tools()` a required schema parameter; the bare call in `classify_servers()` became an `ArgumentCountError` and the ability returned `isError` for the whole report. Seen on the staging site with the standalone adapter 0.7.0 active. The check now asks `get_mcp_tool( $name )`, whose signature is the same in 0.6.1 and 0.7.0, and reads the tool list only where it can still be called bare. Nothing else this plugin takes from the adapter changed signature: in the same run `initialize`, `tools/list` (the same 103 tools) and a read tool behaved identically on 0.6.1 and 0.7.0. A governed write was not exercised under 0.7.0.
+- Change: **a server that cannot be read is not reported clean.** A foreign MCP server that offers neither lookup, or throws, is listed under the new `write_exposure.other_servers_not_inspected` with its own note, and the sentence "none of them lists this plugin's tools" is withheld on that site. The note makes no claim about write tools; `write_exposure` is where that is read.
+- The bundled adapter stays 0.6.1. Tests +7; suite 1449 green.
+
 ## 1.41.0 — 2026-10-05
 
 Two silent-failure classes EMCP 3.18 found in itself and this fork shared (P9.2 of the references 2026-10-05 re-verification). In both, the tool answered success and the page did not change.

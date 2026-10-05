@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.41.0
+Stable tag: 1.41.1
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,10 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.41.1 =
+* Fix: the server-info tool works again on sites running MCP Adapter 0.7.0. It returned an error there; every other tool was unaffected.
+* Change: when server-info cannot read what another MCP server on the site publishes, it now says so (other_servers_not_inspected) instead of counting that server as clean.
 
 = 1.41.0 =
 * Fix: 52 settings offered by the add-* widget tools used names Elementor does not have, so values sent under them were saved and ignored (for example object_fit on images, which is object-fit). They now use the real names. Values sent earlier under the old names never took effect; send them again.
@@ -517,6 +521,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.41.1 =
+Needed on sites running MCP Adapter 0.7.0, where the server-info diagnostic failed. No change for other sites.
 
 = 1.41.0 =
 Recommended for every site. Widget settings the tools offered under wrong names now take effect; re-send any that were set before. Partially specified padding and margin values are completed from the saved value instead of breaking the rule.

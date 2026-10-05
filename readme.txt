@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.40.1
+Stable tag: 1.41.0
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,12 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.41.0 =
+* Fix: 52 settings offered by the add-* widget tools used names Elementor does not have, so values sent under them were saved and ignored (for example object_fit on images, which is object-fit). They now use the real names. Values sent earlier under the old names never took effect; send them again.
+* Fix: progress bars added with the default settings now show their percentage, code blocks show line numbers and the copy button, and the posts grid honours posts-per-page and columns.
+* New: the widget tools warn when a setting is not a control of that widget, and suggest the likely correct name.
+* Change: padding, margin and border values with some sides left blank are no longer saved as sent, because Elementor then drops the whole rule. On an update the blank sides are filled from the saved value; otherwise the value is not written, and the response says so.
 
 = 1.40.1 =
 * Fix: the MCP endpoint stays available on sites running Elementor 4.3.3 with Elementor's own MCP feature switched off. On such sites the tools could disappear (a 404 for AI clients) while the settings page still showed the server as enabled.
@@ -511,6 +517,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.41.0 =
+Recommended for every site. Widget settings the tools offered under wrong names now take effect; re-send any that were set before. Partially specified padding and margin values are completed from the saved value instead of breaking the rule.
 
 = 1.40.1 =
 Recommended for every site on Elementor 4.3.3 or later: keeps the MCP endpoint available when Elementor's own MCP feature is off.

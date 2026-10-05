@@ -21,5 +21,12 @@ Then reduce it to names (the `common` list is the intersection across widgets;
 each widget keeps only what is its own). The header of the JSON says which
 Elementor and Elementor Pro versions it was read from, and when.
 
+It is one Elementor line. The names were read on Elementor 4.3.3 / Pro 4.3.1, and
+the carousel names were also checked against a Pro 4.1.0 tree; nothing older was
+read. A site on a version whose widget names differ is not protected by this
+fixture — it is protected at runtime, because `add-widget` / `update-widget`
+compare each setting against that site's own control stack and name the ones
+that are not controls there (`unknown_setting_warnings()`).
+
 The five WooCommerce widgets are not in it: the site it was read from has no
 WooCommerce. Their tools are skipped by the test, not passed.

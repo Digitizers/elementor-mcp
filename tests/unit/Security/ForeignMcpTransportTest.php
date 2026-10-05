@@ -431,6 +431,110 @@ class ForeignMcpTransportTest extends TestCase {
 		$this->assertSame( array(), $result['publishing'] );
 	}
 
+	// --- MCP Adapter 0.7.0: get_tools() takes a schema argument -------------
+
+	/**
+	 * A server double shaped like adapter 0.7.0's McpServer: `get_tools()` has a
+	 * required parameter (calling it bare is an ArgumentCountError, which is how
+	 * server-info died on the staging site on 2026-10-05), and a single tool is
+	 * looked up by its MCP name through `get_mcp_tool()`.
+	 */
+	private function schema_server_publishing( array $ability_names ): object {
+		$mcp_names = array_map(
+			static function ( string $ability ): string {
+				return str_replace( '/', '-', $ability );
+			},
+			$ability_names
+		);
+		return new class( $mcp_names ) {
+			private array $names;
+			public function __construct( array $names ) {
+				$this->names = $names;
+			}
+			public function get_tools( \stdClass $schema ): array {
+				return array();
+			}
+			public function get_mcp_tool( string $tool_name ): ?object {
+				return in_array( $tool_name, $this->names, true ) ? new \stdClass() : null;
+			}
+		};
+	}
+
+	public function test_a_schema_era_server_publishing_our_tools_is_named(): void {
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array( 'some-other-server' => $this->schema_server_publishing( array( 'their/tool', 'elementor-mcp/update-element' ) ) ),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/get-page-structure', 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array( 'some-other-server' ), $result['ids'] );
+		$this->assertSame( array( 'some-other-server' ), $result['publishing'] );
+		$this->assertSame( array(), $result['uninspected'] );
+	}
+
+	public function test_a_schema_era_server_with_only_its_own_tools_is_not_matched(): void {
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array( 'angie' => $this->schema_server_publishing( array( 'angie/execute-ability' ) ) ),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array( 'angie' ), $result['ids'] );
+		$this->assertSame( array(), $result['publishing'] );
+		$this->assertSame( array(), $result['uninspected'] );
+	}
+
+	public function test_a_server_that_cannot_be_asked_is_reported_as_uninspected_not_clean(): void {
+		// Neither a per-tool lookup nor a tool list that can be called bare: this
+		// plugin cannot tell what the server publishes. Saying "none of them lists
+		// this plugin's tools" there would be an assurance nobody checked.
+		$opaque = new class() {
+			public function get_tools( \stdClass $schema ): array {
+				return array();
+			}
+		};
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array( 'opaque-server' => $opaque ),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array( 'opaque-server' ), $result['ids'] );
+		$this->assertSame( array(), $result['publishing'] );
+		$this->assertSame( array( 'opaque-server' ), $result['uninspected'] );
+	}
+
+	public function test_a_server_whose_lookup_throws_does_not_take_the_report_down(): void {
+		$throwing = new class() {
+			public function get_mcp_tool( string $tool_name ): ?object {
+				throw new \RuntimeException( 'registry not ready' );
+			}
+		};
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array(
+				'throwing-server' => $throwing,
+				'angie'           => $this->live_server_publishing( array( 'angie/execute-ability' ) ),
+			),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array( 'angie', 'throwing-server' ), $result['ids'] );
+		$this->assertSame( array(), $result['publishing'] );
+		$this->assertSame( array( 'throwing-server' ), $result['uninspected'] );
+	}
+
+	public function test_the_legacy_tool_list_is_still_read_when_there_is_no_lookup(): void {
+		$result = \Elementor_MCP_Server_Info_Abilities::classify_servers(
+			array( 'some-other-server' => $this->live_server_publishing( array( 'elementor-mcp/update-element' ) ) ),
+			'elementor-mcp-server',
+			array( 'elementor-mcp/update-element' )
+		);
+
+		$this->assertSame( array( 'some-other-server' ), $result['publishing'] );
+		$this->assertSame( array(), $result['uninspected'] );
+	}
+
 	// --- The fail-closed path must survive the class being absent ------------
 
 	public function test_denial_path_never_reaches_for_the_context_class_unguarded(): void {

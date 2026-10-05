@@ -410,15 +410,15 @@ class Elementor_MCP_Server_Info_Abilities {
 	 *
 	 * @since 1.30.0
 	 *
-	 * @return array{ids:string[],publishing:string[]}
+	 * @return array{ids:string[],publishing:string[],uninspected:string[]}
 	 */
 	private static function classify_foreign_servers(): array {
 		if ( ! class_exists( '\\WP\\MCP\\Core\\McpAdapter' ) ) {
-			return array( 'ids' => array(), 'publishing' => array() );
+			return array( 'ids' => array(), 'publishing' => array(), 'uninspected' => array() );
 		}
 		$adapter = \WP\MCP\Core\McpAdapter::instance();
 		if ( ! is_object( $adapter ) || ! method_exists( $adapter, 'get_servers' ) ) {
-			return array( 'ids' => array(), 'publishing' => array() );
+			return array( 'ids' => array(), 'publishing' => array(), 'uninspected' => array() );
 		}
 
 		return self::classify_servers(
@@ -444,11 +444,14 @@ class Elementor_MCP_Server_Info_Abilities {
 	 * @param array    $servers   Server map, keyed by server id.
 	 * @param string   $ours      Our own server id.
 	 * @param string[] $our_names Our registered ability names.
-	 * @return array{ids:string[],publishing:string[]}
+	 * @return array{ids:string[],publishing:string[],uninspected:string[]}
 	 */
 	public static function classify_servers( array $servers, string $ours, array $our_names ): array {
-		$ids        = array();
-		$publishing = array();
+		$ids         = array();
+		$publishing  = array();
+		$uninspected = array();
+
+		$ours_as_tools = array_map( array( self::class, 'mcp_tool_name' ), $our_names );
 
 		foreach ( $servers as $id => $server ) {
 			$id = is_string( $id ) ? $id : '';
@@ -457,43 +460,100 @@ class Elementor_MCP_Server_Info_Abilities {
 			}
 			$ids[] = $id;
 
-			if ( empty( $our_names ) || ! is_object( $server ) || ! method_exists( $server, 'get_tools' ) ) {
+			if ( empty( $our_names ) ) {
 				continue;
 			}
-			$tools = $server->get_tools();
-			if ( ! is_array( $tools ) ) {
-				continue;
-			}
-			// A live server's list holds McpTool objects keyed by the MCP tool
-			// name, which is NOT the ability name: the adapter turns
-			// `elementor-mcp/update-element` into `elementor-mcp-update-element`
-			// (McpComponentRegistry keys on $tool->get_name()). Comparing raw
-			// ability names against those keys never matches, so a server that
-			// genuinely publishes these tools would have been reported clean —
-			// the one answer this field exists to give. Both sides are normalised
-			// through the same transform the grant binding already uses.
-			$tool_names = array();
-			foreach ( $tools as $key => $tool ) {
-				if ( is_string( $tool ) ) {
-					$tool_names[] = self::mcp_tool_name( $tool );
-				} elseif ( is_object( $tool ) && method_exists( $tool, 'get_name' ) ) {
-					$name = $tool->get_name();
-					if ( is_string( $name ) ) {
-						$tool_names[] = self::mcp_tool_name( $name );
-					}
-				} elseif ( is_string( $key ) ) {
-					$tool_names[] = self::mcp_tool_name( $key );
-				}
-			}
-			$ours_as_tools = array_map( array( self::class, 'mcp_tool_name' ), $our_names );
-			if ( array_intersect( $ours_as_tools, $tool_names ) ) {
+
+			$publishes = self::server_publishes( $server, $ours_as_tools );
+			if ( null === $publishes ) {
+				$uninspected[] = $id;
+			} elseif ( $publishes ) {
 				$publishing[] = $id;
 			}
 		}
 
 		sort( $ids );
 		sort( $publishing );
-		return array( 'ids' => $ids, 'publishing' => $publishing );
+		sort( $uninspected );
+		return array(
+			'ids'         => $ids,
+			'publishing'  => $publishing,
+			'uninspected' => $uninspected,
+		);
+	}
+
+	/**
+	 * Whether one server publishes any of our tools: true, false, or null when
+	 * this plugin could not find out.
+	 *
+	 * The adapter's server API is not ours and has moved under us: until 0.6.1
+	 * `get_tools()` took no argument, and 0.7.0 gave it a required schema
+	 * parameter, so the bare call that worked for a year became an
+	 * ArgumentCountError and took the whole report down. `get_mcp_tool( $name )`
+	 * has the same signature on both sides of that change, so it is asked first;
+	 * the list is read only where it can still be called bare.
+	 *
+	 * Null is its own answer on purpose. A server that cannot be asked has not
+	 * been found clean, and the caller must not print it as if it had.
+	 *
+	 * @since 1.41.1
+	 *
+	 * @param mixed    $server         A server object from the adapter.
+	 * @param string[] $ours_as_tools  Our ability names as MCP tool names.
+	 * @return bool|null
+	 */
+	private static function server_publishes( $server, array $ours_as_tools ): ?bool {
+		if ( ! is_object( $server ) ) {
+			return null;
+		}
+
+		try {
+			if ( method_exists( $server, 'get_mcp_tool' ) ) {
+				foreach ( $ours_as_tools as $tool_name ) {
+					if ( null !== $server->get_mcp_tool( $tool_name ) ) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			if ( ! method_exists( $server, 'get_tools' )
+				|| ( new \ReflectionMethod( $server, 'get_tools' ) )->getNumberOfRequiredParameters() > 0 ) {
+				return null;
+			}
+
+			$tools = $server->get_tools();
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+
+		if ( ! is_array( $tools ) ) {
+			return null;
+		}
+
+		// A live server's list holds McpTool objects keyed by the MCP tool
+		// name, which is NOT the ability name: the adapter turns
+		// `elementor-mcp/update-element` into `elementor-mcp-update-element`
+		// (McpComponentRegistry keys on $tool->get_name()). Comparing raw
+		// ability names against those keys never matches, so a server that
+		// genuinely publishes these tools would have been reported clean —
+		// the one answer this field exists to give. Both sides are normalised
+		// through the same transform the grant binding already uses.
+		$tool_names = array();
+		foreach ( $tools as $key => $tool ) {
+			if ( is_string( $tool ) ) {
+				$tool_names[] = self::mcp_tool_name( $tool );
+			} elseif ( is_object( $tool ) && method_exists( $tool, 'get_name' ) ) {
+				$name = $tool->get_name();
+				if ( is_string( $name ) ) {
+					$tool_names[] = self::mcp_tool_name( $name );
+				}
+			} elseif ( is_string( $key ) ) {
+				$tool_names[] = self::mcp_tool_name( $key );
+			}
+		}
+
+		return (bool) array_intersect( $ours_as_tools, $tool_names );
 	}
 
 	/**
@@ -617,6 +677,7 @@ class Elementor_MCP_Server_Info_Abilities {
 		$foreign          = self::classify_foreign_servers();
 		$foreign_servers  = $foreign['ids'];
 		$servers_with_us  = $foreign['publishing'];
+		$servers_unknown  = $foreign['uninspected'];
 		// Both guards live in Elementor_MCP_Call_Context, and the loader treats
 		// every include as optional — so its absence is not a detail to report
 		// around, it is the whole answer. The registrar's class_exists() guard
@@ -664,6 +725,7 @@ class Elementor_MCP_Server_Info_Abilities {
 				: '',
 			'other_mcp_servers'                    => $foreign_servers,
 			'other_servers_publishing_our_tools'   => $servers_with_us,
+			'other_servers_not_inspected'          => $servers_unknown,
 		);
 
 		$notes = array_merge( $notes, self::exposure_notes( $guards_loaded, $exposed_writes ) );
@@ -681,7 +743,7 @@ class Elementor_MCP_Server_Info_Abilities {
 				__( 'Another MCP server on this site publishes this plugin\'s tools directly (%s), over a transport the Aura gateway never sees. Check write_exposure to see whether the write tools among them are withheld.', 'elementor-mcp' ),
 				implode( ', ', $servers_with_us )
 			);
-		} elseif ( ! empty( $foreign_servers ) ) {
+		} elseif ( ! empty( $foreign_servers ) && empty( $servers_unknown ) ) {
 			// Deliberately weaker wording. A stock install already carries the
 			// bundled adapter's default server, which reaches nothing here — its
 			// proxy tools require meta.mcp.public, which none of these abilities
@@ -693,6 +755,18 @@ class Elementor_MCP_Server_Info_Abilities {
 				/* translators: %s: comma-separated list of other MCP server ids. */
 				__( 'Other MCP servers are active on this site (%s). None of them lists this plugin\'s tools directly, but a server whose own tools resolve targets from the site-wide ability registry can still reach them — that is why write tools are withheld by their own metadata rather than by a list of trusted servers.', 'elementor-mcp' ),
 				implode( ', ', $foreign_servers )
+			);
+		}
+
+		if ( ! empty( $servers_unknown ) ) {
+			// Not a finding either way. The servers named here could not be asked
+			// what they publish, so the sentence above — "none of them lists this
+			// plugin's tools" — is withheld for the whole site rather than printed
+			// over a server nobody read.
+			$notes[] = sprintf(
+				/* translators: %s: comma-separated list of MCP server ids. */
+				__( 'This plugin could not read the tool list of these MCP servers (%s), so it cannot say whether they publish its tools. That is a gap in this report, not a clean result. The write tools stay withheld by their own metadata either way.', 'elementor-mcp' ),
+				implode( ', ', $servers_unknown )
 			);
 		}
 

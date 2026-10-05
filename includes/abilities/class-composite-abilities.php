@@ -287,15 +287,26 @@ class Elementor_MCP_Composite_Abilities {
 	 * @return array The Elementor element tree.
 	 */
 	/**
-	 * Append `<id>: <warning>` for every settings warning the factory has
-	 * about what the agent sent for one created element.
+	 * Run one element's settings through the factory's guard, keep its
+	 * warnings as `<id>: <warning>` once the element has an id, and return the
+	 * settings to build with.
 	 *
-	 * @param string $id       The created element's id.
-	 * @param array  $settings The settings as the agent sent them.
-	 * @param bool   $creating Passed through to settings_warnings().
+	 * @param array $settings The settings as the agent sent them.
+	 * @param array $context  `elType` / `widgetType` of the element being created.
+	 * @return array{settings: array, warnings: string[]}
 	 */
-	private function collect_settings_warnings( string $id, array $settings, bool $creating = false ): void {
-		foreach ( Elementor_MCP_Element_Factory::settings_warnings( $settings, $creating ) as $warning ) {
+	private function guard_created( array $settings, array $context ): array {
+		return Elementor_MCP_Element_Factory::guard_settings( $settings, null, $context );
+	}
+
+	/**
+	 * Record a created element's guard warnings under its id.
+	 *
+	 * @param string   $id       The created element's id.
+	 * @param string[] $warnings From guard_created().
+	 */
+	private function collect_settings_warnings( string $id, array $warnings ): void {
+		foreach ( $warnings as $warning ) {
 			$this->settings_warnings[] = $id . ': ' . $warning;
 		}
 	}
@@ -338,6 +349,8 @@ class Elementor_MCP_Composite_Abilities {
 				// Recursively build children with this container's direction.
 				$child_elements = $this->build_elements( $children, true, $direction );
 
+				$guard     = $this->guard_created( is_array( $settings ) ? $settings : array(), array( 'elType' => 'container' ) );
+				$settings  = $guard['settings'];
 				$container = $this->factory->create_container( $settings, $child_elements );
 
 				if ( $is_inner ) {
@@ -345,7 +358,7 @@ class Elementor_MCP_Composite_Abilities {
 				}
 
 				$this->elements_created++;
-				$this->collect_settings_warnings( $container['id'], $settings, true );
+				$this->collect_settings_warnings( $container['id'], $guard['warnings'] );
 				$elements[] = $container;
 
 			} elseif ( 'widget' === $type ) {
@@ -353,14 +366,18 @@ class Elementor_MCP_Composite_Abilities {
 				$settings    = $item['settings'] ?? array();
 
 				if ( ! empty( $widget_type ) ) {
-					$widget = $this->build_widget( $widget_type, $settings );
-					$this->elements_created++;
 					// Classic dimensions only: an atomic widget's spacing is flat
 					// scalar style params, so a classic-shaped partial object is
-					// not a partial dimension there and the advice would not
-					// apply (Codex round-12 P2 on #74).
+					// not a partial dimension there (Codex round-12 P2 on #74).
+					$is_atomic = class_exists( 'Elementor_MCP_Atomic_Widget_Map' ) && Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type );
+					$guard     = $is_atomic
+						? array( 'settings' => $settings, 'warnings' => array() )
+						: $this->guard_created( is_array( $settings ) ? $settings : array(), array( 'elType' => 'widget', 'widgetType' => $widget_type ) );
+					$settings  = $guard['settings'];
+					$widget    = $this->build_widget( $widget_type, is_array( $settings ) ? $settings : array() );
+					$this->elements_created++;
 					if ( ! Elementor_MCP_Data::is_atomic_element( $widget ) ) {
-						$this->collect_settings_warnings( $widget['id'] ?? '', is_array( $settings ) ? $settings : array() );
+						$this->collect_settings_warnings( $widget['id'] ?? '', $guard['warnings'] );
 					}
 
 					// Widgets placed directly inside a row container must be

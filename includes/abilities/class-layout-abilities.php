@@ -180,6 +180,11 @@ class Elementor_MCP_Layout_Abilities {
 			return $page_data;
 		}
 
+		// A partial classic dimension is never written as sent (see
+		// Elementor_MCP_Element_Factory::guard_settings()).
+		$guard    = Elementor_MCP_Element_Factory::guard_settings( is_array( $settings ) ? $settings : array(), null, array( 'elType' => 'container' ) );
+		$settings = $guard['settings'];
+
 		// When nesting inside a parent, mark as inner container.
 		$container = $this->factory->create_container( $settings );
 		if ( ! empty( $parent_id ) ) {
@@ -214,7 +219,7 @@ class Elementor_MCP_Layout_Abilities {
 			// (Elementor_MCP_Governance::with_run_warnings() overwrites it
 			// with {rule, reason} entries on a governed run — Codex round-2
 			// P1 on #74), so the two channels never collide.
-			'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array(), true ),
+			'settings_warnings' => $guard['warnings'],
 		);
 	}
 
@@ -302,6 +307,9 @@ class Elementor_MCP_Layout_Abilities {
 			return new \WP_Error( 'not_container', __( 'Element is not a container. Use update-widget for widgets.', 'elementor-mcp' ) );
 		}
 
+		$guard    = Elementor_MCP_Element_Factory::guard_settings( is_array( $settings ) ? $settings : array(), is_array( $element['settings'] ?? null ) ? $element['settings'] : array(), $element );
+		$settings = $guard['settings'];
+
 		$updated = $this->data->update_element_settings( $page_data, $element_id, $settings );
 
 		if ( ! $updated ) {
@@ -318,7 +326,7 @@ class Elementor_MCP_Layout_Abilities {
 			return $result;
 		}
 
-		return array( 'success' => true, 'settings_warnings' => Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ) );
+		return array( 'success' => true, 'settings_warnings' => $guard['warnings'] );
 	}
 
 	// -------------------------------------------------------------------------
@@ -395,6 +403,14 @@ class Elementor_MCP_Layout_Abilities {
 			return new \WP_Error( 'element_not_found', __( 'Element not found.', 'elementor-mcp' ) );
 		}
 
+		// Classic elements only — an atomic element's spacing is flat style
+		// params, never a {top,right,bottom,left} control (Codex round-12 P2
+		// on #74).
+		$guard = Elementor_MCP_Data::is_atomic_element( $element )
+			? array( 'settings' => $settings, 'warnings' => array() )
+			: Elementor_MCP_Element_Factory::guard_settings( is_array( $settings ) ? $settings : array(), is_array( $element['settings'] ?? null ) ? $element['settings'] : array(), $element );
+		$settings = $guard['settings'];
+
 		$updated = $this->data->update_element_settings( $page_data, $element_id, $settings );
 
 		if ( ! $updated ) {
@@ -412,10 +428,7 @@ class Elementor_MCP_Layout_Abilities {
 			'success'      => true,
 			'element_id'   => $element_id,
 			'element_type' => $element['elType'] ?? 'unknown',
-			// Classic elements only — an atomic element's spacing is flat
-			// style params, never a {top,right,bottom,left} control (Codex
-			// round-12 P2 on #74).
-			'settings_warnings' => Elementor_MCP_Data::is_atomic_element( $element ) ? array() : Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+			'settings_warnings' => $guard['warnings'],
 		);
 	}
 
@@ -492,13 +505,12 @@ class Elementor_MCP_Layout_Abilities {
 
 		$updated_count = 0;
 		$failed        = array();
-		// What this batch SENT per element, later operations overriding
-		// earlier ones key by key — the warnings are judged on that merged
-		// payload after the loop, not per operation: an earlier partial
-		// dimension a later operation completes must not warn about a
-		// value that was overwritten before the single save (Codex round-7
-		// P2 on #74).
-		$sent          = array();
+		// Guard warnings per element and setting key. A later operation that
+		// sends the same key replaces what an earlier one said about it, so
+		// a partial dimension a later operation completes does not leave a
+		// warning about a value that was overwritten before the single save
+		// (Codex round-7 P2 on #74).
+		$warned        = array();
 
 		foreach ( $operations as $op ) {
 			$eid      = sanitize_text_field( $op['element_id'] ?? '' );
@@ -516,12 +528,27 @@ class Elementor_MCP_Layout_Abilities {
 				continue;
 			}
 
+			// Guarded against the element as it stands NOW in $page_data, so a
+			// second operation on the same element fills from what the first
+			// one wrote.
+			$op_warnings = array();
+			$sent_keys   = is_array( $settings ) ? array_keys( $settings ) : array();
+			if ( ! Elementor_MCP_Data::is_atomic_element( $element ) ) {
+				$guard       = Elementor_MCP_Element_Factory::guard_settings( is_array( $settings ) ? $settings : array(), is_array( $element['settings'] ?? null ) ? $element['settings'] : array(), $element );
+				$settings    = $guard['settings'];
+				$op_warnings = $guard['warnings'];
+			}
+
 			$ok = $this->data->update_element_settings( $page_data, $eid, $settings );
 
 			if ( $ok ) {
 				$updated_count++;
-				if ( ! Elementor_MCP_Data::is_atomic_element( $element ) ) {
-					$sent[ $eid ] = array_merge( $sent[ $eid ] ?? array(), is_array( $settings ) ? $settings : array() );
+				foreach ( $sent_keys as $sent_key ) {
+					unset( $warned[ $eid ][ (string) $sent_key ] );
+				}
+				foreach ( $op_warnings as $warning ) {
+					// Every guard warning opens with the setting key it is about.
+					$warned[ $eid ][ (string) strtok( $warning, ' ' ) ] = $warning;
 				}
 			} else {
 				$failed[] = array( 'element_id' => $eid, 'reason' => 'update failed' );
@@ -535,8 +562,8 @@ class Elementor_MCP_Layout_Abilities {
 		}
 
 		$warnings = array();
-		foreach ( $sent as $eid => $merged ) {
-			foreach ( Elementor_MCP_Element_Factory::settings_warnings( $merged ) as $warning ) {
+		foreach ( $warned as $eid => $by_key ) {
+			foreach ( $by_key as $warning ) {
 				$warnings[] = $eid . ': ' . $warning;
 			}
 		}

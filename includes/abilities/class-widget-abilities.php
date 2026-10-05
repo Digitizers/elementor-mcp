@@ -309,6 +309,16 @@ class Elementor_MCP_Widget_Abilities {
 			return $page_data;
 		}
 
+		// Classic widgets only: an atomic widget's spacing is flat style
+		// params, not a four-sided control (Codex round-13 P2 on #74). Judged
+		// by the TYPE — create_widget() builds a classic-shaped node whatever
+		// the type name says.
+		$is_atomic = class_exists( 'Elementor_MCP_Atomic_Widget_Map' ) && Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type );
+		$guard     = $is_atomic
+			? array( 'settings' => $settings, 'warnings' => array() )
+			: Elementor_MCP_Element_Factory::guard_settings( is_array( $settings ) ? $settings : array(), null, array( 'elType' => 'widget', 'widgetType' => $widget_type ) );
+		$settings  = $guard['settings'];
+
 		$widget = $this->factory->create_widget( $widget_type, $settings );
 
 		$inserted = $this->data->insert_element( $page_data, $parent_id, $widget, $position );
@@ -335,10 +345,10 @@ class Elementor_MCP_Widget_Abilities {
 			// builds a classic-shaped node whatever the type name says.
 			// …and, since 1.41.0, names a setting that is not a control of the
 			// widget at all — saved, ignored, reported as success (P9.2).
-			'settings_warnings' => ( class_exists( 'Elementor_MCP_Atomic_Widget_Map' ) && Elementor_MCP_Atomic_Widget_Map::is_atomic( $widget_type ) ) || Elementor_MCP_Data::is_atomic_element( $widget )
+			'settings_warnings' => $is_atomic || Elementor_MCP_Data::is_atomic_element( $widget )
 				? array()
 				: array_merge(
-					Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
+					$guard['warnings'],
 					$this->validator->unknown_setting_warnings( $widget_type, is_array( $settings ) ? $settings : array() )
 				),
 		);
@@ -432,6 +442,12 @@ class Elementor_MCP_Widget_Abilities {
 			return new \WP_Error( 'not_a_widget', __( 'Target element is not a widget.', 'elementor-mcp' ) );
 		}
 
+		$sent  = is_array( $settings ) ? $settings : array();
+		$guard = Elementor_MCP_Data::is_atomic_element( $element )
+			? array( 'settings' => $settings, 'warnings' => array() )
+			: Elementor_MCP_Element_Factory::guard_settings( $sent, is_array( $element['settings'] ?? null ) ? $element['settings'] : array(), $element );
+		$settings = $guard['settings'];
+
 		$updated = $this->data->update_element_settings( $page_data, $element_id, $settings );
 
 		if ( ! $updated ) {
@@ -452,12 +468,12 @@ class Elementor_MCP_Widget_Abilities {
 			'element_id' => $element_id,
 			// The same write through update-element carries this channel;
 			// the dedicated widget path must not be the silent one (Codex
-			// round-7 P2 on #74). See Elementor_MCP_Element_Factory::settings_warnings().
+			// round-7 P2 on #74). See Elementor_MCP_Element_Factory::guard_settings().
 			'settings_warnings' => Elementor_MCP_Data::is_atomic_element( $element )
 				? array()
 				: array_merge(
-					Elementor_MCP_Element_Factory::settings_warnings( is_array( $settings ) ? $settings : array() ),
-					$this->validator->unknown_setting_warnings( (string) ( $element['widgetType'] ?? '' ), is_array( $settings ) ? $settings : array() )
+					$guard['warnings'],
+					$this->validator->unknown_setting_warnings( (string) ( $element['widgetType'] ?? '' ), $sent )
 				),
 		);
 	}

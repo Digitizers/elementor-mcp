@@ -134,49 +134,151 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 	}
 
 	// ---------------------------------------------------------------------
-	// 2. Partial classic dimensions: warn, never coerce
+	// 2. Partial classic dimensions: fill from the saved value, or do not write
+	//    (1.41.0, EMCP #151 — until 1.40.x: warned and left exactly as sent,
+	//    which told the agent and still lost the CSS rule)
 	// ---------------------------------------------------------------------
 
+	private const FULL = array( 'top' => '10', 'right' => '20', 'bottom' => '30', 'left' => '40', 'unit' => 'px', 'isLinked' => false );
+
 	/** @test */
-	public function test_partial_dimensions_warn_and_name_the_blank_sides(): void {
-		$w = \Elementor_MCP_Element_Factory::settings_warnings( array( 'padding' => array( 'top' => '10', 'right' => '', 'bottom' => '10', 'unit' => 'px' ) ) );
-		$this->assertCount( 1, $w );
-		$this->assertStringContainsString( 'padding', $w[0] );
-		$this->assertStringContainsString( 'right, left', $w[0] );
-		$this->assertStringContainsString( 'left unchanged', $w[0] );
+	public function test_an_update_fills_the_blank_sides_from_the_saved_value(): void {
+		$sent = array( 'padding' => array( 'top' => '5', 'right' => '', 'bottom' => '5', 'unit' => 'px' ) );
+		$g    = \Elementor_MCP_Element_Factory::guard_settings( $sent, array( 'padding' => self::FULL ) );
+
+		$this->assertSame(
+			array( 'top' => '5', 'right' => '20', 'bottom' => '5', 'unit' => 'px', 'left' => '40', 'isLinked' => false ),
+			$g['settings']['padding'],
+			'the sides that were sent win; the blank ones come from the saved value'
+		);
+		$this->assertCount( 1, $g['warnings'] );
+		$this->assertStringContainsString( 'padding had blank sides (right, left): filled from the saved value.', $g['warnings'][0] );
 	}
 
 	/** @test */
-	public function test_complete_or_fully_blank_dimensions_do_not_warn(): void {
-		$full  = array( 'top' => '1', 'right' => '2', 'bottom' => '3', 'left' => '4' );
+	public function test_filling_unequal_sides_unlinks_them(): void {
+		$saved = array( 'top' => '8', 'right' => '8', 'bottom' => '8', 'left' => '8', 'unit' => 'px', 'isLinked' => true );
+		$g     = \Elementor_MCP_Element_Factory::guard_settings( array( 'margin' => array( 'top' => '0', 'unit' => 'px' ) ), array( 'margin' => $saved ) );
+		$this->assertSame( '0', $g['settings']['margin']['top'] );
+		$this->assertSame( '8', $g['settings']['margin']['left'] );
+		$this->assertFalse( $g['settings']['margin']['isLinked'], 'four equal sides stopped being equal' );
+	}
+
+	/** @test */
+	public function test_an_update_with_nothing_usable_to_fill_from_does_not_write_the_key(): void {
+		$sent = array( 'padding' => array( 'top' => '5', 'unit' => 'px' ), 'title' => 'kept' );
+
+		$none = \Elementor_MCP_Element_Factory::guard_settings( $sent, array() );
+		$this->assertSame( array( 'title' => 'kept' ), $none['settings'], 'the partial value is not written; everything else is' );
+		$this->assertStringContainsString( 'no saved value to fill from; it was not written', $none['warnings'][0] );
+
+		$partial_saved = \Elementor_MCP_Element_Factory::guard_settings( $sent, array( 'padding' => array( 'top' => '1', 'right' => '', 'bottom' => '1', 'left' => '', 'unit' => 'px' ) ) );
+		$this->assertArrayNotHasKey( 'padding', $partial_saved['settings'] );
+		$this->assertStringContainsString( 'the saved value has blank sides too', $partial_saved['warnings'][0] );
+		$this->assertStringContainsString( 'the saved value is unchanged', $partial_saved['warnings'][0] );
+	}
+
+	/** Filling 5 (em) around 20 (px) would change what the saved sides mean. @test */
+	public function test_a_different_unit_is_never_filled_across(): void {
+		$g = \Elementor_MCP_Element_Factory::guard_settings( array( 'padding' => array( 'top' => '5', 'unit' => 'em' ) ), array( 'padding' => self::FULL ) );
+		$this->assertArrayNotHasKey( 'padding', $g['settings'] );
+		$this->assertStringContainsString( 'a different unit from the saved value (em vs px)', $g['warnings'][0] );
+		// A missing unit is Elementor's default, px — the same unit as a saved px value.
+		$px = \Elementor_MCP_Element_Factory::guard_settings( array( 'padding' => array( 'top' => '5' ) ), array( 'padding' => self::FULL ) );
+		$this->assertSame( '20', $px['settings']['padding']['right'] );
+		$this->assertSame( 'px', $px['settings']['padding']['unit'] );
+	}
+
+	/** @test */
+	public function test_on_creation_a_partial_dimension_is_not_written_and_says_why(): void {
+		$g = \Elementor_MCP_Element_Factory::guard_settings( array( 'padding' => array( 'top' => '10', 'right' => '', 'bottom' => '10', 'unit' => 'px' ), 'flex_direction' => 'row' ) );
+		$this->assertSame( array( 'flex_direction' => 'row' ), $g['settings'] );
+		$this->assertCount( 1, $g['warnings'] );
+		$this->assertStringContainsString( 'padding had blank sides (right, left) and was not written', $g['warnings'][0] );
+		$this->assertStringContainsString( 'Supply all four sides (use 0 where intended)', $g['warnings'][0] );
+	}
+
+	/** @test */
+	public function test_complete_or_fully_blank_dimensions_are_written_as_sent_and_do_not_warn(): void {
+		$full  = array( 'top' => '1', 'right' => '2', 'bottom' => '3', 'left' => '4', 'unit' => 'px' );
 		$blank = array( 'top' => '', 'right' => '', 'bottom' => '', 'left' => '' );
-		$this->assertSame( array(), \Elementor_MCP_Element_Factory::settings_warnings( array( 'margin' => $full, 'border_radius' => $blank ) ) );
+		$zero  = array( 'top' => 0, 'right' => '0', 'bottom' => 0, 'left' => 0, 'unit' => 'px' );
+		$g     = \Elementor_MCP_Element_Factory::guard_settings( array( 'margin' => $full, 'border_radius' => $blank, 'padding' => $zero ), array() );
+		$this->assertSame( array(), $g['warnings'] );
+		$this->assertSame( $full, $g['settings']['margin'] );
+		$this->assertSame( $blank, $g['settings']['border_radius'], 'every side blank means "unset" and is written as sent' );
+		$this->assertSame( $zero, $g['settings']['padding'], '0 and "0" are values, not blanks' );
+	}
+
+	/** A complete value with no unit gets px — Elementor emits no valid CSS for a blank unit. @test */
+	public function test_a_complete_value_only_has_its_blank_unit_resolved(): void {
+		$g = \Elementor_MCP_Element_Factory::guard_settings( array( 'margin' => array( 'top' => '1', 'right' => '2', 'bottom' => '3', 'left' => '4' ) ), array() );
+		$this->assertSame( 'px', $g['settings']['margin']['unit'] );
+		$this->assertSame( array(), $g['warnings'] );
 	}
 
 	/**
 	 * Only Elementor's own responsive suffixes count as a dimension control.
 	 * The universal update tool reaches custom widgets with arbitrary control
 	 * names, and `padding_config` with a `top` member is not a dimension —
-	 * warning about it would send the agent to "fix" a valid compound value
-	 * (Codex round-4 P2 on #74).
+	 * guarding it would drop a valid compound value (Codex round-4 P2 on #74).
 	 * @test
 	 */
-	public function test_responsive_and_underscored_variants_are_checked_but_typed_props_and_lookalike_controls_are_not(): void {
+	public function test_responsive_and_underscored_variants_are_guarded_but_typed_props_and_lookalike_controls_are_not(): void {
 		$partial = array( 'top' => '1', 'right' => '', 'bottom' => '', 'left' => '' );
-		$w = \Elementor_MCP_Element_Factory::settings_warnings( array(
-			'padding_mobile'        => $partial,
-			'_margin_tablet'        => $partial,
+		$sent    = array(
+			'padding_mobile'             => $partial,
+			'_margin_tablet'             => $partial,
 			'border_radius_tablet_extra' => $partial,
-			'border_width'          => array( '$$type' => 'dimensions', 'value' => array( 'top' => '1' ) ),
-			'padding_config'        => array( 'top' => 'x', 'mode' => 'auto' ),
-			'margin_something_else' => $partial,
-			'flex_direction'        => 'row',
-			'padding_scalar'        => '10px',
-		) );
-		$this->assertCount( 3, $w );
-		$this->assertStringContainsString( 'padding_mobile', $w[0] );
-		$this->assertStringContainsString( '_margin_tablet', $w[1] );
-		$this->assertStringContainsString( 'border_radius_tablet_extra', $w[2] );
+			'border_width'               => array( '$$type' => 'dimensions', 'value' => array( 'top' => '1' ) ),
+			'padding_config'             => array( 'top' => 'x', 'mode' => 'auto' ),
+			'margin_something_else'      => $partial,
+			'gap'                        => array( 'size' => 10, 'unit' => 'px', 'top' => '' ),
+			'flex_direction'             => 'row',
+			'padding_scalar'             => '10px',
+		);
+		$g = \Elementor_MCP_Element_Factory::guard_settings( $sent, array() );
+
+		$this->assertCount( 3, $g['warnings'] );
+		$this->assertStringContainsString( 'padding_mobile', $g['warnings'][0] );
+		$this->assertStringContainsString( '_margin_tablet', $g['warnings'][1] );
+		$this->assertStringContainsString( 'border_radius_tablet_extra', $g['warnings'][2] );
+		foreach ( array( 'padding_mobile', '_margin_tablet', 'border_radius_tablet_extra' ) as $dropped ) {
+			$this->assertArrayNotHasKey( $dropped, $g['settings'] );
+		}
+		foreach ( array( 'border_width', 'padding_config', 'margin_something_else', 'gap', 'flex_direction', 'padding_scalar' ) as $kept ) {
+			$this->assertSame( $sent[ $kept ], $g['settings'][ $kept ], "$kept is not a classic box dimension and passes through untouched" );
+		}
+	}
+
+	/** When Elementor can be asked, its control decides — not the key's name. @test */
+	public function test_the_live_control_decides_what_is_a_dimension_and_which_sides_it_needs(): void {
+		$GLOBALS['_widget_types'] = array(
+			'button' => new class {
+				public function get_controls( $id = null ) {
+					$controls = array(
+						'text_padding' => array( 'type' => 'dimensions' ),
+						'row_margin'   => array( 'type' => 'dimensions', 'allowed_dimensions' => 'vertical' ),
+						'padding'      => array( 'type' => 'text' ),
+					);
+					return null === $id ? $controls : ( $controls[ $id ] ?? null );
+				}
+			},
+		);
+		try {
+			$context = array( 'elType' => 'widget', 'widgetType' => 'button' );
+			$partial = array( 'top' => '4', 'right' => '', 'bottom' => '4', 'left' => '', 'unit' => 'px' );
+
+			$g = \Elementor_MCP_Element_Factory::guard_settings( array( 'text_padding' => $partial, 'text_padding_tablet' => $partial, 'row_margin' => $partial, 'padding' => $partial ), array(), $context );
+
+			$this->assertArrayNotHasKey( 'text_padding', $g['settings'], 'a dimensions control by a name the key list does not know' );
+			$this->assertArrayNotHasKey( 'text_padding_tablet', $g['settings'], 'a responsive key falls back to its base control' );
+			$this->assertSame( $partial, $g['settings']['row_margin'], 'vertical-only: top and bottom are all it needs, and both are there' );
+			$this->assertSame( $partial, $g['settings']['padding'], 'a control of that name that is NOT a dimensions control is left alone' );
+			$this->assertCount( 2, $g['warnings'] );
+		} finally {
+			unset( $GLOBALS['_widget_types'] );
+		}
 	}
 
 	// ---------------------------------------------------------------------
@@ -185,17 +287,17 @@ class ElementMirrorFixesTest extends Ability_Test_Case {
 
 	/** @test */
 	public function test_a_grid_created_without_rows_warns_about_the_two_row_default(): void {
-		$w = \Elementor_MCP_Element_Factory::settings_warnings( array( 'container_type' => 'grid', 'grid_columns_grid' => array( 'unit' => 'fr', 'size' => 3 ) ), true );
-		$this->assertCount( 1, $w );
-		$this->assertStringContainsString( 'grid_rows_grid', $w[0] );
-		$this->assertStringContainsString( '"size":1', $w[0] );
+		$g = \Elementor_MCP_Element_Factory::guard_settings( array( 'container_type' => 'grid', 'grid_columns_grid' => array( 'unit' => 'fr', 'size' => 3 ) ) );
+		$this->assertCount( 1, $g['warnings'] );
+		$this->assertStringContainsString( 'grid_rows_grid', $g['warnings'][0] );
+		$this->assertStringContainsString( '"size":1', $g['warnings'][0] );
 	}
 
 	/** @test */
 	public function test_a_grid_with_rows_or_a_flex_container_or_an_update_does_not_warn(): void {
-		$this->assertSame( array(), \Elementor_MCP_Element_Factory::settings_warnings( array( 'container_type' => 'grid', 'grid_rows_grid' => array( 'unit' => 'fr', 'size' => 1 ) ), true ) );
-		$this->assertSame( array(), \Elementor_MCP_Element_Factory::settings_warnings( array( 'container_type' => 'flex' ), true ) );
-		$this->assertSame( array(), \Elementor_MCP_Element_Factory::settings_warnings( array( 'container_type' => 'grid' ), false ), 'an update never re-warns about a default the element already has' );
+		$this->assertSame( array(), \Elementor_MCP_Element_Factory::guard_settings( array( 'container_type' => 'grid', 'grid_rows_grid' => array( 'unit' => 'fr', 'size' => 1 ) ) )['warnings'] );
+		$this->assertSame( array(), \Elementor_MCP_Element_Factory::guard_settings( array( 'container_type' => 'flex' ) )['warnings'] );
+		$this->assertSame( array(), \Elementor_MCP_Element_Factory::guard_settings( array( 'container_type' => 'grid' ), array() )['warnings'], 'an update never re-warns about a default the element already has' );
 	}
 
 	// ---------------------------------------------------------------------

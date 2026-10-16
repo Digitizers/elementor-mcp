@@ -24,6 +24,7 @@
  * @package Elementor_MCP
  * @since   1.7.4
  * @since   1.33.0 Bundled adapter 0.4.1 -> 0.6.1; php-mcp-schema bundled with it.
+ * @since   1.41.2 Bundled adapter 0.6.1 -> 0.6.2 (upstream security release: session storage limits).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -40,7 +41,7 @@ final class Elementor_MCP_Adapter_Bootstrap {
 	/**
 	 * Version of the bundled adapter (keep in sync with the copied source).
 	 */
-	const BUNDLED_VERSION = '0.6.1';
+	const BUNDLED_VERSION = '0.6.2';
 
 	/**
 	 * Version of the adapter we actually deferred to, when an external one won.

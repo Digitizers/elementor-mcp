@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.41.1
+Stable tag: 1.41.2
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,10 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.41.2 =
+* Security: the bundled MCP Adapter is updated to 0.6.2, the adapter's security release. It limits how much data an MCP session can store, so oversized session data can no longer cause repeated database failures and excessive logging.
+* Security: the Angie bridge is rebuilt with fast-uri 3.1.8, which fixes inconsistent host normalization in URI parsing. Its other dependencies are updated to patched versions; those are not part of the shipped bundle.
 
 = 1.41.1 =
 * Fix: the server-info tool works again on sites running MCP Adapter 0.7.0. It returned an error there; every other tool was unaffected.
@@ -521,6 +525,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.41.2 =
+Recommended for every site: updates the bundled MCP Adapter to its 0.6.2 security release.
 
 = 1.41.1 =
 Needed on sites running MCP Adapter 0.7.0, where the server-info diagnostic failed. No change for other sites.

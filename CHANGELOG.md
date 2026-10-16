@@ -2,6 +2,13 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.41.2 — 2026-10-17
+
+- Security: **bundled MCP Adapter 0.6.1 → 0.6.2** (#96, #97). Upstream's security release for the 0.6.x series limits stored per-session initialization data, so oversized data can no longer cause repeated database failures and excessive logging (WordPress/mcp-adapter#386). Four of the vendored files changed and none were added; the vendored tree is byte-identical to the 0.6.2 release asset. 0.6.2 keeps the 0.6.x API, so nothing of ours changed. `BUNDLED_VERSION` follows, held by `test_bundled_version_matches_the_vendored_source`.
+  - The review found a race in upstream's new recovery path: a delete keyed on length alone can remove a valid session map written concurrently, so those clients reconnect once. Not patched here (the vendored copy stays byte-identical); reported as WordPress/mcp-adapter#395.
+- Security: **Angie bridge dependencies** (#98, #100). `fast-uri` 3.1.7 → 3.1.8 (GHSA-hrr3-gc8f-f4qj) is compiled into `assets/angie-bridge/dist/angie-bridge.js`; the rebuilt bundle's one real change is that fix. `@modelcontextprotocol/sdk` 1.30.0 → 1.31.0 (GHSA-6qxp-vccf-f47h), `ip-address` 10.7.2, `proxy-addr` 2.0.8, `source-map-js` 1.2.2 and `nanoid` 3.3.19 are not in the shipped bundle (the SDK's Express and OAuth sides, and build tooling). `npm audit`, dev included, finds 0.
+- Suite 1449 green.
+
 ## 1.41.1 — 2026-10-05
 
 - Fix: **`server-info` survives MCP Adapter 0.7.0** (elementor-mcp#94, part of #93). Adapter 0.7.0 gave `McpServer::get_tools()` a required schema parameter; the bare call in `classify_servers()` became an `ArgumentCountError` and the ability returned `isError` for the whole report. Seen on the staging site with the standalone adapter 0.7.0 active. The check now asks `get_mcp_tool( $name )`, whose signature is the same in 0.6.1 and 0.7.0, and reads the tool list only where it can still be called bare. Nothing else this plugin takes from the adapter changed signature: in the same run `initialize`, `tools/list` (the same 103 tools) and a read tool behaved identically on 0.6.1 and 0.7.0. A governed write was not exercised under 0.7.0.

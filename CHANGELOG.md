@@ -2,6 +2,14 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.41.3 — 2026-10-17
+
+- Fix: **Variables and Interactions tools register when their experiment has graduated** (#103, #104). `e_variables_active()` and `e_interactions_active()` returned `is_feature_active( slug )`. Elementor 4.3.5 no longer lists `e_variables` or `e_interactions` as experiments, and `is_feature_active()` on an unknown slug is false, so all six Variables tools and all four Interactions tools disappeared without a word, while the Variables repository exists and `e_atomic_elements` is active. Seen on the staging site, where the Angie bridge listed 5 tools instead of 6.
+  - An experiment the API does not know now counts as graduated. Graduated, it needs a positive atomic signal: `Atomic_Props::has_atomic_signal()`, which means atomic types are registered or the atomic experiment is active. It is not `is_atomic_supported()`, whose version fallback says yes on any 4.x with atomic off. In 4.3.5 Elementor's own Interactions and Variables modules gate on the atomic experiment too.
+  - Interactions also need Elementor ≥ 3.34.0 (`INTRODUCED_IN`). Before that, `e_interactions` is unknown because it does not exist yet.
+  - `is_atomic_supported()` is now `has_atomic_signal() || is_v4()`. Behavior is unchanged; its version check goes through `is_v4()` so tests can reach it.
+- Tests +7 (the experiments stub gains `get_features()`). Suite 1456 green.
+
 ## 1.41.2 — 2026-10-17
 
 - Security: **bundled MCP Adapter 0.6.1 → 0.6.2** (#96, #97). Upstream's security release for the 0.6.x series limits stored per-session initialization data, so oversized data can no longer cause repeated database failures and excessive logging (WordPress/mcp-adapter#386). Four of the vendored files changed and none were added; the vendored tree is byte-identical to the 0.6.2 release asset. 0.6.2 keeps the 0.6.x API, so nothing of ours changed. `BUNDLED_VERSION` follows, held by `test_bundled_version_matches_the_vendored_source`.

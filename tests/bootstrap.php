@@ -51,6 +51,12 @@ namespace {
 	// -----------------------------------------------------------------------
 	$GLOBALS['_active_experiments'] = [];
 
+	// Experiment slugs the stub's experiments->get_features() knows about.
+	// null (default) → every slug is known, the behaviour before the stub had
+	// get_features(); an array → only those slugs exist, so a slug outside it
+	// reads as graduated or removed, as on Elementor 4.3.5 for `e_variables`.
+	$GLOBALS['_known_experiments'] = null;
+
 	// -----------------------------------------------------------------------
 	// Registered atomic element types for atomic-detection tests.
 	// $GLOBALS['_registered_element_types'] lists the element-type slugs the
@@ -790,6 +796,26 @@ namespace Elementor {
 					 */
 					public function is_feature_active( string $feature ): bool {
 						return in_array( $feature, $GLOBALS['_active_experiments'] ?? [], true );
+					}
+
+					/**
+					 * Mirrors real Elementor: with a name, that feature's
+					 * definition, or null when no such experiment exists. Known
+					 * slugs come from $GLOBALS['_known_experiments'] (null =
+					 * every slug is known).
+					 *
+					 * @param string|null $feature Experiment slug.
+					 * @return array|null
+					 */
+					public function get_features( $feature = null ) {
+						$known = $GLOBALS['_known_experiments'] ?? null;
+						if ( null === $feature ) {
+							return array_fill_keys( (array) $known, array() );
+						}
+						if ( null !== $known && ! in_array( $feature, $known, true ) ) {
+							return null;
+						}
+						return array( 'name' => $feature );
 					}
 				};
 

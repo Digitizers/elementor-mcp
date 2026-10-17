@@ -114,6 +114,12 @@ class Elementor_MCP_Variables_Write_Abilities {
 	 * (false) when the API is present and reports the feature off — the case
 	 * Codex flagged.
 	 *
+	 * An experiment the API does not know has graduated into core (or been
+	 * removed with its gate): Elementor 4.3.5 no longer lists `e_variables`, and
+	 * `is_feature_active()` on an unknown slug is false. That is not "off" — the
+	 * repository is present and atomic support still gates the tools — so it
+	 * counts as active (elementor-mcp#103).
+	 *
 	 * @return bool
 	 */
 	private static function e_variables_active(): bool {
@@ -126,6 +132,10 @@ class Elementor_MCP_Variables_Write_Abilities {
 			return true;
 		}
 		try {
+			if ( method_exists( $elementor->experiments, 'get_features' )
+				&& empty( $elementor->experiments->get_features( 'e_variables' ) ) ) {
+				return true;
+			}
 			return (bool) $elementor->experiments->is_feature_active( 'e_variables' );
 		} catch ( \Throwable $e ) {
 			return true;

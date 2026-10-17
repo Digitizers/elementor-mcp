@@ -154,6 +154,11 @@ class Elementor_MCP_Interactions_Write_Abilities {
 	 * the experiments API is unreachable; strict (false) when it is present and
 	 * reports the feature off.
 	 *
+	 * An experiment the API does not know has graduated: Elementor 4.3.5 no longer
+	 * lists `e_interactions`, and its Interactions module is gated on the atomic
+	 * experiment instead — which is_available() already requires. So an unknown
+	 * slug counts as active rather than off (elementor-mcp#103).
+	 *
 	 * @return bool
 	 */
 	private static function e_interactions_active(): bool {
@@ -166,6 +171,10 @@ class Elementor_MCP_Interactions_Write_Abilities {
 			return true;
 		}
 		try {
+			if ( method_exists( $elementor->experiments, 'get_features' )
+				&& empty( $elementor->experiments->get_features( 'e_interactions' ) ) ) {
+				return true;
+			}
 			return (bool) $elementor->experiments->is_feature_active( 'e_interactions' );
 		} catch ( \Throwable $e ) {
 			return true;

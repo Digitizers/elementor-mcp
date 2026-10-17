@@ -59,6 +59,33 @@ class VariablesWriteCapabilityTest extends Ability_Test_Case {
     }
 
     /** @test @group t0 */
+    public function test_available_when_e_variables_has_graduated_from_experiments(): void {
+        // Elementor 4.3.5 no longer lists `e_variables` as an experiment: Variables
+        // are core. is_feature_active() on an unknown feature is false, which must
+        // not be read as "turned off" (elementor-mcp#103).
+        $GLOBALS['_known_experiments']  = array('e_atomic_elements');
+        $GLOBALS['_active_experiments'] = array('e_atomic_elements');
+        try {
+            $this->assertTrue(\Elementor_MCP_Variables_Write_Abilities::is_available());
+            $this->assertCount(6, $this->ability->get_ability_names());
+        } finally {
+            $GLOBALS['_known_experiments'] = null;
+        }
+    }
+
+    /** @test @group t0 */
+    public function test_not_available_when_graduated_but_atomic_unsupported(): void {
+        // Graduation lifts only the experiment check; atomic support still gates.
+        $GLOBALS['_known_experiments']  = array('e_atomic_elements');
+        $GLOBALS['_active_experiments'] = array();
+        try {
+            $this->assertFalse(\Elementor_MCP_Variables_Write_Abilities::is_available());
+        } finally {
+            $GLOBALS['_known_experiments'] = null;
+        }
+    }
+
+    /** @test @group t0 */
     public function test_ability_names_are_the_six_tools(): void {
         $names = $this->ability->get_ability_names();
         $this->assertContains('elementor-mcp/list-variables', $names);

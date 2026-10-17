@@ -917,9 +917,21 @@ class Elementor_MCP_Atomic_Props {
 	 * @return bool
 	 */
 	public static function is_v4(): bool {
+		return self::elementor_at_least( '4.0' );
+	}
+
+	/**
+	 * True when the live Elementor is at least $version. Tests override the
+	 * version via $GLOBALS['_elementor_version_override'], as for is_v4().
+	 *
+	 * @since 1.41.3
+	 * @param string $version Minimum version.
+	 * @return bool
+	 */
+	public static function elementor_at_least( string $version ): bool {
 		$v = $GLOBALS['_elementor_version_override']
 			?? ( defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : '' );
-		return '' !== $v && version_compare( $v, '4.0', '>=' );
+		return '' !== $v && version_compare( $v, $version, '>=' );
 	}
 
 	/**
@@ -1085,6 +1097,22 @@ class Elementor_MCP_Atomic_Props {
 	}
 
 	public static function is_atomic_supported(): bool {
+		// Genuine 4.0+ core is kept as a forward-compatible fallback.
+		return self::has_atomic_signal() || self::is_v4();
+	}
+
+	/**
+	 * A positive atomic signal from the running Elementor: atomic element types
+	 * are registered, or the experiment that registers them is active. Unlike
+	 * is_atomic_supported() it never falls back to the version number, so an
+	 * Elementor 4.x with atomic switched off answers false. Used where a feature
+	 * has graduated out of the experiments list and only the atomic runtime
+	 * decides whether it runs (elementor-mcp#103).
+	 *
+	 * @since 1.41.3
+	 * @return bool
+	 */
+	public static function has_atomic_signal(): bool {
 		if ( class_exists( '\Elementor\Plugin' ) && method_exists( '\Elementor\Plugin', 'instance' ) ) {
 			$elementor = \Elementor\Plugin::instance();
 
@@ -1118,7 +1146,6 @@ class Elementor_MCP_Atomic_Props {
 		// is OFF and no atomic element types are registered, which would make the
 		// tools register while writes silently get dropped on save.
 
-		// Genuine 4.0+ core (kept as a forward-compatible fallback).
-		return defined( 'ELEMENTOR_VERSION' ) && version_compare( ELEMENTOR_VERSION, '4.0.0', '>=' );
+		return false;
 	}
 }

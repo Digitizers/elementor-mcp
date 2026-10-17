@@ -48,6 +48,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_MCP_Interactions_Write_Abilities {
 
 	/**
+	 * First Elementor release with Interactions (3.34.0, "Introducing Entrance
+	 * Interactions"). Before it `e_interactions` is unknown because it does not
+	 * exist yet, which must not read as graduated.
+	 */
+	const INTRODUCED_IN = '3.34.0';
+
+
+	/**
 	 * Triggers available on the Free tier.
 	 */
 	const TRIGGERS_FREE = array( 'load', 'scrollIn' );
@@ -154,6 +162,11 @@ class Elementor_MCP_Interactions_Write_Abilities {
 	 * the experiments API is unreachable; strict (false) when it is present and
 	 * reports the feature off.
 	 *
+	 * An experiment the API does not know has graduated: Elementor 4.3.5 no longer
+	 * lists `e_interactions`, and its Interactions module is gated on the atomic
+	 * experiment instead — which is_available() already requires. So an unknown
+	 * slug counts as active rather than off (elementor-mcp#103).
+	 *
 	 * @return bool
 	 */
 	private static function e_interactions_active(): bool {
@@ -166,6 +179,14 @@ class Elementor_MCP_Interactions_Write_Abilities {
 			return true;
 		}
 		try {
+			if ( method_exists( $elementor->experiments, 'get_features' )
+				&& empty( $elementor->experiments->get_features( 'e_interactions' ) ) ) {
+				// Graduated: only the atomic runtime decides now. Ask for a positive
+				// signal; is_atomic_supported()'s version fallback would say yes on
+				// any 4.x even with atomic off.
+				return class_exists( 'Elementor_MCP_Atomic_Props' )
+					&& \Elementor_MCP_Atomic_Props::has_atomic_signal() && \Elementor_MCP_Atomic_Props::elementor_at_least( self::INTRODUCED_IN );
+			}
 			return (bool) $elementor->experiments->is_feature_active( 'e_interactions' );
 		} catch ( \Throwable $e ) {
 			return true;

@@ -63,13 +63,15 @@ class VariablesWriteCapabilityTest extends Ability_Test_Case {
         // Elementor 4.3.5 no longer lists `e_variables` as an experiment: Variables
         // are core. is_feature_active() on an unknown feature is false, which must
         // not be read as "turned off" (elementor-mcp#103).
-        $GLOBALS['_known_experiments']  = array('e_atomic_elements');
-        $GLOBALS['_active_experiments'] = array('e_atomic_elements');
+        $GLOBALS['_known_experiments']         = array('e_atomic_elements');
+        $GLOBALS['_active_experiments']        = array('e_atomic_elements');
+        $GLOBALS['_elementor_version_override'] = '4.3.5';
         try {
             $this->assertTrue(\Elementor_MCP_Variables_Write_Abilities::is_available());
             $this->assertCount(6, $this->ability->get_ability_names());
         } finally {
-            $GLOBALS['_known_experiments'] = null;
+            $GLOBALS['_known_experiments']         = null;
+            $GLOBALS['_elementor_version_override'] = null;
         }
     }
 
@@ -82,6 +84,22 @@ class VariablesWriteCapabilityTest extends Ability_Test_Case {
             $this->assertFalse(\Elementor_MCP_Variables_Write_Abilities::is_available());
         } finally {
             $GLOBALS['_known_experiments'] = null;
+        }
+    }
+
+    /** @test @group t0 */
+    public function test_not_available_when_graduated_on_v4_but_atomic_off(): void {
+        // Elementor 4.x with the atomic experiment off and no atomic types:
+        // is_atomic_supported() falls back to the version and says yes, so the
+        // graduated case must not lean on it (Codex P1 on #104).
+        $GLOBALS['_known_experiments']         = array('e_atomic_elements');
+        $GLOBALS['_active_experiments']        = array();
+        $GLOBALS['_elementor_version_override'] = '4.3.5';
+        try {
+            $this->assertFalse(\Elementor_MCP_Variables_Write_Abilities::is_available());
+        } finally {
+            $GLOBALS['_known_experiments']         = null;
+            $GLOBALS['_elementor_version_override'] = null;
         }
     }
 

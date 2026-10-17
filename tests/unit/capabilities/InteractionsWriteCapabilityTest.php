@@ -82,13 +82,15 @@ class InteractionsWriteCapabilityTest extends Ability_Test_Case {
         // Elementor 4.3.5 no longer lists `e_interactions`; the Interactions module
         // is gated on the atomic experiment instead. An unknown experiment is not
         // "off" (elementor-mcp#103).
-        $GLOBALS['_known_experiments']  = array('e_atomic_elements');
-        $GLOBALS['_active_experiments'] = array('e_atomic_elements');
+        $GLOBALS['_known_experiments']         = array('e_atomic_elements');
+        $GLOBALS['_active_experiments']        = array('e_atomic_elements');
+        $GLOBALS['_elementor_version_override'] = '4.3.5';
         try {
             $this->assertTrue(\Elementor_MCP_Interactions_Write_Abilities::is_available());
             $this->assertCount(4, $this->ability->get_ability_names());
         } finally {
-            $GLOBALS['_known_experiments'] = null;
+            $GLOBALS['_known_experiments']         = null;
+            $GLOBALS['_elementor_version_override'] = null;
         }
     }
 
@@ -101,6 +103,38 @@ class InteractionsWriteCapabilityTest extends Ability_Test_Case {
             $this->assertFalse(\Elementor_MCP_Interactions_Write_Abilities::is_available());
         } finally {
             $GLOBALS['_known_experiments'] = null;
+        }
+    }
+
+    /** @test @group t0 */
+    public function test_not_available_when_graduated_on_v4_but_atomic_off(): void {
+        // Elementor 4.x with the atomic experiment off and no atomic types:
+        // is_atomic_supported() falls back to the version and says yes, so the
+        // graduated case must not lean on it (Codex P1 on #104).
+        $GLOBALS['_known_experiments']         = array('e_atomic_elements');
+        $GLOBALS['_active_experiments']        = array();
+        $GLOBALS['_elementor_version_override'] = '4.3.5';
+        try {
+            $this->assertFalse(\Elementor_MCP_Interactions_Write_Abilities::is_available());
+        } finally {
+            $GLOBALS['_known_experiments']         = null;
+            $GLOBALS['_elementor_version_override'] = null;
+        }
+    }
+
+    /** @test @group t0 */
+    public function test_not_available_before_interactions_were_introduced(): void {
+        // Elementor 3.31-3.33 with atomic on: `e_interactions` is unknown because
+        // it does not exist yet (it arrived in 3.34.0), not because it graduated
+        // (Codex P2 on #104).
+        $GLOBALS['_known_experiments']         = array('e_atomic_elements');
+        $GLOBALS['_active_experiments']        = array('e_atomic_elements');
+        $GLOBALS['_elementor_version_override'] = '3.31.0';
+        try {
+            $this->assertFalse(\Elementor_MCP_Interactions_Write_Abilities::is_available());
+        } finally {
+            $GLOBALS['_known_experiments']         = null;
+            $GLOBALS['_elementor_version_override'] = null;
         }
     }
 

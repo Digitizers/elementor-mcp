@@ -134,7 +134,11 @@ class Elementor_MCP_Variables_Write_Abilities {
 		try {
 			if ( method_exists( $elementor->experiments, 'get_features' )
 				&& empty( $elementor->experiments->get_features( 'e_variables' ) ) ) {
-				return true;
+				// Graduated: only the atomic runtime decides now. Ask for a positive
+				// signal; is_atomic_supported()'s version fallback would say yes on
+				// any 4.x even with atomic off.
+				return class_exists( 'Elementor_MCP_Atomic_Props' )
+					&& \Elementor_MCP_Atomic_Props::has_atomic_signal();
 			}
 			return (bool) $elementor->experiments->is_feature_active( 'e_variables' );
 		} catch ( \Throwable $e ) {

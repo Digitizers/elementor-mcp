@@ -48,6 +48,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Elementor_MCP_Interactions_Write_Abilities {
 
 	/**
+	 * First Elementor release with Interactions (3.34.0, "Introducing Entrance
+	 * Interactions"). Before it `e_interactions` is unknown because it does not
+	 * exist yet, which must not read as graduated.
+	 */
+	const INTRODUCED_IN = '3.34.0';
+
+
+	/**
 	 * Triggers available on the Free tier.
 	 */
 	const TRIGGERS_FREE = array( 'load', 'scrollIn' );
@@ -173,7 +181,11 @@ class Elementor_MCP_Interactions_Write_Abilities {
 		try {
 			if ( method_exists( $elementor->experiments, 'get_features' )
 				&& empty( $elementor->experiments->get_features( 'e_interactions' ) ) ) {
-				return true;
+				// Graduated: only the atomic runtime decides now. Ask for a positive
+				// signal; is_atomic_supported()'s version fallback would say yes on
+				// any 4.x even with atomic off.
+				return class_exists( 'Elementor_MCP_Atomic_Props' )
+					&& \Elementor_MCP_Atomic_Props::has_atomic_signal() && \Elementor_MCP_Atomic_Props::elementor_at_least( self::INTRODUCED_IN );
 			}
 			return (bool) $elementor->experiments->is_feature_active( 'e_interactions' );
 		} catch ( \Throwable $e ) {

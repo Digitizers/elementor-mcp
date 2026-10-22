@@ -30,6 +30,7 @@ declare global {
 		emcpAngieBridge?: BridgeConfig;
 		__emcpAngieBridgeInit?: boolean;
 		emcpAngieBridgeDebug?: {
+			instanceIdCleared: boolean;
 			isAngieReady: () => boolean;
 			registrations: () => unknown[];
 			pending: () => unknown[];
@@ -87,6 +88,20 @@ async function executeTool(
 	}
 }
 
+/**
+ * Drop the SDK's own instance id (see #102 in init()). The field is private
+ * in the SDK's types, so it is reached by name; returns false when the SDK no
+ * longer has it, which the debug handle reports instead of failing silently.
+ */
+function clearSdkInstanceId( sdk: AngieMcpSdk ): boolean {
+	const target = sdk as unknown as { instanceId?: unknown };
+	if ( ! ( 'instanceId' in target ) ) {
+		return false;
+	}
+	target.instanceId = undefined;
+	return true;
+}
+
 async function init(): Promise< void > {
 	if ( window.__emcpAngieBridgeInit ) {
 		return;
@@ -108,6 +123,18 @@ async function init(): Promise< void > {
 	// the queue when its detector sees Angie become ready (postMessage-based,
 	// cross-instance safe).
 	const sdk = new AngieMcpSdk();
+
+	// #102: since 2026-10-15 Angie's host script (angie.umd.cjs) drops an SDK
+	// message whose payload.instanceId names no Angie instance, whenever at
+	// least one instance exists — no reply, so registration times out after
+	// 15 s. AngieMcpSdk stamps its ready ping and its client-creation request
+	// with a random id from its constructor and adopts the host's id only in
+	// loadSidebarV2(), which a page-level integration never calls (SDK 1.7.3
+	// and 1.8.1 alike). A message WITHOUT an instanceId falls back to the
+	// active instance, so clear it before anything is sent. Reported as
+	// elementor/elementor#37741; remove once the host or the SDK adopts the
+	// active instance's id.
+	const cleared = clearSdkInstanceId( sdk );
 
 	const server = new McpServer(
 		{ name: config.serverName, version: config.version },
@@ -146,6 +173,7 @@ async function init(): Promise< void > {
 	// from the console. It exposes state, not authority — every tool call
 	// still goes through the REST routes and their permission callbacks.
 	window.emcpAngieBridgeDebug = {
+		instanceIdCleared: cleared,
 		isAngieReady: () => sdk.isAngieReady(),
 		registrations: () => sdk.getRegistrations(),
 		pending: () => sdk.getPendingRegistrations(),

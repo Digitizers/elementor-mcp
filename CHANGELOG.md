@@ -2,6 +2,13 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.41.4 — 2026-10-23
+
+- Security: **Angie bridge on MCP TypeScript SDK 1.32.0** (#108). `@modelcontextprotocol/sdk` 1.31.0 → 1.32.0 ties experimental tasks to the session that created them (Dependabot #31, #32, high). The tasks handling is compiled into `assets/angie-bridge/dist/angie-bridge.js`, so the bundle is rebuilt; it rebuilds byte-identical from a clean `npm ci`.
+- Security: `ip-address` 10.7.2 → 10.7.4 (an indirect dependency via `express-rate-limit`) and `vite` 6.4.3 → 6.4.4 (build tooling). Neither is in the shipped bundle. `npm audit`, dev included, finds 0.
+- `hono` 4.13.10 → 4.13.13 (#106); not in the shipped bundle.
+- No PHP changes. Suite 1456 green.
+
 ## 1.41.3 — 2026-10-17
 
 - Fix: **Variables and Interactions tools register when their experiment has graduated** (#103, #104). `e_variables_active()` and `e_interactions_active()` returned `is_feature_active( slug )`. Elementor 4.3.5 no longer lists `e_variables` or `e_interactions` as experiments, and `is_feature_active()` on an unknown slug is false, so all six Variables tools and all four Interactions tools disappeared without a word, while the Variables repository exists and `e_atomic_elements` is active. Seen on the staging site, where the Angie bridge listed 5 tools instead of 6.

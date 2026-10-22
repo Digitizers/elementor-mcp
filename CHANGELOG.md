@@ -2,6 +2,12 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.41.5 — 2026-10-23
+
+- Fix: **the Angie bridge registers again** (#102, #110). Since 2026-10-15 Angie's host script (`angie.umd.cjs`) drops an SDK message whose `payload.instanceId` names no Angie instance whenever one exists, so the ready ping and the client-creation request got no reply and the registration timed out after 15 s (Elementor's own `editor-interactions` server too). `AngieMcpSdk` stamps both with a random id from its constructor and adopts the host's only in `loadSidebarV2()`, which a page-level integration never calls. The bridge now clears that id right after construction, so its messages fall back to the active Angie instance. `emcpAngieBridgeDebug.instanceIdCleared` reports whether the workaround applied. Reported as elementor/elementor#37741; to be removed once the host or the SDK adopts the active instance's id.
+  - Checked on a clean install (Elementor 4.3.5, Angie 1.1.19, the host script of 2026-10-22): registration `registered` and Angie lists the tools; the 1.41.4 bundle in the same session times out.
+- No PHP changes. Suite 1456 green.
+
 ## 1.41.4 — 2026-10-23
 
 - Security: **Angie bridge on MCP TypeScript SDK 1.32.0** (#108). `@modelcontextprotocol/sdk` 1.31.0 → 1.32.0 ties experimental tasks to the session that created them (Dependabot #31, #32, high). The tasks handling is compiled into `assets/angie-bridge/dist/angie-bridge.js`, so the bundle is rebuilt; it rebuilds byte-identical from a clean `npm ci`.

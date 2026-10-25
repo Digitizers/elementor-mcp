@@ -3,7 +3,7 @@ Contributors: mianshahzadraza
 Tags: elementor, mcp, ai, page-builder, automation
 Requires at least: 6.9
 Tested up to: 7.1
-Stable tag: 1.41.5
+Stable tag: 1.41.6
 Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -161,6 +161,9 @@ The plugin enforces WordPress capability checks on every tool. Read operations r
 2. Connection configuration page with copy-paste configs.
 
 == Changelog ==
+
+= 1.41.6 =
+* Security: the Angie bridge is rebuilt with patched fast-uri (3.1.9) and zod (4.6.7). zod validates the arguments Angie sends, and below 4.6.6 an oversized argument could exhaust memory. An indirect dependency that is not part of the shipped bundle is updated too.
 
 = 1.41.5 =
 * Fix: the Angie bridge registers with Angie again. Since a change to Angie's host script on 15 October, every registration timed out after 15 seconds and Angie never saw the read-only tools.
@@ -534,6 +537,9 @@ Security hardening (ported from upstream msrbuilds/elementor-mcp 4bcefc5):
 * Node.js HTTP proxy for remote connections.
 
 == Upgrade Notice ==
+
+= 1.41.6 =
+Security update for the Angie bridge (fast-uri 3.1.9, zod 4.6.7).
 
 = 1.41.5 =
 Restores the Angie bridge registration (Angie's tools from this plugin appear again).

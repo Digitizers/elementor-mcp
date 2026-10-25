@@ -2,6 +2,11 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.41.6 — 2026-10-25
+
+- Security: **Angie bridge dependencies** (#112). New advisories after 1.41.4 hit two packages compiled into `assets/angie-bridge/dist/angie-bridge.js`: `fast-uri` 3.1.8 → 3.1.9 (GHSA-w74x-v6f9-j3xg and three more) and `zod` 4.4.3 → 4.6.7 (GHSA-mrhx-c7xc-m3w5: memory exhaustion validating oversized constrained collections; zod validates the arguments Angie sends). `body-parser` 2.3.0 → 2.4.0 (GHSA-27r3-jxmh-p828) is not in the shipped bundle. The bundle rebuilds byte-identical from a clean `npm ci`; `npm audit` finds 0.
+- No PHP changes. Suite 1456 green.
+
 ## 1.41.5 — 2026-10-23
 
 - Fix: **the Angie bridge registers again** (#102, #110). Since 2026-10-15 Angie's host script (`angie.umd.cjs`) drops an SDK message whose `payload.instanceId` names no Angie instance whenever one exists, so the ready ping and the client-creation request got no reply and the registration timed out after 15 s (Elementor's own `editor-interactions` server too). `AngieMcpSdk` stamps both with a random id from its constructor and adopts the host's only in `loadSidebarV2()`, which a page-level integration never calls. The bridge now clears that id right after construction, so its messages fall back to the active Angie instance. `emcpAngieBridgeDebug.instanceIdCleared` reports whether the workaround applied. Reported as elementor/elementor#37741; to be removed once the host or the SDK adopts the active instance's id.

@@ -9,7 +9,6 @@
   "main": "./mcp-proxy.mjs",
   "files": [
     "mcp-proxy.mjs",
-    "local-dev-host.mjs",
     "README.md"
   ],
   "engines": {

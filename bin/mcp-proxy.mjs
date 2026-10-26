@@ -27,7 +27,6 @@ import { createInterface } from 'node:readline';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { appendFileSync } from 'node:fs';
-import { isLocalDevHost } from './local-dev-host.mjs';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -95,7 +94,14 @@ function logFileOnly(message) {
 // ---------------------------------------------------------------------------
 
 const parsedWpUrl = new URL(WP_URL);
-const isLocalDev = isLocalDevHost(parsedWpUrl.hostname);
+// Only names that cannot be a public site skip certificate verification:
+// loopback, and the reserved .test, .localhost, .invalid (RFC 2606/6761) and
+// .local (mDNS). Not .dev: it is a delegated public TLD (HSTS-preloaded), and
+// this connection carries the Application Password. Kept inline: the
+// documented standalone install copies this one file.
+const isLocalDev = /\.(test|local|localhost|invalid)$/.test(parsedWpUrl.hostname)
+  || parsedWpUrl.hostname === 'localhost'
+  || parsedWpUrl.hostname === '127.0.0.1';
 
 // ---------------------------------------------------------------------------
 // HTTP transport

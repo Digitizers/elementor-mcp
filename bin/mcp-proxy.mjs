@@ -27,6 +27,7 @@ import { createInterface } from 'node:readline';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { appendFileSync } from 'node:fs';
+import { isLocalDevHost } from './local-dev-host.mjs';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -94,9 +95,7 @@ function logFileOnly(message) {
 // ---------------------------------------------------------------------------
 
 const parsedWpUrl = new URL(WP_URL);
-const isLocalDev = /\.(test|local|localhost|dev|invalid)$/.test(parsedWpUrl.hostname)
-  || parsedWpUrl.hostname === 'localhost'
-  || parsedWpUrl.hostname === '127.0.0.1';
+const isLocalDev = isLocalDevHost(parsedWpUrl.hostname);
 
 // ---------------------------------------------------------------------------
 // HTTP transport

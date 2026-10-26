@@ -2,6 +2,12 @@
 
 All notable changes to MCP Tools for Elementor are documented in this file.
 
+## 1.41.7 — 2026-10-26
+
+- Security: **the stdio proxy verifies TLS for `.dev` hosts** (#114). `bin/mcp-proxy.mjs` skipped certificate verification for any hostname ending in `.dev`, as if it were local development. `.dev` is a delegated public TLD (HSTS-preloaded), and this connection carries the WordPress Application Password, so a proxy pointed at a real `.dev` site would accept any certificate. Verification is now skipped only for loopback and the reserved `.test`, `.localhost`, `.invalid` and `.local` names. Found by CodeQL (`js/disabling-certificate-validation`). The check stays inside the one file, so the documented standalone install (copying only `mcp-proxy.mjs`) keeps working; a new black-box test (`tests/js/proxy-tls.test.mjs`, CI job "Proxy (node --test)") runs the copied file against a self-signed HTTPS server.
+- Migration: a local site served on a `.dev` name with a self-signed certificate now fails the TLS handshake through the proxy. Rename it to `.test` (or `.local`), or trust its certificate (`NODE_EXTRA_CA_CERTS`).
+- No PHP changes.
+
 ## 1.41.6 — 2026-10-25
 
 - Security: **Angie bridge dependencies** (#112). New advisories after 1.41.4 hit two packages compiled into `assets/angie-bridge/dist/angie-bridge.js`: `fast-uri` 3.1.8 → 3.1.9 (GHSA-w74x-v6f9-j3xg and three more) and `zod` 4.4.3 → 4.6.7 (GHSA-mrhx-c7xc-m3w5: memory exhaustion validating oversized constrained collections; zod validates the arguments Angie sends). `body-parser` 2.3.0 → 2.4.0 (GHSA-27r3-jxmh-p828) is not in the shipped bundle. The bundle rebuilds byte-identical from a clean `npm ci`; `npm audit` finds 0.

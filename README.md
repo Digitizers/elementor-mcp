@@ -10,6 +10,7 @@
 [![Elementor](https://img.shields.io/badge/Elementor-%3E%3D3.20-92003B.svg)](https://elementor.com)
 [![GitHub Issues](https://img.shields.io/github/issues/Digitizers/elementor-mcp)](https://github.com/Digitizers/elementor-mcp/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/Digitizers/elementor-mcp?style=social)](https://github.com/Digitizers/elementor-mcp)
+[![Digitizers/elementor-mcp MCP server](https://glama.ai/mcp/servers/Digitizers/elementor-mcp/badges/score.svg)](https://glama.ai/mcp/servers/Digitizers/elementor-mcp)
 
 This is the **Digitizers fork of [`msrbuilds/elementor-mcp`](https://github.com/msrbuilds/elementor-mcp)** (GPL). It keeps the original plugin's identity — the `elementor-mcp` slug, the `Elementor_MCP_*` classes, and the `elementor-mcp/` MCP namespace — and takes it in its own direction: a **correct Elementor 4.x atomic engine**, a **bundled MCP Adapter** so it installs as a single plugin, net-new **read-only inspection tools** (`list-media`, `list-global-classes`, `analyze-performance`, `scan-security`), and a **hardened, CI-tested** security posture. It is the engine behind the **SiteAgent Elementor Studio** skill ([`Digitizers/siteagent-elementor-studio`](https://github.com/Digitizers/siteagent-elementor-studio)), which drives it to build and edit real [Elementor](https://digitizer.li/elementor) pages.
 

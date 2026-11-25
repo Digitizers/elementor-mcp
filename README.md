@@ -27,6 +27,8 @@ These are the skills behind [**Aura**](https://my-aura.app) — one AI web-agenc
 
 **→ Orchestrate all of it across your client fleet with [Aura](https://my-aura.app)** — governed agent ops with approvals and a full audit trail on top of these skills.
 
+**→ Prefer to have it done for you?** [Digitizer](https://www.digitizer.studio/claude-elementor-pro-ai-wordpress-builds/), the team behind these tools, sets it up and runs it for your sites.
+
 > **This fork is the *engine* of the Build row above.** The Aura-branded recipe layer lives in the `siteagent-elementor-studio` skill, not in this artifact. The plugin keeps its own `elementor-mcp` identity and full `@msrbuilds` upstream credit (see [Credits & attribution](#credits--attribution)) — "Aura Design Engine" is Aura's narrative name for the role this fork plays, not a rename of the plugin.
 
 The plugin extends the [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter) so AI clients — Claude Code, Claude Desktop, Cursor, and other MCP-compatible tools — can create and manipulate Elementor page designs programmatically over HTTP with just a WordPress Application Password.
